@@ -1,7 +1,11 @@
 #include "blastem-highscore.h"
 
-#include "render_audio.h"
+#include <stdint.h>
+
 #include "system.h"
+#include "cdimage.h"
+#include "segacd.h"
+#include "render_audio.h"
 #include "util.h"
 
 static BlastemCore *core;
@@ -23,9 +27,11 @@ struct _BlastemCore
 #include "libblastem-highscore.c"
 
 static void blastem_mega_drive_core_init (HsMegaDriveCoreInterface *iface);
+static void blastem_mega_cd_core_init (HsMegaCdCoreInterface *iface);
 
 G_DEFINE_FINAL_TYPE_WITH_CODE (BlastemCore, blastem_core, HS_TYPE_CORE,
-                               G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_DRIVE_CORE, blastem_mega_drive_core_init))
+                               G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_DRIVE_CORE, blastem_mega_drive_core_init)
+                               G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_CD_CORE, blastem_mega_cd_core_init))
 
 static gboolean
 blastem_core_load_rom (HsCore      *core,
@@ -49,6 +55,25 @@ blastem_core_load_rom (HsCore      *core,
   load_media ((char *) rom_paths[0], &media, &self->stype);
   if (self->stype == SYSTEM_UNKNOWN)
     self->stype = detect_system_type (&media);
+
+  if (self->stype == SYSTEM_SEGACD) {
+    const char *us_path = hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_NORTH_AMERICA);
+    const char *jp_path = hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_JAPAN);
+    const char *eu_path = hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_EUROPE);
+
+    config = tern_insert_path (config, "system\0scd_bios_us\0", (tern_val){.ptrval = strdup (us_path)}, TVAL_PTR);
+    config = tern_insert_path (config, "system\0scd_bios_jp\0", (tern_val){.ptrval = strdup (jp_path)}, TVAL_PTR);
+    config = tern_insert_path (config, "system\0scd_bios_eu\0", (tern_val){.ptrval = strdup (eu_path)}, TVAL_PTR);
+
+    hs_core_reset_used_firmware (core);
+
+    if (sega_cd_region & REGION_E)
+      hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_EUROPE);
+    else if (sega_cd_region & REGION_J)
+      hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_JAPAN);
+    else
+      hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_NORTH_AMERICA);
+  }
 
   current_system = alloc_config_system (self->stype, &media, 0, 0);
 
@@ -285,6 +310,11 @@ blastem_core_init (BlastemCore *self)
 
 static void
 blastem_mega_drive_core_init (HsMegaDriveCoreInterface *iface)
+{
+}
+
+static void
+blastem_mega_cd_core_init (HsMegaCdCoreInterface *iface)
 {
 }
 
