@@ -156,16 +156,9 @@ static void update_video_params(vdp_context *context)
 
 static uint8_t static_table_init_done;
 
-vdp_context *init_vdp_context(uint8_t region_pal, uint8_t has_max_vsram, uint8_t type)
+vdp_context *init_vdp_context_int(uint8_t region_pal, uint8_t has_max_vsram, uint8_t type)
 {
 	vdp_context *context = calloc(1, sizeof(vdp_context) + VRAM_SIZE);
-	if (headless) {
-		context->fb = malloc(512 * LINEBUF_SIZE * sizeof(uint32_t));
-		context->output_pitch = LINEBUF_SIZE * sizeof(uint32_t);
-	} else {
-		context->cur_buffer = FRAMEBUFFER_ODD;
-		context->fb = render_get_framebuffer(FRAMEBUFFER_ODD, &context->output_pitch);
-	}
 	context->sprite_draws = MAX_SPRITES_LINE;
 	context->fifo_write = 0;
 	context->fifo_read = -1;
@@ -339,8 +332,200 @@ vdp_context *init_vdp_context(uint8_t region_pal, uint8_t has_max_vsram, uint8_t
 		context->flags2 |= FLAG2_REGION_PAL;
 	}
 	update_video_params(context);
-	context->output = (uint32_t *)(((char *)context->fb) + context->output_pitch * context->border_top);
+	
 	return context;
+}
+
+static uint32_t mode5_sat_address(vdp_context *context)
+{
+	uint32_t addr = context->regs[REG_SAT] << 9;
+	if (!(context->regs[REG_MODE_2] & BIT_128K_VRAM)) {
+		addr &= 0xFFFF;
+	}
+	if (context->regs[REG_MODE_4] & BIT_H40) {
+		addr &= 0x1FC00;
+	}
+	return addr;
+}
+
+static void vdp_check_update_sat(vdp_context *context, uint32_t address, uint16_t value)
+{
+	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
+		if (!(address & 4)) {
+			uint32_t sat_address = mode5_sat_address(context);
+			if(address >= sat_address && address < (sat_address + SAT_CACHE_SIZE*2)) {
+				uint16_t cache_address = address - sat_address;
+				cache_address = (cache_address & 3) | (cache_address >> 1 & 0x1FC);
+				context->sat_cache[cache_address] = value >> 8;
+				context->sat_cache[cache_address^1] = value;
+			}
+		}
+	}
+}
+
+void vdp_check_update_sat_byte(vdp_context *context, uint32_t address, uint8_t value)
+{
+	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
+		if (!(address & 4)) {
+			uint32_t sat_address = mode5_sat_address(context);
+			if(address >= sat_address && address < (sat_address + SAT_CACHE_SIZE*2)) {
+				uint16_t cache_address = address - sat_address;
+				cache_address = (cache_address & 3) | (cache_address >> 1 & 0x1FC);
+				context->sat_cache[cache_address] = value;
+			}
+		}
+	}
+}
+
+static void write_vram_word(vdp_context *context, uint32_t address, uint16_t value)
+{
+	address = (address & 0x3FC) | (address >> 1 & 0xFC01) | (address >> 9 & 0x2);
+	address ^= 1;
+	//TODO: Support an option to actually have 128KB of VRAM
+	context->vdpmem[address] = value;
+}
+
+static void write_vram_byte(vdp_context *context, uint32_t address, uint8_t value)
+{
+	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
+		address &= 0xFFFF;
+	} else {
+		address = mode4_address_map[address & 0x3FFF];
+	}
+	context->vdpmem[address] = value;
+}
+
+#define VSRAM_DIRTY_BITS 0xF800
+
+//rough estimate of slot number at which border display starts
+#define BG_START_SLOT 6
+
+static void update_color_map(vdp_context *context, uint16_t index, uint16_t value)
+{
+	context->colors[index] = context->color_map[value & CRAM_BITS];
+	context->colors[index + SHADOW_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_SHADOW];
+	context->colors[index + HIGHLIGHT_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_HILIGHT];
+	if (context->type == VDP_GAMEGEAR) {
+		context->colors[index + MODE4_OFFSET] = context->color_map[value & 0xFFF];
+	} else {
+		context->colors[index + MODE4_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_MODE4];
+	}
+}
+
+void write_cram_internal(vdp_context * context, uint16_t addr, uint16_t value)
+{
+	context->cram[addr] = value;
+	update_color_map(context, addr, value);
+}
+
+static void write_cram(vdp_context * context, uint16_t address, uint16_t value)
+{
+	uint16_t addr;
+	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
+		addr = (address/2) & (CRAM_SIZE-1);
+	} else if (context->type == VDP_GAMEGEAR) {
+		addr = (address/2) & 31;
+	} else {
+		addr = address & 0x1F;
+		value = (value << 1 & 0xE) | (value << 2 & 0xE0) | (value & 0xE00);
+	}
+	write_cram_internal(context, addr, value);
+
+	if (context->output && context->hslot >= BG_START_SLOT && (
+		context->vcounter < context->inactive_start + context->border_bot
+		|| context->vcounter > 0x200 - context->border_top
+	)) {
+		uint8_t bg_end_slot = BG_START_SLOT + (context->regs[REG_MODE_4] & BIT_H40) ? LINEBUF_SIZE/2 : (256+HORIZ_BORDER)/2;
+		if (context->hslot < bg_end_slot) {
+			pixel_t color = (context->regs[REG_MODE_2] & BIT_MODE_5) ? context->colors[addr] : context->colors[addr + MODE4_OFFSET];
+			context->output[(context->hslot - BG_START_SLOT)*2 + 1] = color;
+		}
+	}
+}
+
+#ifndef _WIN32
+static int vdp_render_thread_main(void *vcontext)
+{
+	vdp_context *context = vcontext;
+	event_out event;
+	for (;;)
+	{
+		event.autoinc = context->regs[REG_AUTOINC];
+		uint8_t etype = mem_reader_next_event(&event);
+		if (etype == EVENT_EOF) {
+			break;
+		}
+		vdp_run_context(context, event.cycle);
+		switch (etype)
+		{
+		case EVENT_ADJUST:
+			vdp_adjust_cycles(context, event.address);
+			break;
+		case EVENT_VDP_REG:
+			context->regs[event.address] = event.value;
+			if (event.address == REG_MODE_4) {
+				context->double_res = (event.value & (BIT_INTERLACE | BIT_DOUBLE_RES)) == (BIT_INTERLACE | BIT_DOUBLE_RES);
+				if (!context->double_res) {
+					context->flags2 &= ~FLAG2_EVEN_FIELD;
+				}
+			}
+			if (event.address == REG_MODE_1 || event.address == REG_MODE_2 || event.address == REG_MODE_4) {
+				update_video_params(context);
+			}
+			break;
+		case EVENT_VRAM_BYTE:
+		case EVENT_VRAM_BYTE_DELTA:
+		case EVENT_VRAM_BYTE_ONE:
+		case EVENT_VRAM_BYTE_AUTO:
+			vdp_check_update_sat_byte(context, event.address ^ 1, event.value);
+			write_vram_byte(context, event.address ^ 1, event.value);
+			break;
+		case EVENT_VRAM_WORD:
+		case EVENT_VRAM_WORD_DELTA:
+			vdp_check_update_sat(context, event.address, event.value);
+			write_vram_word(context, event.address, event.value);
+			break;
+		case EVENT_VDP_INTRAM:
+			if (event.address < 128) {
+				write_cram(context, event.address, event.value);
+			} else {
+				context->vsram[event.address&63] = event.value;
+			}
+			break;
+		}
+	}
+	return 0;
+}
+#endif
+
+static render_thread vdp_thread;
+vdp_context *init_vdp_context(uint8_t region_pal, uint8_t has_max_vsram, uint8_t type)
+{
+	vdp_context *ret = init_vdp_context_int(region_pal, has_max_vsram, type);
+	vdp_context *context;
+#ifndef _WIN32
+	if (render_is_threaded_video()) {
+		context = ret->renderer = init_vdp_context_int(region_pal, has_max_vsram, type);
+	} else
+#endif
+	{
+		context = ret;
+	}
+	if (headless) {
+		context->fb = malloc(512 * LINEBUF_SIZE * sizeof(pixel_t));
+		context->output_pitch = LINEBUF_SIZE * sizeof(pixel_t);
+	} else {
+		context->cur_buffer = FRAMEBUFFER_ODD;
+		context->fb = render_get_framebuffer(FRAMEBUFFER_ODD, &context->output_pitch);
+	}
+	context->output = (pixel_t *)(((char *)context->fb) + context->output_pitch * context->border_top);
+#ifndef _WIN32
+	if (ret->renderer) {
+		event_log_mem();
+		render_create_thread(&vdp_thread, "vdp_render", vdp_render_thread_main, ret->renderer);
+	}
+#endif
+	return ret;
 }
 
 void vdp_free(vdp_context *context)
@@ -354,6 +539,12 @@ void vdp_free(vdp_context *context)
 			vdp_toggle_debug_view(context, i);
 		}
 	}
+#ifndef _WIN32
+	if (context->renderer) {
+		event_log_mem_stop();
+		vdp_free(context->renderer);
+	}
+#endif
 	free(context);
 }
 
@@ -518,18 +709,6 @@ static void render_sprite_cells_mode4(vdp_context * context)
 		}
 		context->sprite_index--;
 	}
-}
-
-static uint32_t mode5_sat_address(vdp_context *context)
-{
-	uint32_t addr = context->regs[REG_SAT] << 9;
-	if (!(context->regs[REG_MODE_2] & BIT_128K_VRAM)) {
-		addr &= 0xFFFF;
-	}
-	if (context->regs[REG_MODE_4] & BIT_H40) {
-		addr &= 0x1FC00;
-	}
-	return addr;
 }
 
 void vdp_print_sprite_table(vdp_context * context)
@@ -957,54 +1136,6 @@ static void read_sprite_x_mode4(vdp_context * context)
 	}
 }
 
-#define VSRAM_DIRTY_BITS 0xF800
-
-//rough estimate of slot number at which border display starts
-#define BG_START_SLOT 6
-
-static void update_color_map(vdp_context *context, uint16_t index, uint16_t value)
-{
-	context->colors[index] = context->color_map[value & CRAM_BITS];
-	context->colors[index + SHADOW_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_SHADOW];
-	context->colors[index + HIGHLIGHT_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_HILIGHT];
-	if (context->type == VDP_GAMEGEAR) {
-		context->colors[index + MODE4_OFFSET] = context->color_map[value & 0xFFF];
-	} else {
-		context->colors[index + MODE4_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_MODE4];
-	}
-}
-
-void write_cram_internal(vdp_context * context, uint16_t addr, uint16_t value)
-{
-	context->cram[addr] = value;
-	update_color_map(context, addr, value);
-}
-
-static void write_cram(vdp_context * context, uint16_t address, uint16_t value)
-{
-	uint16_t addr;
-	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
-		addr = (address/2) & (CRAM_SIZE-1);
-	} else if (context->type == VDP_GAMEGEAR) {
-		addr = (address/2) & 31;
-	} else {
-		addr = address & 0x1F;
-		value = (value << 1 & 0xE) | (value << 2 & 0xE0) | (value & 0xE00);
-	}
-	write_cram_internal(context, addr, value);
-
-	if (context->output && context->hslot >= BG_START_SLOT && (
-		context->vcounter < context->inactive_start + context->border_bot
-		|| context->vcounter > 0x200 - context->border_top
-	)) {
-		uint8_t bg_end_slot = BG_START_SLOT + (context->regs[REG_MODE_4] & BIT_H40) ? LINEBUF_SIZE/2 : (256+HORIZ_BORDER)/2;
-		if (context->hslot < bg_end_slot) {
-			uint32_t color = (context->regs[REG_MODE_2] & BIT_MODE_5) ? context->colors[addr] : context->colors[addr + MODE4_OFFSET];
-			context->output[(context->hslot - BG_START_SLOT)*2 + 1] = color;
-		}
-	}
-}
-
 static void vdp_advance_dma(vdp_context * context)
 {
 	context->regs[REG_DMASRC_L] += 1;
@@ -1019,53 +1150,6 @@ static void vdp_advance_dma(vdp_context * context)
 		context->flags &= ~FLAG_DMA_RUN;
 		context->cd &= 0xF;
 	}
-}
-
-static void vdp_check_update_sat(vdp_context *context, uint32_t address, uint16_t value)
-{
-	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
-		if (!(address & 4)) {
-			uint32_t sat_address = mode5_sat_address(context);
-			if(address >= sat_address && address < (sat_address + SAT_CACHE_SIZE*2)) {
-				uint16_t cache_address = address - sat_address;
-				cache_address = (cache_address & 3) | (cache_address >> 1 & 0x1FC);
-				context->sat_cache[cache_address] = value >> 8;
-				context->sat_cache[cache_address^1] = value;
-			}
-		}
-	}
-}
-
-void vdp_check_update_sat_byte(vdp_context *context, uint32_t address, uint8_t value)
-{
-	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
-		if (!(address & 4)) {
-			uint32_t sat_address = mode5_sat_address(context);
-			if(address >= sat_address && address < (sat_address + SAT_CACHE_SIZE*2)) {
-				uint16_t cache_address = address - sat_address;
-				cache_address = (cache_address & 3) | (cache_address >> 1 & 0x1FC);
-				context->sat_cache[cache_address] = value;
-			}
-		}
-	}
-}
-
-static void write_vram_word(vdp_context *context, uint32_t address, uint16_t value)
-{
-	address = (address & 0x3FC) | (address >> 1 & 0xFC01) | (address >> 9 & 0x2);
-	address ^= 1;
-	//TODO: Support an option to actually have 128KB of VRAM
-	context->vdpmem[address] = value;
-}
-
-static void write_vram_byte(vdp_context *context, uint32_t address, uint8_t value)
-{
-	if (context->regs[REG_MODE_2] & BIT_MODE_5) {
-		address &= 0xFFFF;
-	} else {
-		address = mode4_address_map[address & 0x3FFF];
-	}
-	context->vdpmem[address] = value;
 }
 
 #define DMA_FILL 0x80
@@ -1820,7 +1904,7 @@ static void render_map_output(uint32_t line, int32_t col, vdp_context * context)
 			dst = context->compositebuf + BORDER_LEFT + col * 8;
 		} else {
 			dst = context->compositebuf;
-			uint32_t bg_color = context->colors[context->regs[REG_BG_COLOR] & 0x3F];
+			pixel_t bg_color = context->colors[context->regs[REG_BG_COLOR] & 0x3F];
 			memset(dst, 0, BORDER_LEFT);
 			context->done_composite = dst + BORDER_LEFT;
 			return;
@@ -2059,7 +2143,7 @@ static void vdp_advance_line(vdp_context *context)
 			line += context->border_top;
 		}
 		if (context->enabled_debuggers & (1 << DEBUG_CRAM)) {
-			uint32_t *fb = context->debug_fbs[DEBUG_CRAM] + context->debug_fb_pitch[DEBUG_CRAM] * line / sizeof(uint32_t);
+			pixel_t *fb = context->debug_fbs[DEBUG_CRAM] + context->debug_fb_pitch[DEBUG_CRAM] * line / sizeof(pixel_t);
 			if (context->regs[REG_MODE_2] & BIT_MODE_5) {
 				for (int i = 0; i < 64; i++)
 				{
@@ -2082,7 +2166,7 @@ static void vdp_advance_line(vdp_context *context)
 				{
 					uint8_t entry = context->vdpmem[mode4_address_map[address] ^ 1];
 					uint8_t fg = entry >> 4, bg = entry & 0xF;
-					uint32_t fg_full, bg_full;
+					pixel_t fg_full, bg_full;
 					if (context->type == VDP_GAMEGEAR) {
 						//Game Gear uses CRAM entries 16-31 for TMS9918A modes
 						fg_full = context->colors[fg + 16 + MODE4_OFFSET];
@@ -2110,7 +2194,7 @@ static void vdp_advance_line(vdp_context *context)
 			context->enabled_debuggers & (1 << DEBUG_COMPOSITE)
 			&& line < (context->inactive_start + context->border_bot + context->border_top)
 		) {
-			uint32_t *fb = context->debug_fbs[DEBUG_COMPOSITE] + context->debug_fb_pitch[DEBUG_COMPOSITE] * line / sizeof(uint32_t);
+			pixel_t *fb = context->debug_fbs[DEBUG_COMPOSITE] + context->debug_fb_pitch[DEBUG_COMPOSITE] * line / sizeof(pixel_t);
 			if (is_mode_5) {
 				uint32_t left, right;
 				uint16_t top_line, bottom_line;
@@ -2148,6 +2232,9 @@ static void vdp_advance_line(vdp_context *context)
 	}
 
 	context->vcounter++;
+	if (context->renderer && context->vcounter == context->inactive_start) {
+		context->frame++;
+	}
 	if (is_mode_5) {
 		context->window_h_latch = context->regs[REG_WINDOW_H];
 		context->window_v_latch = context->regs[REG_WINDOW_V];
@@ -2175,7 +2262,7 @@ static void vdp_advance_line(vdp_context *context)
 	}
 }
 
-static void vram_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void vram_debug_mode5(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 	uint8_t pal = (context->debug_modes[DEBUG_VRAM] % 4) << 4;
 	int yshift, ymask, tilesize;
@@ -2190,7 +2277,7 @@ static void vram_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context)
 	}
 	for (int y = 0; y < 512; y++)
 	{
-		uint32_t *line = fb + y * pitch / sizeof(uint32_t);
+		pixel_t *line = fb + y * pitch / sizeof(pixel_t);
 		int row = y >> yshift;
 		int yoff = y >> 1 & ymask;
 		for (int col = 0; col < 64; col++)
@@ -2210,11 +2297,11 @@ static void vram_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context)
 	}
 }
 
-static void vram_debug_mode4(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void vram_debug_mode4(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 	for (int y = 0; y < 256; y++)
 	{
-		uint32_t *line = fb + y * pitch / sizeof(uint32_t);
+		pixel_t *line = fb + y * pitch / sizeof(pixel_t);
 		int row = y >> 4;
 		int yoff = y >> 1 & 7;
 		for (int col = 0; col < 64; col++)
@@ -2237,13 +2324,13 @@ static void vram_debug_mode4(uint32_t *fb, uint32_t pitch, vdp_context *context)
 	}
 }
 
-static void vram_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void vram_debug_tms(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 	uint8_t pal = ((context->debug_modes[DEBUG_VRAM] % 14) + 2) << 1;
 	pal = (pal & 0xE) | (pal << 1 & 0x20);
 	for (int y = 0; y < 512; y++)
 	{
-		uint32_t *line = fb + y * pitch / sizeof(uint32_t);
+		pixel_t *line = fb + y * pitch / sizeof(pixel_t);
 		int row = y >> 4;
 		int yoff = y >> 1 & 7;
 		for (int col = 0; col < 64; col++)
@@ -2261,7 +2348,7 @@ static void vram_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
 	}
 }
 
-static void plane_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void plane_debug_mode5(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 	uint16_t hscroll_mask;
 	uint16_t v_mul;
@@ -2309,7 +2396,7 @@ static void plane_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context
 		vscroll_mask = 0x1F;
 		break;
 	}
-	uint32_t bg_color = context->colors[context->regs[REG_BG_COLOR] & 0x3F];
+	pixel_t bg_color = context->colors[context->regs[REG_BG_COLOR] & 0x3F];
 	uint16_t num_rows;
 	int num_lines;
 	if (context->double_res) {
@@ -2330,7 +2417,7 @@ static void plane_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context
 			uint16_t entry = context->vdpmem[address] << 8 | context->vdpmem[address + 1];
 			uint8_t pal = entry >> 9 & 0x30;
 
-			uint32_t *dst = fb + (row * pitch * num_lines / sizeof(uint32_t)) + col * 8;
+			pixel_t *dst = fb + (row * pitch * num_lines / sizeof(pixel_t)) + col * 8;
 			if (context->double_res) {
 				address = (entry & 0x3FF) * 64;
 			} else {
@@ -2349,7 +2436,7 @@ static void plane_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context
 			for (int y = 0; y < num_lines; y++)
 			{
 				uint16_t trow_address = address;
-				uint32_t *row_dst = dst;
+				pixel_t *row_dst = dst;
 				for (int x = 0; x < 4; x++)
 				{
 					uint8_t byte = context->vdpmem[trow_address];
@@ -2366,25 +2453,25 @@ static void plane_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context
 					*(row_dst++) = right ? context->colors[right|pal] : bg_color;
 				}
 				address += y_diff;
-				dst += pitch / sizeof(uint32_t);
+				dst += pitch / sizeof(pixel_t);
 			}
 		}
 	}
 }
 
-static void sprite_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void sprite_debug_mode5(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
-	uint32_t bg_color = context->colors[context->regs[REG_BG_COLOR] & 0x3F];
+	pixel_t bg_color = context->colors[context->regs[REG_BG_COLOR] & 0x3F];
 	//clear a single alpha channel bit so we can distinguish between actual bg color and sprite
 	//pixels that just happen to be the same color
 	bg_color &= 0xFEFFFFFF;
-	uint32_t *line = fb;
-	uint32_t border_line = render_map_color(0, 0, 255);
-	uint32_t sprite_outline = render_map_color(255, 0, 255);
+	pixel_t *line = fb;
+	pixel_t border_line = render_map_color(0, 0, 255);
+	pixel_t sprite_outline = render_map_color(255, 0, 255);
 	int right_border = 256 + ((context->h40_lines > context->output_lines / 2) ? 640 : 512);
 	for (int y = 0; y < 1024; y++)
 	{
-		uint32_t *cur = line;
+		pixel_t *cur = line;
 		if (y != 256 && y != 256+context->inactive_start*2) {
 			for (int x = 0; x < 255; x++)
 			{
@@ -2406,7 +2493,7 @@ static void sprite_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *contex
 				*(cur++) = border_line;
 			}
 		}
-		line += pitch / sizeof(uint32_t);
+		line += pitch / sizeof(pixel_t);
 	}
 	for (int i = 0, index = 0; i < context->max_sprites_frame; i++)
 	{
@@ -2431,8 +2518,8 @@ static void sprite_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *contex
 		uint16_t hflip = tileinfo & MAP_BIT_H_FLIP;
 		uint16_t vflip = tileinfo & MAP_BIT_V_FLIP;
 		uint32_t x = (((context->vdpmem[att_addr+ 2] & 0x3) << 8 | context->vdpmem[att_addr + 3]) & 0x1FF) * 2;
-		uint32_t *line = fb + y * pitch / sizeof(uint32_t) + x;
-		uint32_t *cur = line;
+		pixel_t *line = fb + y * pitch / sizeof(pixel_t) + x;
+		pixel_t *cur = line;
 		for (uint32_t cx = x, x2 = x + pixel_width; cx < x2; cx++)
 		{
 			*(cur++) = sprite_outline;
@@ -2453,7 +2540,7 @@ static void sprite_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *contex
 		}
 		for (; y < y2; y++)
 		{
-			line += pitch / sizeof(uint32_t);
+			line += pitch / sizeof(pixel_t);
 			cur = line;
 			*(cur++) = sprite_outline;
 			uint16_t line_addr = tile_addr;
@@ -2463,7 +2550,7 @@ static void sprite_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *contex
 				for (uint8_t cx = 0; cx < 4; cx++)
 				{
 					uint8_t pair = context->vdpmem[cur_addr];
-					uint32_t left, right;
+					pixel_t left, right;
 					if (hflip) {
 						right = pair >> 4;
 						left = pair & 0xF;
@@ -2506,7 +2593,7 @@ static void sprite_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *contex
 			advance_source = !advance_source;
 		}
 		if (y2 != 1024) {
-			line += pitch / sizeof(uint32_t);
+			line += pitch / sizeof(pixel_t);
 			cur = line;
 			for (uint32_t cx = x, x2 = x + pixel_width; cx < x2; cx++)
 			{
@@ -2520,13 +2607,13 @@ static void sprite_debug_mode5(uint32_t *fb, uint32_t pitch, vdp_context *contex
 	}
 }
 
-static void plane_debug_mode4(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void plane_debug_mode4(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
-	uint32_t bg_color = context->colors[(context->regs[REG_BG_COLOR] & 0xF) + MODE4_OFFSET];
+	pixel_t bg_color = context->colors[(context->regs[REG_BG_COLOR] & 0xF) + MODE4_OFFSET];
 	uint32_t address = (context->regs[REG_SCROLL_A] & 0xE) << 10;
 	for (uint32_t row_address = address, end = address + 32*32*2; row_address < end; row_address += 2 * 32)
 	{
-		uint32_t *col = fb;
+		pixel_t *col = fb;
 		for(uint32_t cur = row_address, row_end = row_address + 2 * 32; cur < row_end; cur += 2)
 		{
 			uint32_t mapped = mode4_address_map[cur];
@@ -2551,7 +2638,7 @@ static void plane_debug_mode4(uint32_t *fb, uint32_t pitch, vdp_context *context
 			} else {
 				tile_inc = 4;
 			}
-			uint32_t *line = col;
+			pixel_t *line = col;
 			for (int y = 0; y < 16; y++)
 			{
 				uint32_t first = mode4_address_map[tile_address];
@@ -2560,10 +2647,10 @@ static void plane_debug_mode4(uint32_t *fb, uint32_t pitch, vdp_context *context
 				pixels |= planar_to_chunky[context->vdpmem[first+1]];
 				pixels |= planar_to_chunky[context->vdpmem[last]] << 3;
 				pixels |= planar_to_chunky[context->vdpmem[last+1]] << 2;
-				uint32_t *out = line;
+				pixel_t *out = line;
 				for (uint32_t i = i_init; i != i_limit; i += i_inc)
 				{
-					uint32_t pixel = context->colors[((pixels >> i & 0xF) | pal) + MODE4_OFFSET];
+					pixel_t pixel = context->colors[((pixels >> i & 0xF) | pal) + MODE4_OFFSET];
 					*(out++) = pixel;
 					*(out++) = pixel;
 				}
@@ -2572,22 +2659,22 @@ static void plane_debug_mode4(uint32_t *fb, uint32_t pitch, vdp_context *context
 				if (y & 1) {
 					tile_address += tile_inc;
 				}
-				line += pitch / sizeof(uint32_t);
+				line += pitch / sizeof(pixel_t);
 			}
 			
 			
 			
 			col += 16;
 		}
-		fb += 16 * pitch / sizeof(uint32_t);
+		fb += 16 * pitch / sizeof(pixel_t);
 	}
 }
 
-static void sprite_debug_mode4(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void sprite_debug_mode4(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 }
 
-uint32_t tms_map_color(vdp_context *context, uint8_t color)
+pixel_t tms_map_color(vdp_context *context, uint8_t color)
 {
 	if (context->type == VDP_GAMEGEAR) {
 		//Game Gear uses CRAM entries 16-31 for TMS9918A modes
@@ -2599,7 +2686,7 @@ uint32_t tms_map_color(vdp_context *context, uint8_t color)
 	}
 }
 
-static void plane_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void plane_debug_tms(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 	uint16_t table_address = context->regs[REG_SCROLL_A] << 10 & 0x3C00;
 	uint16_t color_address = context->regs[REG_COLOR_TABLE] << 6;
@@ -2636,10 +2723,10 @@ static void plane_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
 	}
 	for (uint32_t row = 0; row < 24; row++)
 	{
-		uint32_t *colfb = fb;
+		pixel_t *colfb = fb;
 		for (uint32_t col = 0; col < cols; col++)
 		{
-			uint32_t *linefb = colfb;
+			pixel_t *linefb = colfb;
 			uint8_t pattern = context->vdpmem[mode4_address_map[table_address] ^ 1];
 			uint16_t caddress = color_address;
 			uint16_t paddress = pattern_address;
@@ -2665,7 +2752,7 @@ static void plane_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
 						bg = tms_map_color(context, colors & 0xF);
 					}
 					
-					uint32_t *curfb = linefb;
+					pixel_t *curfb = linefb;
 					for (uint32_t x = 0; x < pixels; x++)
 					{
 						*(curfb++) = (bits & 0x80) ? fg : bg;
@@ -2673,7 +2760,7 @@ static void plane_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
 							bits <<= 1;
 						}
 					}
-					linefb += pitch / sizeof(uint32_t);
+					linefb += pitch / sizeof(pixel_t);
 					if (y & 1) {
 						if (context->regs[REG_MODE_1] & BIT_M3) {
 							caddress++;
@@ -2685,11 +2772,11 @@ static void plane_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
 			table_address++;
 			colfb += pixels;
 		}
-		fb += 16 * pitch / sizeof(uint32_t);
+		fb += 16 * pitch / sizeof(pixel_t);
 	}
 }
 
-static void sprite_debug_tms(uint32_t *fb, uint32_t pitch, vdp_context *context)
+static void sprite_debug_tms(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 }
 
@@ -2698,7 +2785,7 @@ static void vdp_update_per_frame_debug(vdp_context *context)
 	if (context->enabled_debuggers & (1 << DEBUG_PLANE)) {
 		
 		uint32_t pitch;
-		uint32_t *fb = render_get_framebuffer(context->debug_fb_indices[DEBUG_PLANE], &pitch);
+		pixel_t *fb = render_get_framebuffer(context->debug_fb_indices[DEBUG_PLANE], &pitch);
 		if (context->type == VDP_GENESIS && (context->regs[REG_MODE_2] & BIT_MODE_5)) {
 			if ((context->debug_modes[DEBUG_PLANE] & 3) == 3) {
 				sprite_debug_mode5(fb, pitch, context);
@@ -2723,7 +2810,7 @@ static void vdp_update_per_frame_debug(vdp_context *context)
 
 	if (context->enabled_debuggers & (1 << DEBUG_VRAM)) {
 		uint32_t pitch;
-		uint32_t *fb = render_get_framebuffer(context->debug_fb_indices[DEBUG_VRAM], &pitch);
+		pixel_t *fb = render_get_framebuffer(context->debug_fb_indices[DEBUG_VRAM], &pitch);
 		if (context->type == VDP_GENESIS && (context->regs[REG_MODE_2] & BIT_MODE_5)) {
 			vram_debug_mode5(fb, pitch, context);
 		} else if (context->type != VDP_TMS9918A && (context->regs[REG_MODE_1] & BIT_MODE_4)) {
@@ -2736,12 +2823,13 @@ static void vdp_update_per_frame_debug(vdp_context *context)
 
 	if (context->enabled_debuggers & (1 << DEBUG_CRAM)) {
 		uint32_t starting_line = 512 - 32*4;
-		uint32_t *line = context->debug_fbs[DEBUG_CRAM]
-			+ context->debug_fb_pitch[DEBUG_CRAM]  * starting_line / sizeof(uint32_t);
+		pixel_t *line = context->debug_fbs[DEBUG_CRAM]
+			+ context->debug_fb_pitch[DEBUG_CRAM]  * starting_line / sizeof(pixel_t);
+		pixel_t black = render_map_color(0, 0, 0);
 		if (context->regs[REG_MODE_2] & BIT_MODE_5) {
 			for (int pal = 0; pal < 4; pal ++)
 			{
-				uint32_t *cur;
+				pixel_t *cur;
 				for (int y = 0; y < 31; y++)
 				{
 					cur = line;
@@ -2751,21 +2839,21 @@ static void vdp_update_per_frame_debug(vdp_context *context)
 						{
 							*(cur++) = context->colors[pal * 16 + offset];
 						}
-						*(cur++) = 0xFF000000;
+						*(cur++) = black;
 					}
-					line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(uint32_t);
+					line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(pixel_t);
 				}
 				cur = line;
 				for (int x = 0; x < 512; x++)
 				{
-					*(cur++) = 0xFF000000;
+					*(cur++) = black;
 				}
-				line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(uint32_t);
+				line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(pixel_t);
 			}
 		} else {
 			for (int pal = 0; pal < 2; pal ++)
 			{
-				uint32_t *cur;
+				pixel_t *cur;
 				for (int y = 0; y < 31; y++)
 				{
 					cur = line;
@@ -2775,16 +2863,16 @@ static void vdp_update_per_frame_debug(vdp_context *context)
 						{
 							*(cur++) = context->colors[pal * 16 + offset];
 						}
-						*(cur++) = 0xFF000000;
+						*(cur++) = black;
 					}
-					line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(uint32_t);
+					line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(pixel_t);
 				}
 				cur = line;
 				for (int x = 0; x < 512; x++)
 				{
-					*(cur++) = 0xFF000000;
+					*(cur++) = black;
 				}
-				line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(uint32_t);
+				line += context->debug_fb_pitch[DEBUG_CRAM] / sizeof(pixel_t);
 			}
 		}
 		render_framebuffer_updated(context->debug_fb_indices[DEBUG_CRAM], 512);
@@ -2869,7 +2957,7 @@ static void advance_output_line(vdp_context *context)
 		context->fb = render_get_framebuffer(context->cur_buffer, &context->output_pitch);
 	}
 	output_line += context->top_offset;
-	context->output = (uint32_t *)(((char *)context->fb) + context->output_pitch * output_line);
+	context->output = (pixel_t *)(((char *)context->fb) + context->output_pitch * output_line);
 #ifdef DEBUG_FB_FILL
 	for (int i = 0; i < LINEBUF_SIZE; i++)
 	{
@@ -2894,7 +2982,7 @@ void vdp_reacquire_framebuffer(vdp_context *context)
 	uint16_t lines_max = context->inactive_start + context->border_bot + context->border_top;
 	if (context->output_lines <= lines_max && context->output_lines > 0) {
 		context->fb = render_get_framebuffer(context->cur_buffer, &context->output_pitch);
-		context->output = (uint32_t *)(((char *)context->fb) + context->output_pitch * (context->output_lines - 1 + context->top_offset));
+		context->output = (pixel_t *)(((char *)context->fb) + context->output_pitch * (context->output_lines - 1 + context->top_offset));
 	} else {
 		context->output = NULL;
 	}
@@ -2965,7 +3053,7 @@ static void draw_right_border(vdp_context *context)
 #define CHECK_LIMIT if (context->flags & FLAG_DMA_RUN) { run_dma_src(context, -1); } context->hslot++; context->cycles += slot_cycles; CHECK_ONLY
 #define OUTPUT_PIXEL(slot) if ((slot) >= BG_START_SLOT) {\
 		uint8_t *src = context->compositebuf + ((slot) - BG_START_SLOT) *2;\
-		uint32_t *dst = context->output + ((slot) - BG_START_SLOT) *2;\
+		pixel_t *dst = context->output + ((slot) - BG_START_SLOT) *2;\
 		if ((*src & 0x3F) | test_layer) {\
 			*(dst++) = context->colors[*(src++)];\
 		} else {\
@@ -2980,7 +3068,7 @@ static void draw_right_border(vdp_context *context)
 
 #define OUTPUT_PIXEL_H40(slot) if (slot <= (BG_START_SLOT + LINEBUF_SIZE/2)) {\
 		uint8_t *src = context->compositebuf + (slot - BG_START_SLOT) *2;\
-		uint32_t *dst = context->output + (slot - BG_START_SLOT) *2;\
+		pixel_t *dst = context->output + (slot - BG_START_SLOT) *2;\
 		if ((*src & 0x3F) | test_layer) {\
 			*(dst++) = context->colors[*(src++)];\
 		} else {\
@@ -2999,7 +3087,7 @@ static void draw_right_border(vdp_context *context)
 
 #define OUTPUT_PIXEL_H32(slot) if (slot <= (BG_START_SLOT + (256+HORIZ_BORDER)/2)) {\
 		uint8_t *src = context->compositebuf + (slot - BG_START_SLOT) *2;\
-		uint32_t *dst = context->output + (slot - BG_START_SLOT) *2;\
+		pixel_t *dst = context->output + (slot - BG_START_SLOT) *2;\
 		if ((*src & 0x3F) | test_layer) {\
 			*(dst++) = context->colors[*(src++)];\
 		} else {\
@@ -3020,7 +3108,7 @@ static void draw_right_border(vdp_context *context)
 //BG_START_SLOT + 13/2=6, dst = 6, src = border + comp + 13
 #define OUTPUT_PIXEL_MODE4(slot) if ((slot) >= BG_START_SLOT) {\
 		uint8_t *src = context->compositebuf + ((slot) - BG_START_SLOT) *2;\
-		uint32_t *dst = context->output + ((slot) - BG_START_SLOT) *2;\
+		pixel_t *dst = context->output + ((slot) - BG_START_SLOT) *2;\
 		if ((slot) - BG_START_SLOT < BORDER_LEFT/2) {\
 			*(dst++) = context->colors[bgindex];\
 			*(dst++) = context->colors[bgindex];\
@@ -3110,6 +3198,48 @@ static void draw_right_border(vdp_context *context)
 		render_map_output(context->vcounter, column, context);\
 		CHECK_LIMIT
 
+#define COLUMN_RENDER_BLOCK_PHONY(column, startcyc) \
+	case startcyc:\
+		CHECK_LIMIT\
+	case ((startcyc+1)&0xFF):\
+		external_slot(context);\
+		CHECK_LIMIT\
+	case ((startcyc+2)&0xFF):\
+		CHECK_LIMIT\
+	case ((startcyc+3)&0xFF):\
+		CHECK_LIMIT\
+	case ((startcyc+4)&0xFF):\
+		CHECK_LIMIT\
+	case ((startcyc+5)&0xFF):\
+		read_sprite_x(context->vcounter, context);\
+		CHECK_LIMIT\
+	case ((startcyc+6)&0xFF):\
+		CHECK_LIMIT\
+	case ((startcyc+7)&0xFF):\
+		CHECK_LIMIT
+
+#define COLUMN_RENDER_BLOCK_REFRESH_PHONY(column, startcyc) \
+	case startcyc:\
+		CHECK_LIMIT\
+	case (startcyc+1):\
+		/* refresh, so don't run dma src */\
+		context->hslot++;\
+		context->cycles += slot_cycles;\
+		CHECK_ONLY\
+	case (startcyc+2):\
+		CHECK_LIMIT\
+	case (startcyc+3):\
+		CHECK_LIMIT\
+	case (startcyc+4):\
+		CHECK_LIMIT\
+	case (startcyc+5):\
+		read_sprite_x(context->vcounter, context);\
+		CHECK_LIMIT\
+	case (startcyc+6):\
+		CHECK_LIMIT\
+	case (startcyc+7):\
+		CHECK_LIMIT
+
 #define COLUMN_RENDER_BLOCK_MODE4(column, startcyc) \
 	case startcyc:\
 		OUTPUT_PIXEL_MODE4(startcyc)\
@@ -3182,6 +3312,12 @@ static void draw_right_border(vdp_context *context)
 		scan_sprite_table(context->vcounter, context);\
 		CHECK_LIMIT_HSYNC(slot)
 
+#define SPRITE_RENDER_H40_PHONY(slot) \
+	case slot:\
+		render_sprite_cells( context);\
+		scan_sprite_table(context->vcounter, context);\
+		CHECK_LIMIT_HSYNC(slot)
+
 //Note that the line advancement check will fail if BG_START_SLOT is > 6
 //as we're bumping up against the hcounter jump
 #define SPRITE_RENDER_H32(slot) \
@@ -3209,6 +3345,19 @@ static void draw_right_border(vdp_context *context)
 		} else if (slot == 137) {\
 			draw_right_border(context);\
 		}\
+		scan_sprite_table(context->vcounter, context);\
+		if (context->flags & FLAG_DMA_RUN) { run_dma_src(context, -1); } \
+		if (slot == 147) {\
+			context->hslot = 233;\
+		} else {\
+			context->hslot++;\
+		}\
+		context->cycles += slot_cycles;\
+		CHECK_ONLY
+
+#define SPRITE_RENDER_H32_PHONY(slot) \
+	case slot:\
+		render_sprite_cells( context);\
 		scan_sprite_table(context->vcounter, context);\
 		if (context->flags & FLAG_DMA_RUN) { run_dma_src(context, -1); } \
 		if (slot == 147) {\
@@ -3269,7 +3418,7 @@ static void draw_right_border(vdp_context *context)
 		render_sprite_cells_mode4(context);\
 		MODE4_CHECK_SLOT_LINE(CALC_SLOT(slot, 5))
 
-static uint32_t dummy_buffer[LINEBUF_SIZE];
+static pixel_t dummy_buffer[LINEBUF_SIZE];
 static void vdp_h40_line(vdp_context * context)
 {
 	uint16_t address;
@@ -3314,7 +3463,7 @@ static void vdp_h40_line(vdp_context * context)
 
 	//Do palette lookup for end of previous line
 	uint8_t *src = context->compositebuf + (LINE_CHANGE_H40 - BG_START_SLOT) *2;
-	uint32_t *dst = context->output + (LINE_CHANGE_H40 - BG_START_SLOT) *2;
+	pixel_t *dst = context->output + (LINE_CHANGE_H40 - BG_START_SLOT) *2;
 	if (context->output) {
 		if (test_layer) {
 			for (int i = 0; i < LINEBUF_SIZE - (LINE_CHANGE_H40 - BG_START_SLOT) * 2; i++)
@@ -3706,6 +3855,161 @@ static void vdp_h40(vdp_context * context, uint32_t target_cycles)
 	}
 }
 
+static void vdp_h40_phony(vdp_context * context, uint32_t target_cycles)
+{
+	uint32_t const slot_cycles = MCLKS_SLOT_H40;
+	switch(context->hslot)
+	{
+	for (;;)
+	{
+	case 165:
+		if (context->state == PREPARING) {
+			external_slot(context);
+		} else {
+			render_sprite_cells(context);
+		}
+		CHECK_LIMIT
+	case 166:
+		if (context->state == PREPARING) {
+			external_slot(context);
+		} else {
+			render_sprite_cells(context);
+		}
+		if (context->vcounter == context->inactive_start) {
+			context->hslot++;
+			context->cycles += slot_cycles;
+			return;
+		}
+		CHECK_LIMIT
+	//sprite attribute table scan starts
+	case 167:
+		context->sprite_index = 0x80;
+		context->slot_counter = 0;
+		render_sprite_cells(context);
+		scan_sprite_table(context->vcounter, context);
+		CHECK_LIMIT
+	SPRITE_RENDER_H40_PHONY(168)
+	SPRITE_RENDER_H40_PHONY(169)
+	SPRITE_RENDER_H40_PHONY(170)
+	SPRITE_RENDER_H40_PHONY(171)
+	SPRITE_RENDER_H40_PHONY(172)
+	SPRITE_RENDER_H40_PHONY(173)
+	SPRITE_RENDER_H40_PHONY(174)
+	SPRITE_RENDER_H40_PHONY(175)
+	SPRITE_RENDER_H40_PHONY(176)
+	SPRITE_RENDER_H40_PHONY(177)//End of border?
+	SPRITE_RENDER_H40_PHONY(178)
+	SPRITE_RENDER_H40_PHONY(179)
+	SPRITE_RENDER_H40_PHONY(180)
+	SPRITE_RENDER_H40_PHONY(181)
+	SPRITE_RENDER_H40_PHONY(182)
+	SPRITE_RENDER_H40_PHONY(229)
+	//!HSYNC asserted
+	SPRITE_RENDER_H40_PHONY(230)
+	SPRITE_RENDER_H40_PHONY(231)
+	case 232:
+		external_slot(context);
+		CHECK_LIMIT_HSYNC(232)
+	SPRITE_RENDER_H40_PHONY(233)
+	SPRITE_RENDER_H40_PHONY(234)
+	SPRITE_RENDER_H40_PHONY(235)
+	SPRITE_RENDER_H40_PHONY(236)
+	SPRITE_RENDER_H40_PHONY(237)
+	SPRITE_RENDER_H40_PHONY(238)
+	SPRITE_RENDER_H40_PHONY(239)
+	SPRITE_RENDER_H40_PHONY(240)
+	SPRITE_RENDER_H40_PHONY(241)
+	SPRITE_RENDER_H40_PHONY(242)
+	SPRITE_RENDER_H40_PHONY(243) //provides "garbage" for border when plane A selected
+	case 244:
+		if (context->flags & FLAG_DMA_RUN) { run_dma_src(context, -1); }
+		context->hslot++;
+		context->cycles += h40_hsync_cycles[14];
+		CHECK_ONLY //provides "garbage" for border when plane A selected
+	//!HSYNC high
+	SPRITE_RENDER_H40_PHONY(245)
+	SPRITE_RENDER_H40_PHONY(246)
+	SPRITE_RENDER_H40_PHONY(247) //provides "garbage" for border when plane B selected
+	SPRITE_RENDER_H40_PHONY(248) //provides "garbage" for border when plane B selected
+	case 249:
+		CHECK_LIMIT
+	SPRITE_RENDER_H40_PHONY(250)
+	case 251:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		CHECK_LIMIT
+	case 252:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		CHECK_LIMIT
+	case 253:
+		CHECK_LIMIT
+	SPRITE_RENDER_H40_PHONY(254)
+	case 255:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		CHECK_LIMIT
+	case 0:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		//seems like the sprite table scan fills a shift register
+		//values are FIFO, but unused slots precede used slots
+		//so we set cur_slot to slot_counter and let it wrap around to
+		//the beginning of the list
+		context->cur_slot = context->slot_counter;
+		context->sprite_x_offset = 0;
+		context->sprite_draws = MAX_SPRITES_LINE;
+		CHECK_LIMIT
+	COLUMN_RENDER_BLOCK_PHONY(2, 1)
+	COLUMN_RENDER_BLOCK_PHONY(4, 9)
+	COLUMN_RENDER_BLOCK_PHONY(6, 17)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(8, 25)
+	COLUMN_RENDER_BLOCK_PHONY(10, 33)
+	COLUMN_RENDER_BLOCK_PHONY(12, 41)
+	COLUMN_RENDER_BLOCK_PHONY(14, 49)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(16, 57)
+	COLUMN_RENDER_BLOCK_PHONY(18, 65)
+	COLUMN_RENDER_BLOCK_PHONY(20, 73)
+	COLUMN_RENDER_BLOCK_PHONY(22, 81)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(24, 89)
+	COLUMN_RENDER_BLOCK_PHONY(26, 97)
+	COLUMN_RENDER_BLOCK_PHONY(28, 105)
+	COLUMN_RENDER_BLOCK_PHONY(30, 113)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(32, 121)
+	COLUMN_RENDER_BLOCK_PHONY(34, 129)
+	COLUMN_RENDER_BLOCK_PHONY(36, 137)
+	COLUMN_RENDER_BLOCK_PHONY(38, 145)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(40, 153)
+	case 161:
+		external_slot(context);
+		CHECK_LIMIT
+	case 162:
+		external_slot(context);
+		CHECK_LIMIT
+	//sprite render to line buffer starts
+	case 163:
+		context->cur_slot = MAX_SPRITES_LINE-1;
+		memset(context->linebuf, 0, LINEBUF_SIZE);
+		context->flags &= ~FLAG_MASKED;
+		while (context->sprite_draws) {
+			context->sprite_draws--;
+			context->sprite_draw_list[context->sprite_draws].x_pos = 0;
+		}
+		render_sprite_cells(context);
+		CHECK_LIMIT
+	case 164:
+		render_sprite_cells(context);
+		if (context->flags & FLAG_DMA_RUN) {
+			run_dma_src(context, -1);
+		}
+		context->hslot++;
+		context->cycles += slot_cycles;
+		vdp_advance_line(context);
+		CHECK_ONLY
+	}
+	default:
+		context->hslot++;
+		context->cycles += slot_cycles;
+		return;
+	}
+}
+
 static void vdp_h32(vdp_context * context, uint32_t target_cycles)
 {
 	uint16_t address;
@@ -3910,6 +4214,150 @@ static void vdp_h32(vdp_context * context, uint32_t target_cycles)
 			context->tmp_buf_a, context->buf_a_off + 8,
 			context->col_2
 		);
+		if (context->flags & FLAG_DMA_RUN) {
+			run_dma_src(context, -1);
+		}
+		context->hslot++;
+		context->cycles += slot_cycles;
+		vdp_advance_line(context);
+		CHECK_ONLY
+	}
+	default:
+		context->hslot++;
+		context->cycles += MCLKS_SLOT_H32;
+	}
+}
+
+static void vdp_h32_phony(vdp_context * context, uint32_t target_cycles)
+{
+	uint32_t const slot_cycles = MCLKS_SLOT_H32;
+	switch(context->hslot)
+	{
+	for (;;)
+	{
+	case 133:
+		if (context->state == PREPARING) {
+			external_slot(context);
+		} else {
+			render_sprite_cells(context);
+		}
+		CHECK_LIMIT
+	case 134:
+		if (context->state == PREPARING) {
+			external_slot(context);
+		} else {
+			render_sprite_cells(context);
+		}
+		if (context->vcounter == context->inactive_start) {
+			context->hslot++;
+			context->cycles += slot_cycles;
+			return;
+		}
+		CHECK_LIMIT
+	//sprite attribute table scan starts
+	case 135:
+		context->sprite_index = 0x80;
+		context->slot_counter = 0;
+		render_sprite_cells(context);
+		scan_sprite_table(context->vcounter, context);
+		CHECK_LIMIT
+	SPRITE_RENDER_H32_PHONY(136)
+	SPRITE_RENDER_H32_PHONY(137)
+	SPRITE_RENDER_H32_PHONY(138)
+	SPRITE_RENDER_H32_PHONY(139)
+	SPRITE_RENDER_H32_PHONY(140)
+	SPRITE_RENDER_H32_PHONY(141)
+	SPRITE_RENDER_H32_PHONY(142)
+	SPRITE_RENDER_H32_PHONY(143)
+	SPRITE_RENDER_H32_PHONY(144)
+	case 145:
+		external_slot(context);
+		CHECK_LIMIT
+	SPRITE_RENDER_H32_PHONY(146)
+	SPRITE_RENDER_H32_PHONY(147)
+	SPRITE_RENDER_H32_PHONY(233)
+	SPRITE_RENDER_H32_PHONY(234)
+	SPRITE_RENDER_H32_PHONY(235)
+	//HSYNC start
+	SPRITE_RENDER_H32_PHONY(236)
+	SPRITE_RENDER_H32_PHONY(237)
+	SPRITE_RENDER_H32_PHONY(238)
+	SPRITE_RENDER_H32_PHONY(239)
+	SPRITE_RENDER_H32_PHONY(240)
+	SPRITE_RENDER_H32_PHONY(241)
+	SPRITE_RENDER_H32_PHONY(242)
+	case 243:
+		external_slot(context);
+		CHECK_LIMIT
+	case 244:
+		CHECK_LIMIT //provides "garbage" for border when plane A selected
+	SPRITE_RENDER_H32_PHONY(245)
+	SPRITE_RENDER_H32_PHONY(246)
+	SPRITE_RENDER_H32_PHONY(247) //provides "garbage" for border when plane B selected
+	SPRITE_RENDER_H32_PHONY(248) //provides "garbage" for border when plane B selected
+	//!HSYNC high
+	case 249:
+		CHECK_LIMIT
+	SPRITE_RENDER_H32_PHONY(250)
+	case 251:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		CHECK_LIMIT
+	case 252:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		CHECK_LIMIT
+	case 253:
+		CHECK_LIMIT
+	case 254:
+		render_sprite_cells(context);
+		scan_sprite_table(context->vcounter, context);
+		CHECK_LIMIT
+	case 255:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		CHECK_LIMIT
+	case 0:
+		scan_sprite_table(context->vcounter, context);//Just a guess
+		//reverse context slot counter so it counts the number of sprite slots
+		//filled rather than the number of available slots
+		//context->slot_counter = MAX_SPRITES_LINE - context->slot_counter;
+		context->cur_slot = context->slot_counter;
+		context->sprite_x_offset = 0;
+		context->sprite_draws = MAX_SPRITES_LINE_H32;
+		CHECK_LIMIT
+	COLUMN_RENDER_BLOCK_PHONY(2, 1)
+	COLUMN_RENDER_BLOCK_PHONY(4, 9)
+	COLUMN_RENDER_BLOCK_PHONY(6, 17)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(8, 25)
+	COLUMN_RENDER_BLOCK_PHONY(10, 33)
+	COLUMN_RENDER_BLOCK_PHONY(12, 41)
+	COLUMN_RENDER_BLOCK_PHONY(14, 49)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(16, 57)
+	COLUMN_RENDER_BLOCK_PHONY(18, 65)
+	COLUMN_RENDER_BLOCK_PHONY(20, 73)
+	COLUMN_RENDER_BLOCK_PHONY(22, 81)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(24, 89)
+	COLUMN_RENDER_BLOCK_PHONY(26, 97)
+	COLUMN_RENDER_BLOCK_PHONY(28, 105)
+	COLUMN_RENDER_BLOCK_PHONY(30, 113)
+	COLUMN_RENDER_BLOCK_REFRESH_PHONY(32, 121)
+	case 129:
+		external_slot(context);
+		CHECK_LIMIT
+	case 130: {
+		external_slot(context);
+		CHECK_LIMIT
+	}
+	//sprite render to line buffer starts
+	case 131:
+		context->cur_slot = MAX_SPRITES_LINE_H32-1;
+		context->flags &= ~FLAG_MASKED;
+		while (context->sprite_draws) {
+			context->sprite_draws--;
+			context->sprite_draw_list[context->sprite_draws].x_pos = 0;
+		}
+		render_sprite_cells(context);
+		CHECK_LIMIT
+	case 132:
+		render_sprite_cells(context);
 		if (context->flags & FLAG_DMA_RUN) {
 			run_dma_src(context, -1);
 		}
@@ -4292,7 +4740,7 @@ static void tms_border(vdp_context *context)
 			return;
 		}
 	}
-	uint32_t color;
+	pixel_t color;
 	if (context->type == VDP_GAMEGEAR) {
 		//Game Gear uses CRAM entries 16-31 for TMS9918A modes
 		color = context->colors[(context->regs[REG_BG_COLOR] & 0xF) + 16 + MODE4_OFFSET];
@@ -4801,7 +5249,7 @@ static void vdp_inactive(vdp_context *context, uint32_t target_cycles, uint8_t i
 			active_line = 0x200;
 		}
 	}
-	uint32_t *dst;
+	pixel_t *dst;
 	uint8_t *debug_dst;
 	if (context->output && context->hslot >= BG_START_SLOT && context->hslot <= bg_end_slot) {
 		dst = context->output + 2 * (context->hslot - BG_START_SLOT);
@@ -4873,7 +5321,7 @@ static void vdp_inactive(vdp_context *context, uint32_t target_cycles, uint8_t i
 
 		if (dst) {
 			uint8_t bg_index;
-			uint32_t bg_color;
+			pixel_t bg_color;
 			if (mode_5) {
 				bg_index = context->regs[REG_BG_COLOR] & 0x3F;
 				bg_color = context->colors[bg_index];
@@ -4953,30 +5401,172 @@ static void vdp_inactive(vdp_context *context, uint32_t target_cycles, uint8_t i
 	}
 }
 
+static void vdp_inactive_phony(vdp_context *context, uint32_t target_cycles, uint8_t is_h40, uint8_t mode_5)
+{
+	uint8_t buf_clear_slot, index_reset_slot, bg_end_slot, vint_slot, line_change, jump_start, jump_dest, latch_slot;
+	uint8_t index_reset_value, max_draws, max_sprites;
+	uint16_t vint_line, active_line;
+
+	if (mode_5) {
+		if (is_h40) {
+			latch_slot = 165;
+			buf_clear_slot = 163;
+			index_reset_slot = 167;
+			bg_end_slot = BG_START_SLOT + LINEBUF_SIZE/2;
+			max_draws = MAX_SPRITES_LINE-1;
+			max_sprites = MAX_SPRITES_LINE;
+			index_reset_value = 0x80;
+			vint_slot = VINT_SLOT_H40;
+			line_change = LINE_CHANGE_H40;
+			jump_start = 182;
+			jump_dest = 229;
+		} else {
+			bg_end_slot = BG_START_SLOT + (256+HORIZ_BORDER)/2;
+			max_draws = MAX_SPRITES_LINE_H32-1;
+			max_sprites = MAX_SPRITES_LINE_H32;
+			buf_clear_slot = 128;
+			index_reset_slot = 132;
+			index_reset_value = 0x80;
+			vint_slot = VINT_SLOT_H32;
+			line_change = LINE_CHANGE_H32;
+			jump_start = 147;
+			jump_dest = 233;
+			latch_slot = 243;
+		}
+		vint_line = context->inactive_start;
+		active_line = 0x1FF;
+		if (context->regs[REG_MODE_3] & BIT_VSCROLL) {
+			latch_slot = 220;
+		}
+	} else {
+		latch_slot = 220;
+		bg_end_slot = BG_START_SLOT + (256+HORIZ_BORDER)/2;
+		max_draws = MAX_DRAWS_H32_MODE4;
+		max_sprites = 8;
+		buf_clear_slot = 136;
+		index_reset_slot = 253;
+		index_reset_value = 0;
+		vint_line = context->inactive_start + 1;
+		vint_slot = VINT_SLOT_MODE4;
+		line_change = LINE_CHANGE_MODE4;
+		jump_start = 147;
+		jump_dest = 233;
+		if ((context->regs[REG_MODE_1] & BIT_MODE_4) || context->type != VDP_GENESIS) {
+			active_line = 0x1FF;
+		} else {
+			//never active unless either mode 4 or mode 5 is turned on
+			active_line = 0x200;
+		}
+	}
+
+	while(context->cycles < target_cycles)
+	{
+		check_switch_inactive(context, is_h40);
+		//this will need some tweaking to properly interact with 128K mode,
+		//but this should be good enough for now
+		context->serial_address += 1024;
+
+		if (context->hslot == buf_clear_slot) {
+			if (mode_5) {
+				context->cur_slot = max_draws;
+			} else if ((context->regs[REG_MODE_1] & BIT_MODE_4) || context->type == VDP_GENESIS) {
+				context->cur_slot = context->sprite_index = MAX_DRAWS_H32_MODE4-1;
+				context->sprite_draws = MAX_DRAWS_H32_MODE4;
+			} else {
+				context->sprite_draws = 0;
+			}
+			memset(context->linebuf, 0, LINEBUF_SIZE);
+		} else if (context->hslot == index_reset_slot) {
+			context->sprite_index = index_reset_value;
+			context->slot_counter = mode_5 ? 0 : max_sprites;
+		} else if (context->vcounter == vint_line && context->hslot == vint_slot) {
+			context->flags2 |= FLAG2_VINT_PENDING;
+			context->pending_vint_start = context->cycles;
+		} else if (context->vcounter == context->inactive_start && context->hslot == 1 && (context->regs[REG_MODE_4] & BIT_INTERLACE)) {
+			context->flags2 ^= FLAG2_EVEN_FIELD;
+		}
+
+		if (!is_refresh(context, context->hslot)) {
+			external_slot(context);
+			if (context->flags & FLAG_DMA_RUN && !is_refresh(context, context->hslot)) {
+				run_dma_src(context, context->hslot);
+			}
+		}
+
+		if (is_h40) {
+			if (context->hslot >= HSYNC_SLOT_H40 && context->hslot < HSYNC_END_H40) {
+				context->cycles += h40_hsync_cycles[context->hslot - HSYNC_SLOT_H40];
+			} else {
+				context->cycles += MCLKS_SLOT_H40;
+			}
+		} else {
+			context->cycles += MCLKS_SLOT_H32;
+		}
+		if (context->hslot == jump_start) {
+			context->hslot = jump_dest;
+		} else {
+			context->hslot++;
+		}
+		if (context->hslot == line_change) {
+			vdp_advance_line(context);
+			if (context->vcounter == active_line) {
+				context->state = PREPARING;
+				return;
+			}
+		}
+	}
+}
+
 void vdp_run_context_full(vdp_context * context, uint32_t target_cycles)
 {
 	uint8_t is_h40 = context->regs[REG_MODE_4] & BIT_H40;
 	uint8_t mode_5 = context->regs[REG_MODE_2] & BIT_MODE_5;
-	while(context->cycles < target_cycles)
-	{
-		check_switch_inactive(context, is_h40);
+	if (context->renderer) {
+		while(context->cycles < target_cycles)
+		{
+			check_switch_inactive(context, is_h40);
 
-		if (is_active(context)) {
-			if (mode_5) {
-				if (is_h40) {
-					vdp_h40(context, target_cycles);
+			if (is_active(context)) {
+				if (mode_5) {
+					if (is_h40) {
+						vdp_h40_phony(context, target_cycles);
+					} else {
+						vdp_h32_phony(context, target_cycles);
+					}
+				} else if (context->regs[REG_MODE_1] & BIT_MODE_4) {
+					//TODO: phonyfy this
+					vdp_h32_mode4(context, target_cycles);
+				} else if (context->regs[REG_MODE_2] & BIT_M1) {
+						vdp_tms_text(context, target_cycles);
 				} else {
-					vdp_h32(context, target_cycles);
+					vdp_tms_graphics(context, target_cycles);
 				}
-			} else if (context->regs[REG_MODE_1] & BIT_MODE_4) {
-				vdp_h32_mode4(context, target_cycles);
-			} else if (context->regs[REG_MODE_2] & BIT_M1) {
-					vdp_tms_text(context, target_cycles);
 			} else {
-				vdp_tms_graphics(context, target_cycles);
+				vdp_inactive_phony(context, target_cycles, is_h40, mode_5);
 			}
-		} else {
-			vdp_inactive(context, target_cycles, is_h40, mode_5);
+		}
+	} else {
+		while(context->cycles < target_cycles)
+		{
+			check_switch_inactive(context, is_h40);
+
+			if (is_active(context)) {
+				if (mode_5) {
+					if (is_h40) {
+						vdp_h40(context, target_cycles);
+					} else {
+						vdp_h32(context, target_cycles);
+					}
+				} else if (context->regs[REG_MODE_1] & BIT_MODE_4) {
+					vdp_h32_mode4(context, target_cycles);
+				} else if (context->regs[REG_MODE_2] & BIT_M1) {
+						vdp_tms_text(context, target_cycles);
+				} else {
+					vdp_tms_graphics(context, target_cycles);
+				}
+			} else {
+				vdp_inactive(context, target_cycles, is_h40, mode_5);
+			}
 		}
 	}
 }
