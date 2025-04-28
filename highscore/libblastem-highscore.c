@@ -188,6 +188,18 @@ void render_unlock_audio()
 {
 }
 
+uint8_t render_create_thread(render_thread *thread, const char *name, render_thread_fun fun, void *data)
+{
+  *thread = g_thread_try_new (name, fun, data, NULL);
+
+  return *thread != NULL;
+}
+
+uint8_t render_is_threaded_video(void)
+{
+  return 0;
+}
+
 uint32_t render_min_buffered(void)
 {
   //not actually used in the sync to audio path

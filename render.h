@@ -69,6 +69,11 @@
 #define render_relative_mouse SDL_SetRelativeMouseMode
 typedef SDL_Thread* render_thread;
 #endif
+#else
+#ifdef IS_HIGHSCORE
+#include <glib.h>
+typedef GThread* render_thread;
+#endif
 #endif
 
 #define MAX_JOYSTICKS 8
@@ -155,8 +160,8 @@ int render_ui_to_pixels_x(int ui);
 int render_ui_to_pixels_y(int ui);
 char *render_read_clipboard(void);
 uint8_t render_is_threaded_video(void);
-#ifndef IS_LIB
 uint8_t render_create_thread(render_thread *thread, const char *name, render_thread_fun fun, void *data);
+#ifndef IS_LIB
 uint8_t render_static_image(uint8_t window, uint8_t *buffer, uint32_t size);
 void render_draw_image(uint8_t window, uint8_t image, int x, int y, int width, int height);
 void render_clear_window(uint8_t window, uint8_t r, uint8_t g, uint8_t b);
