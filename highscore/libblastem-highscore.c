@@ -59,9 +59,7 @@ uint32_t *render_get_framebuffer(uint8_t which, int *pitch)
 
   uint *fb = hs_software_context_get_framebuffer (self->context);
 
-  *pitch = LINEBUF_SIZE * sizeof(uint32_t);
-  if (which != last_fb)
-    *pitch *= 2;
+  *pitch = LINEBUF_SIZE * sizeof(uint32_t) * 2;
 
   if (which == FRAMEBUFFER_EVEN)
     return fb + LINEBUF_SIZE;
@@ -91,6 +89,7 @@ void render_framebuffer_updated(uint8_t which, int width)
                                         (game_height - overscan_top - overscan_bot) * height_multiplier);
 
   hs_software_context_set_area (self->context, &area);
+  hs_software_context_set_row_stride (self->context, LINEBUF_SIZE * sizeof(uint32_t) * 2 / height_multiplier);
 
   system_request_exit (current_system, 0);
 }
