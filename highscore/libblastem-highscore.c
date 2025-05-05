@@ -84,12 +84,15 @@ void render_framebuffer_updated(uint8_t which, int width)
     last_fb = which;
   }
 
-  HsRectangle area = HS_RECTANGLE_INIT (overscan_left, overscan_top * height_multiplier,
-                                        width - overscan_left - overscan_right,
-                                        (game_height - overscan_top - overscan_bot) * height_multiplier);
+  HsRectangle area = HS_RECTANGLE_INIT (0, 0, width, game_height * height_multiplier);
 
   hs_software_context_set_area (self->context, &area);
   hs_software_context_set_row_stride (self->context, LINEBUF_SIZE * sizeof(uint32_t) * 2 / height_multiplier);
+
+  HsBorder overscan = HS_BORDER_INIT_FULL (overscan_top * height_multiplier,
+                                           overscan_bot * height_multiplier,
+                                           overscan_left, overscan_right);
+  hs_software_context_set_overscan (self->context, &overscan);
 
   system_request_exit (current_system, 0);
 }
@@ -106,12 +109,12 @@ uint8_t render_fullscreen(void)
 
 uint32_t render_overscan_top()
 {
-  return overscan_top;
+  return 0;
 }
 
 uint32_t render_overscan_bot()
 {
-  return overscan_bot;
+  return 0;
 }
 
 void process_events()
