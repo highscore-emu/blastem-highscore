@@ -203,9 +203,9 @@ blastem_core_get_frame_rate (HsCore *core)
 static double
 blastem_core_get_aspect_ratio (HsCore *core)
 {
-  guint game_height = video_standard == VID_NTSC ? 243 : 294;
+  guint game_height = video_standard == VID_NTSC ? 224 : 240;
   guint width = 256; // Same between 320 and 256 modes
-  guint height = game_height - overscan_top - overscan_bot;
+  guint height = game_height;
   double par;
 
   if (video_standard == VID_NTSC)
