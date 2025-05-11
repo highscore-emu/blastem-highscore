@@ -89,6 +89,19 @@ void render_framebuffer_updated(uint8_t which, int width)
   hs_software_context_set_area (self->context, &area);
   hs_software_context_set_row_stride (self->context, LINEBUF_SIZE * sizeof(uint32_t) * 2 / height_multiplier);
 
+  HsInterlacingMode mode;
+
+  if (height_multiplier == 2) {
+    if (which == FRAMEBUFFER_ODD)
+      mode = HS_INTERLACING_ODD_FIELD;
+    else
+      mode = HS_INTERLACING_EVEN_FIELD;
+  } else {
+    mode = HS_INTERLACING_NONE;
+  }
+
+  hs_software_context_set_interlacing (self->context, mode);
+
   HsBorder overscan = HS_BORDER_INIT_FULL (overscan_top * height_multiplier,
                                            overscan_bot * height_multiplier,
                                            overscan_left, overscan_right);
