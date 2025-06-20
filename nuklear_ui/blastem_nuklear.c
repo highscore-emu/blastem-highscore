@@ -2737,8 +2737,9 @@ static struct nk_image load_image_rawfb(uint32_t *buf, uint32_t width, uint32_t 
 	return nk_image_ptr(fbimg);
 }
 
-static void font_init(struct nk_context *ctx)
+static void font_init(uint8_t window, struct nk_context *ctx)
 {
+	uint32_t height = window < FRAMEBUFFER_USER_START ? render_height() : 480;
 	struct nk_font_atlas *atlas;
 	if (fb_context) {
 		nk_rawfb_font_stash_begin(fb_context, &atlas);
@@ -2752,7 +2753,7 @@ static void font_init(struct nk_context *ctx)
 	if (!font) {
 		fatal_error("Failed to find default font path\n");
 	}
-	def_font = nk_font_atlas_add_from_memory(atlas, font, font_size, render_height() / 24, NULL);
+	def_font = nk_font_atlas_add_from_memory(atlas, font, font_size, height / 24, NULL);
 	free(font);
 	if (fb_context) {
 		nk_rawfb_font_stash_end(fb_context);
@@ -2780,11 +2781,12 @@ static void texture_init(void)
 	}
 }
 
-static void style_init(struct nk_context *ctx)
+static void style_init(uint8_t window, struct nk_context *ctx)
 {
-	ctx->style.checkbox.padding.x = render_height() / 120;
-	ctx->style.checkbox.padding.y = render_height() / 120;
-	ctx->style.checkbox.border = render_height() / 240;
+	uint32_t height = window < FRAMEBUFFER_USER_START ? render_height() : 480;
+	ctx->style.checkbox.padding.x = height / 120;
+	ctx->style.checkbox.padding.y = height / 120;
+	ctx->style.checkbox.border = height / 240;
 	ctx->style.checkbox.cursor_normal.type = NK_STYLE_ITEM_COLOR;
 	ctx->style.checkbox.cursor_normal.data.color = (struct nk_color){
 		.r = 255, .g = 128, .b = 0, .a = 255
@@ -2800,7 +2802,8 @@ static void style_init(struct nk_context *ctx)
 static void fb_resize(void)
 {
 	nk_rawfb_resize_fb(fb_context, NULL, render_width(), render_height(), 0);
-	style_init(context);
+	style_init(FRAMEBUFFER_UI, context);
+	font_init(FRAMEBUFFER_UI, context);
 	texture_init();
 }
 
@@ -2912,8 +2915,8 @@ struct nk_context *shared_nuklear_init(uint8_t window)
 #ifndef DISABLE_OPENGL
 	}
 #endif
-	style_init(ret);
-	font_init(ret);
+	style_init(window, ret);
+	font_init(window, ret);
 	return ret;
 }
 
