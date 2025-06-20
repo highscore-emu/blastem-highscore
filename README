@@ -555,4 +555,4 @@ COPYING for full license details.
 
 Binary releases of BlastEm are packaged with GLEW, SDL2 and zlib which have their
 own licenses. See GLEW-LICENSE and SDL-LICENSE for details. For zlib license
-information, please see zlib.h in the source code release.
+information, please see zlib/zlib.h or zlib/LICENSE in the source code release.
