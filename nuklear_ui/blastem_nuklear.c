@@ -2626,7 +2626,7 @@ void blastem_nuklear_render(void)
 			render_framebuffer_updated(FRAMEBUFFER_UI, render_width());
 		} else {
 #ifndef DISABLE_OPENGL
-			nk_sdl_render(NK_ANTI_ALIASING_ON, 512 * 1024, 128 * 1024);
+			nk_sdl_render(context, NK_ANTI_ALIASING_ON, 512 * 1024, 128 * 1024);
 #endif
 		}
 		nk_input_begin(context);
@@ -2668,7 +2668,7 @@ void ui_idle_loop(void)
 	ui_exit();
 #endif
 }
-static void handle_event(SDL_Event *event)
+static void handle_event(uint8_t which, SDL_Event *event)
 {
 	SDL_Joystick *joy = render_get_joystick(selected_controller);
 	if (event->type == SDL_KEYDOWN) {
@@ -2695,14 +2695,14 @@ static void handle_event(SDL_Event *event)
 	if (stick_nav_disabled && event->type == SDL_CONTROLLERAXISMOTION) {
 		return;
 	}
-	nk_sdl_handle_event(event);
+	nk_sdl_handle_event(context, event);
 }
 
 static void context_destroyed(void)
 {
 	if (context)
 	{
-		nk_sdl_shutdown();
+		nk_sdl_shutdown(context);
 		context = NULL;
 	}
 }
@@ -2737,14 +2737,14 @@ static struct nk_image load_image_rawfb(uint32_t *buf, uint32_t width, uint32_t 
 	return nk_image_ptr(fbimg);
 }
 
-static void texture_init(void)
+static void font_init(struct nk_context *ctx)
 {
 	struct nk_font_atlas *atlas;
 	if (fb_context) {
 		nk_rawfb_font_stash_begin(fb_context, &atlas);
 	} else {
 #ifndef DISABLE_OPENGL
-		nk_sdl_font_stash_begin(&atlas);
+		nk_sdl_font_stash_begin(ctx, &atlas);
 #endif
 	}
 	uint32_t font_size;
@@ -2758,10 +2758,14 @@ static void texture_init(void)
 		nk_rawfb_font_stash_end(fb_context);
 	} else {
 #ifndef DISABLE_OPENGL
-		nk_sdl_font_stash_end();
+		nk_sdl_font_stash_end(ctx);
 #endif
 	}
-	nk_style_set_font(context, &def_font->handle);
+	nk_style_set_font(ctx, &def_font->handle);
+}
+
+static void texture_init(void)
+{
 	for (uint32_t i = 0; i < num_ui_images; i++)
 	{
 #ifndef DISABLE_OPENGL
@@ -2776,44 +2780,33 @@ static void texture_init(void)
 	}
 }
 
-static void style_init(void)
+static void style_init(struct nk_context *ctx)
 {
-	context->style.checkbox.padding.x = render_height() / 120;
-	context->style.checkbox.padding.y = render_height() / 120;
-	context->style.checkbox.border = render_height() / 240;
-	context->style.checkbox.cursor_normal.type = NK_STYLE_ITEM_COLOR;
-	context->style.checkbox.cursor_normal.data.color = (struct nk_color){
+	ctx->style.checkbox.padding.x = render_height() / 120;
+	ctx->style.checkbox.padding.y = render_height() / 120;
+	ctx->style.checkbox.border = render_height() / 240;
+	ctx->style.checkbox.cursor_normal.type = NK_STYLE_ITEM_COLOR;
+	ctx->style.checkbox.cursor_normal.data.color = (struct nk_color){
 		.r = 255, .g = 128, .b = 0, .a = 255
 	};
-	context->style.checkbox.cursor_hover = context->style.checkbox.cursor_normal;
-	context->style.property.inc_button.text_hover = (struct nk_color){
+	ctx->style.checkbox.cursor_hover = ctx->style.checkbox.cursor_normal;
+	ctx->style.property.inc_button.text_hover = (struct nk_color){
 		.r = 255, .g = 128, .b = 0, .a = 255
 	};
-	context->style.property.dec_button.text_hover = context->style.property.inc_button.text_hover;
-	context->style.combo.button.text_hover = context->style.property.inc_button.text_hover;
+	ctx->style.property.dec_button.text_hover = ctx->style.property.inc_button.text_hover;
+	ctx->style.combo.button.text_hover = ctx->style.property.inc_button.text_hover;
 }
 
 static void fb_resize(void)
 {
 	nk_rawfb_resize_fb(fb_context, NULL, render_width(), render_height(), 0);
-	style_init();
+	style_init(context);
 	texture_init();
 }
 
 static void context_created(void)
 {
-	context = nk_sdl_init(render_get_window());
-#ifndef DISABLE_OPENGL
-	if (render_has_gl()) {
-		nk_sdl_device_create();
-	} else {
-#endif
-		fb_context = nk_rawfb_init(NULL, context, render_width(), render_height(), 0);
-		render_set_ui_fb_resize_handler(fb_resize);
-#ifndef DISABLE_OPENGL
-	}
-#endif
-	style_init();
+	context = shared_nuklear_init(FRAMEBUFFER_UI);
 	texture_init();
 }
 
@@ -2897,12 +2890,21 @@ ui_image *load_ui_image(char *name)
 	}
 }
 
-void blastem_nuklear_init(uint8_t file_loaded)
+struct nk_context *shared_nuklear_init(uint8_t window)
 {
-	context = nk_sdl_init(render_get_window());
+	if (window >= FRAMEBUFFER_USER_START) {
+#ifdef DISABLE_OPENGL
+		return NULL;
+#else
+		if (!render_has_gl()) {
+			return NULL;
+		}
+#endif
+	}
+	struct nk_context *ret = nk_sdl_init(render_get_window(window));
 #ifndef DISABLE_OPENGL
 	if (render_has_gl()) {
-		nk_sdl_device_create();
+		nk_sdl_device_create(ret);
 	} else {
 #endif
 		fb_context = nk_rawfb_init(NULL, context, render_width(), render_height(), 0);
@@ -2910,7 +2912,14 @@ void blastem_nuklear_init(uint8_t file_loaded)
 #ifndef DISABLE_OPENGL
 	}
 #endif
-	style_init();
+	style_init(ret);
+	font_init(ret);
+	return ret;
+}
+
+void blastem_nuklear_init(uint8_t file_loaded)
+{
+	context = shared_nuklear_init(FRAMEBUFFER_UI);
 
 	controller_360 = load_ui_image("images/360.png");
 	controller_ps4 = load_ui_image("images/ps4.png");
@@ -2926,8 +2935,8 @@ void blastem_nuklear_init(uint8_t file_loaded)
 		current_view = view_menu;
 		set_content_binding_state(0);
 	}
-	render_set_ui_render_fun(blastem_nuklear_render);
-	render_set_event_handler(handle_event);
+	render_set_ui_render_fun(FRAMEBUFFER_UI, blastem_nuklear_render);
+	render_set_event_handler(FRAMEBUFFER_UI, handle_event);
 	render_set_gl_context_handlers(context_destroyed, context_created);
 	char *unf = tern_find_path(config, "ui\0use_native_filechooser\0", TVAL_PTR).ptrval;
 	use_native_filechooser = unf && !strcmp(unf, "on");

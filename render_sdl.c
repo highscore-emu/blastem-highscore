@@ -34,17 +34,21 @@
 
 
 typedef struct {
-	SDL_Window *win;
+	SDL_Window           *win;
 	SDL_Renderer         *renderer;
 	SDL_Texture          *sdl_texture;
 	SDL_Texture          **static_images;
 	window_close_handler on_close;
+	ui_render_fun        on_render;
+	event_handler        on_event;
 	uint32_t             width;
 	uint32_t             height;
 	uint8_t              num_static;
 #ifndef DISABLE_OPENGL
 	SDL_GLContext        *gl_context;
 	pixel_t              *texture_buf;
+	uint32_t             orig_tex_width;
+	uint32_t             orig_tex_height;
 	uint32_t             tex_width;
 	uint32_t             tex_height;
 	GLuint               gl_texture[2];
@@ -825,9 +829,13 @@ void render_set_drag_drop_handler(drop_handler handler)
 }
 
 static event_handler custom_event_handler;
-void render_set_event_handler(event_handler handler)
+void render_set_event_handler(uint8_t which, event_handler handler)
 {
-	custom_event_handler = handler;
+	if (which < FRAMEBUFFER_USER_START) {
+		custom_event_handler = handler;
+	} else {
+		extras[which - FRAMEBUFFER_USER_START].on_event = handler;
+	}
 }
 
 int render_find_joystick_index(SDL_JoystickID instanceID)
@@ -952,26 +960,34 @@ int render_ui_to_pixels_y(int ui)
 
 static int32_t handle_event(SDL_Event *event)
 {
-	if (custom_event_handler) {
-		custom_event_handler(event);
-	}
+	SDL_Window *event_win = NULL;
 	switch (event->type) {
 	case SDL_KEYDOWN:
-		handle_keydown(event->key.keysym.sym, scancode_map[event->key.keysym.scancode]);
+		event_win = SDL_GetWindowFromID(event->key.windowID);
+		if (event_win == main_window) {
+			handle_keydown(event->key.keysym.sym, scancode_map[event->key.keysym.scancode]);
+		}
 		break;
 	case SDL_KEYUP:
-		handle_keyup(event->key.keysym.sym, scancode_map[event->key.keysym.scancode]);
+		event_win = SDL_GetWindowFromID(event->key.windowID);
+		if (event_win == main_window) {
+			handle_keyup(event->key.keysym.sym, scancode_map[event->key.keysym.scancode]);
+		}
 		break;
 	case SDL_JOYBUTTONDOWN:
+		event_win = main_window;
 		handle_joydown(render_find_joystick_index(event->jbutton.which), event->jbutton.button);
 		break;
 	case SDL_JOYBUTTONUP:
+		event_win = main_window;
 		handle_joyup(lock_joystick_index(render_find_joystick_index(event->jbutton.which), -1), event->jbutton.button);
 		break;
 	case SDL_JOYHATMOTION:
+		event_win = main_window;
 		handle_joy_dpad(lock_joystick_index(render_find_joystick_index(event->jhat.which), -1), event->jhat.hat, event->jhat.value);
 		break;
 	case SDL_JOYAXISMOTION:
+		event_win = main_window;
 		handle_joy_axis(lock_joystick_index(render_find_joystick_index(event->jaxis.which), -1), event->jaxis.axis, event->jaxis.value);
 		break;
 	case SDL_JOYDEVICEADDED: {
@@ -1013,19 +1029,30 @@ static int32_t handle_event(SDL_Event *event)
 		break;
 	}
 	case SDL_MOUSEMOTION:
+		event_win = SDL_GetWindowFromID(event->motion.windowID);
 		handle_mouse_moved(event->motion.which, event->motion.x * ui_scale_x + 0.5f, event->motion.y * ui_scale_y + 0.5f + overscan_top[video_standard], event->motion.xrel, event->motion.yrel);
 		break;
 	case SDL_MOUSEBUTTONDOWN:
+		event_win = SDL_GetWindowFromID(event->button.windowID);
 		handle_mousedown(event->button.which, event->button.button);
 		break;
 	case SDL_MOUSEBUTTONUP:
+		event_win = SDL_GetWindowFromID(event->button.windowID);
 		handle_mouseup(event->button.which, event->button.button);
+		break;
+	case SDL_MOUSEWHEEL:
+		event_win = SDL_GetWindowFromID(event->wheel.windowID);
+		break;
+	case SDL_FINGERMOTION:
+	case SDL_FINGERDOWN:
+	case SDL_FINGERUP:
+		event_win = SDL_GetWindowFromID(event->tfinger.windowID);
 		break;
 	case SDL_WINDOWEVENT:
 		switch (event->window.event)
 		{
 		case SDL_WINDOWEVENT_SIZE_CHANGED:
-			if (!main_window) {
+			if (!main_window || SDL_GetWindowFromID(event->window.windowID) != main_window) {
 				break;
 			}
 			need_ui_fb_resize = 1;
@@ -1076,6 +1103,17 @@ static int32_t handle_event(SDL_Event *event)
 			break;
 		}
 		break;
+	case SDL_TEXTEDITING:
+		event_win = SDL_GetWindowFromID(event->edit.windowID);
+		break;
+#if SDL_VERSION_ATLEAST(2, 0, 22)
+	case SDL_TEXTEDITING_EXT:
+		event_win = SDL_GetWindowFromID(event->editExt.windowID);
+		break;
+#endif
+	case SDL_TEXTINPUT:
+		event_win = SDL_GetWindowFromID(event->text.windowID);
+		break;
 	case SDL_DROPFILE:
 		if (drag_drop_handler) {
 			drag_drop_handler(strdup(event->drop.file));
@@ -1085,6 +1123,23 @@ static int32_t handle_event(SDL_Event *event)
 	case SDL_QUIT:
 		puts("");
 		exit(0);
+	}
+	if (event_win) {
+		if (event_win == main_window) {
+			if (custom_event_handler) {
+				custom_event_handler(FRAMEBUFFER_UI, event);
+			}
+		} else {
+			for (uint8_t i = 0; i < num_extras; i++)
+			{
+				if (extras[i].win == event_win) {
+					if (extras[i].on_event) {
+						extras[i].on_event(i + FRAMEBUFFER_USER_START, event);
+					}
+					break;
+				}
+			}
+		}
 	}
 	return 0;
 }
@@ -1546,14 +1601,15 @@ void render_config_updated(void)
 	}
 }
 
-SDL_Window *render_get_window(void)
+SDL_Window *render_get_window(uint8_t which)
 {
+	SDL_Window *ret = which < FRAMEBUFFER_USER_START ? main_window : extras[which - FRAMEBUFFER_USER_START].win;
 #ifndef DISABLE_OPENGL
 	if (render_gl) {
-		SDL_GL_MakeCurrent(main_window, main_context);
+		SDL_GL_MakeCurrent(ret, which < FRAMEBUFFER_USER_START ? main_context : extras[which - FRAMEBUFFER_USER_START].gl_context);
 	}
 #endif
-	return main_window;
+	return ret;
 }
 
 uint32_t render_audio_syncs_per_sec(void)
@@ -1662,7 +1718,7 @@ void GLAPIENTRY gl_message_callback(GLenum source, GLenum type, GLenum id, GLenu
 }
 #endif
 
-uint8_t render_create_window(char *caption, uint32_t width, uint32_t height, window_close_handler close_handler)
+uint8_t render_create_window_tex(char *caption, uint32_t width, uint32_t height, uint32_t tex_width, uint32_t tex_height, window_close_handler close_handler)
 {
 	uint8_t win_idx = 0xFF;
 	for (int i = 0; i < num_extras; i++)
@@ -1718,12 +1774,12 @@ uint8_t render_create_window(char *caption, uint32_t width, uint32_t height, win
 			if (i) {
 				glTexImage2D(GL_TEXTURE_2D, 0, INTERNAL_FORMAT, 1, 1, 0, SRC_FORMAT, SRC_TYPE, extras[win_idx].color);
 			} else {
-				extras[win_idx].tex_width = width;
-				extras[win_idx].tex_height = height;
+				extras[win_idx].tex_width = extras[win_idx].orig_tex_width = tex_width;
+				extras[win_idx].tex_height = extras[win_idx].orig_tex_height = tex_height;
 				char *npot_textures = tern_find_path_default(config, "video\0npot_textures\0", (tern_val){.ptrval = "off"}, TVAL_PTR).ptrval;
 				if (strcmp(npot_textures, "on")) {
-					extras[win_idx].tex_width = nearest_pow2(width);
-					extras[win_idx].tex_height = nearest_pow2(height);
+					extras[win_idx].tex_width = nearest_pow2(tex_width);
+					extras[win_idx].tex_height = nearest_pow2(tex_height);
 				}
 				extras[win_idx].texture_buf = calloc(PITCH_PIXEL_T(extras[win_idx].tex_width) * extras[win_idx].tex_height, sizeof(pixel_t));
 				glTexImage2D(GL_TEXTURE_2D, 0, INTERNAL_FORMAT, extras[win_idx].tex_width, extras[win_idx].tex_height, 0, SRC_FORMAT, SRC_TYPE, extras[win_idx].texture_buf);
@@ -1762,7 +1818,7 @@ sdl_renderer:
 		if (!extras[win_idx].renderer) {
 			goto fail_renderer;
 		}
-		extras[win_idx].sdl_texture = SDL_CreateTexture(extras[win_idx].renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+		extras[win_idx].sdl_texture = SDL_CreateTexture(extras[win_idx].renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, tex_width, tex_height);
 		if (!extras[win_idx].sdl_texture) {
 			goto fail_texture;
 		}
@@ -1779,6 +1835,18 @@ fail_renderer:
 fail_window:
 	return 0;
 }
+
+uint8_t render_create_window(char *caption, uint32_t width, uint32_t height, window_close_handler close_handler)
+{
+	return render_create_window_tex(caption, width, height, width, height, close_handler);
+}
+
+#ifndef DISABLE_OPENGL
+uint32_t render_get_window_texture(uint8_t which)
+{
+	return extras[which - FRAMEBUFFER_USER_START].gl_texture[0];
+}
+#endif
 
 void render_destroy_window(uint8_t which)
 {
@@ -2033,7 +2101,7 @@ pixel_t *render_get_framebuffer(uint8_t which, int *pitch)
 		return texture_buf;
 	} else if (render_gl && which >= FRAMEBUFFER_USER_START) {
 		uint8_t win_idx = which - FRAMEBUFFER_USER_START;
-		*pitch = PITCH_BYTES(extras[win_idx].width);
+		*pitch = PITCH_BYTES(extras[win_idx].tex_width);
 		return extras[win_idx].texture_buf;
 	} else {
 #endif
@@ -2163,7 +2231,7 @@ static void process_framebuffer(pixel_t *buffer, uint8_t which, int width)
 		uint8_t win_idx = which - FRAMEBUFFER_USER_START;
 		SDL_GL_MakeCurrent(extras[win_idx].win, extras[win_idx].gl_context);
 		glBindTexture(GL_TEXTURE_2D, extras[win_idx].gl_texture[0]);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, extras[win_idx].width, extras[win_idx].height, SRC_FORMAT, SRC_TYPE, buffer);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, extras[win_idx].orig_tex_width, extras[win_idx].orig_tex_height, SRC_FORMAT, SRC_TYPE, buffer);
 	} else {
 #endif
 		uint32_t shot_height = height;
@@ -2230,14 +2298,17 @@ static void process_framebuffer(pixel_t *buffer, uint8_t which, int width)
 		else {
 			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			
-			glBindBuffer(GL_ARRAY_BUFFER, extras[win_idx].gl_buffers[0]);
-			extra_draw_quad(
-				extras + win_idx,
-				extras[win_idx].gl_texture[0], 
-				(float)extras[win_idx].width / (float)extras[win_idx].tex_width,
-				(float)extras[win_idx].height / (float)extras[win_idx].tex_height
-			);
+			if (extras[win_idx].on_render) {
+				extras[win_idx].on_render();
+			} else {
+				glBindBuffer(GL_ARRAY_BUFFER, extras[win_idx].gl_buffers[0]);
+				extra_draw_quad(
+					extras + win_idx,
+					extras[win_idx].gl_texture[0], 
+					(float)extras[win_idx].orig_tex_width / (float)extras[win_idx].tex_width,
+					(float)extras[win_idx].orig_tex_height / (float)extras[win_idx].tex_height
+				);
+			}
 			
 			SDL_GL_SwapWindow(extras[win_idx].win);
 		}
@@ -2335,7 +2406,7 @@ int frame_queue_len, frame_queue_read, frame_queue_write;
 
 void render_framebuffer_updated(uint8_t which, int width)
 {
-	if (sync_src == SYNC_AUDIO_THREAD || sync_src == SYNC_EXTERNAL) {
+	if (which < FRAMEBUFFER_USER_START && (sync_src == SYNC_AUDIO_THREAD || sync_src == SYNC_EXTERNAL)) {
 		SDL_LockMutex(frame_mutex);
 			while (frame_queue_len == 4) {
 				SDL_CondSignal(frame_ready);
@@ -2417,9 +2488,13 @@ void render_video_loop(void)
 }
 
 static ui_render_fun render_ui;
-void render_set_ui_render_fun(ui_render_fun fun)
+void render_set_ui_render_fun(uint8_t which, ui_render_fun fun)
 {
-	render_ui = fun;
+	if (which < FRAMEBUFFER_USER_START) {
+		render_ui = fun;
+	} else {
+		extras[which - FRAMEBUFFER_USER_START].on_render = fun;
+	}
 }
 
 static ui_render_fun frame_presented;

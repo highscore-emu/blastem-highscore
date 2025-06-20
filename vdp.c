@@ -11,6 +11,9 @@
 #include "util.h"
 #include "event_log.h"
 #include "terminal.h"
+#ifndef DISABLE_NUKLEAR
+#include "nuklear_ui/debug_ui.h"
+#endif
 
 #define NTSC_INACTIVE_START 224
 #define PAL_INACTIVE_START 240
@@ -6608,7 +6611,11 @@ void vdp_toggle_debug_view(vdp_context *context, uint8_t debug_type)
 			return;
 		}
 		current_vdp = context;
+#ifdef DISABLE_NUKLEAR
 		context->debug_fb_indices[debug_type] = render_create_window(caption, width, height, vdp_debug_window_close);
+#else
+		context->debug_fb_indices[debug_type] = debug_create_window(debug_type, caption, width, height, vdp_debug_window_close);
+#endif
 		if (context->debug_fb_indices[debug_type]) {
 			context->enabled_debuggers |= 1 << debug_type;
 		}

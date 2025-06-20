@@ -10,6 +10,7 @@
 #include "nuklear.h"
 #include "nuklear_sdl_gles2.h"
 
+struct nk_context *shared_nuklear_init(uint8_t window);
 void blastem_nuklear_init(uint8_t file_loaded);
 void show_pause_menu(void);
 void show_play_view(void);

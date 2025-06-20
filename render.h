@@ -106,7 +106,11 @@ void render_save_screenshot(char *path);
 uint8_t render_saving_video(void);
 void render_end_video(void);
 void render_save_video(char *path);
+uint8_t render_create_window_tex(char *caption, uint32_t width, uint32_t height, uint32_t tex_width, uint32_t tex_height, window_close_handler close_handler);
 uint8_t render_create_window(char *caption, uint32_t width, uint32_t height, window_close_handler close_handler);
+#ifndef DISABLE_OPENGL
+uint32_t render_get_window_texture(uint8_t which);
+#endif
 void render_destroy_window(uint8_t which);
 pixel_t *render_get_framebuffer(uint8_t which, int *pitch);
 void render_framebuffer_updated(uint8_t which, int width);
@@ -142,7 +146,7 @@ void render_sleep_ms(uint32_t delay);
 uint8_t render_has_gl(void);
 void render_config_updated(void);
 void render_set_gl_context_handlers(ui_render_fun destroy, ui_render_fun create);
-void render_set_ui_render_fun(ui_render_fun);
+void render_set_ui_render_fun(uint8_t which, ui_render_fun);
 void render_set_ui_fb_resize_handler(ui_render_fun resize);
 void render_set_frame_presented_fun(ui_render_fun);
 void render_set_audio_full_fun(ui_render_fun);
