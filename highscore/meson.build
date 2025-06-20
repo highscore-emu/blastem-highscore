@@ -86,6 +86,7 @@ blastem_c_args = [
   '-fvisibility=hidden',
   '-DIS_LIB',
   '-DIS_HIGHSCORE',
+  '-DDISABLE_NUKLEAR',
   '-Wno-implicit-fallthrough',
   '-Wno-incompatible-pointer-types',
   '-Wno-missing-field-initializers',
