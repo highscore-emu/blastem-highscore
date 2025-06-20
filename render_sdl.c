@@ -958,19 +958,30 @@ int render_ui_to_pixels_y(int ui)
 	return ui * ui_scale_y + 0.5f;
 }
 
+static uint8_t has_event_handler(SDL_Window *win)
+{
+	for (uint8_t i = 0; i < num_extras; i++)
+	{
+		if (extras[i].win == win) {
+			return extras[i].on_event != NULL;
+		}
+	}
+	return 0;
+}
+
 static int32_t handle_event(SDL_Event *event)
 {
 	SDL_Window *event_win = NULL;
 	switch (event->type) {
 	case SDL_KEYDOWN:
 		event_win = SDL_GetWindowFromID(event->key.windowID);
-		if (event_win == main_window) {
+		if (event_win == main_window || !has_event_handler(event_win)) {
 			handle_keydown(event->key.keysym.sym, scancode_map[event->key.keysym.scancode]);
 		}
 		break;
 	case SDL_KEYUP:
 		event_win = SDL_GetWindowFromID(event->key.windowID);
-		if (event_win == main_window) {
+		if (event_win == main_window || !has_event_handler(event_win)) {
 			handle_keyup(event->key.keysym.sym, scancode_map[event->key.keysym.scancode]);
 		}
 		break;
