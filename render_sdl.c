@@ -2112,7 +2112,7 @@ pixel_t *render_get_framebuffer(uint8_t which, int *pitch)
 		return texture_buf;
 	} else if (render_gl && which >= FRAMEBUFFER_USER_START) {
 		uint8_t win_idx = which - FRAMEBUFFER_USER_START;
-		*pitch = PITCH_BYTES(extras[win_idx].tex_width);
+		*pitch = PITCH_BYTES(extras[win_idx].orig_tex_width);
 		return extras[win_idx].texture_buf;
 	} else {
 #endif
