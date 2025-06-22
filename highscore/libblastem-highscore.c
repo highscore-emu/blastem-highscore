@@ -57,7 +57,7 @@ uint32_t *render_get_framebuffer(uint8_t which, int *pitch)
   if (!self->context)
     return NULL;
 
-  uint *fb = hs_software_context_get_framebuffer (self->context);
+  uint *fb = self->framebuffer;
 
   *pitch = LINEBUF_SIZE * sizeof(uint32_t) * 2;
 
@@ -83,6 +83,10 @@ void render_framebuffer_updated(uint8_t which, int width)
     height_multiplier = 2;
     last_fb = which;
   }
+
+  guint8 *fb = hs_software_context_acquire_framebuffer (self->context);
+  memcpy (fb, self->framebuffer, LINEBUF_SIZE * sizeof (uint32_t) * game_height * 2);
+  hs_software_context_release_framebuffer (self->context);
 
   HsRectangle area = HS_RECTANGLE_INIT (0, 0, width, game_height * height_multiplier);
 

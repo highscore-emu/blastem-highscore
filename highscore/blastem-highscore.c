@@ -17,6 +17,7 @@ struct _BlastemCore
 
   guint32 prev_input_state[2];
   guint32 input_state[2];
+  guint8 *framebuffer;
 };
 
 #include "libblastem-highscore.c"
@@ -68,7 +69,7 @@ blastem_core_load_rom (HsCore      *core,
                                                    LINEBUF_SIZE,
                                                    294 * 2,
                                                    HS_PIXEL_FORMAT_B8G8R8X8);
-
+  self->framebuffer = g_new0 (guint8, LINEBUF_SIZE * 294 * 2 * 4);
   g_free (data);
 
   if (current_system->persist_save)
@@ -233,6 +234,10 @@ blastem_core_get_region (HsCore *core)
 static void
 blastem_core_finalize (GObject *object)
 {
+  BlastemCore *self = BLASTEM_CORE (core);
+
+  g_free (self->framebuffer);
+
   G_OBJECT_CLASS (blastem_core_parent_class)->finalize (object);
 
   core = NULL;
@@ -272,6 +277,8 @@ blastem_core_init (BlastemCore *self)
   g_assert (!core);
 
   core = self;
+
+  self->framebuffer = g_new0 (guint8, LINEBUF_SIZE * 294 * 2 * 4);
 }
 
 static void
