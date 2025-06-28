@@ -2910,7 +2910,7 @@ struct nk_context *shared_nuklear_init(uint8_t window)
 		nk_sdl_device_create(ret);
 	} else {
 #endif
-		fb_context = nk_rawfb_init(NULL, context, render_width(), render_height(), 0);
+		fb_context = nk_rawfb_init(NULL, ret, render_width(), render_height(), 0);
 		render_set_ui_fb_resize_handler(fb_resize);
 #ifndef DISABLE_OPENGL
 	}
