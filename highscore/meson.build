@@ -162,7 +162,10 @@ blastem_include_dirs = [
   include_directories('..'),
 ]
 
-core_dir = get_option('libdir') / 'highscore' / 'cores' / 'blastem'
+core_dir = get_option('core_dir')
+if core_dir == ''
+  core_dir = get_option('libdir') / 'highscore' / 'cores' / 'blastem'
+endif
 
 shared_library('blastem-highscore',
   blastem_source,
