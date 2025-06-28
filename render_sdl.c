@@ -1134,6 +1134,9 @@ static int32_t handle_event(SDL_Event *event)
 	case SDL_QUIT:
 		puts("");
 		exit(0);
+	default:
+		event_win = main_window;
+		break;
 	}
 	if (event_win) {
 		if (event_win == main_window) {
