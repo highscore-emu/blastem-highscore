@@ -2460,6 +2460,134 @@ static void plane_debug_mode5(pixel_t *fb, uint32_t pitch, vdp_context *context)
 			}
 		}
 	}
+	if (context->debug_flags & DEBUG_FLAG_PLANE_BORDER) {
+		pixel_t border_line = render_map_color(255, 0, 255);
+		if ((context->debug_modes[DEBUG_PLANE] & 3) < 2) {
+			uint16_t hscroll_base = (context->regs[REG_HSCROLL] & 0x3F) << 10;
+			hscroll_base += (context->debug_modes[DEBUG_PLANE] & 1) * 2;
+			uint16_t hscroll_mask = 0;
+			if (context->regs[REG_MODE_3] & 0x2) {
+				hscroll_mask |= 0xF8;
+			}
+			if (context->regs[REG_MODE_3] & 0x1) {
+				hscroll_mask |= 0x7;
+			}
+			uint16_t hscroll = 1023 - (context->vdpmem[hscroll_base] << 8 | context->vdpmem[hscroll_base+1]) & 1023;
+			uint16_t width = (context->regs[REG_MODE_4] & BIT_H40) ? 320 : 256;
+			if (context->regs[REG_MODE_3] & BIT_VSCROLL) {
+				//2-column vscroll
+				uint16_t num_cols = width >> 4;
+				for (int y_off = -2; y_off; y_off++)
+				{
+					for (uint16_t col = 0; col < num_cols; col++)
+					{
+						uint16_t vscroll = context->vsram[col * 2 + (context->debug_modes[DEBUG_PLANE] & 1)] & 1023;
+						int y = (vscroll + y_off) & 1023;
+						pixel_t *line = fb + y * pitch / sizeof(pixel_t);
+						for (int x = col ? hscroll + col * 16 : hscroll - 2, x_end = col == num_cols-1 ? hscroll + width + 2 : x + (col ? 16 : 18); x < x_end; x++)
+						{
+							line[x & 1023] = border_line;
+						}
+					}
+				}
+				for (int y = context->vsram[context->debug_modes[DEBUG_PLANE] & 1], y_end = y + context->inactive_start; y < y_end; y++)
+				{
+					pixel_t *line = fb + (y & 1023) * pitch / sizeof(pixel_t);
+					line[(hscroll - 2) & 1023] = border_line;
+					line[(hscroll - 1) & 1023] = border_line;
+					uint16_t hscroll_addr = hscroll_base + ((y - (y_end - context->inactive_start)) & hscroll_mask) * 4;
+					hscroll = 1024 - (context->vdpmem[hscroll_addr] << 8 | context->vdpmem[hscroll_addr+1]) & 1023;
+				}
+				for (int y = context->vsram[19 * 2 + (context->debug_modes[DEBUG_PLANE] & 1)], y_end = y + context->inactive_start; y < y_end; y++)
+				{
+					pixel_t *line = fb + (y & 1023) * pitch / sizeof(pixel_t);
+					line[(hscroll + width) & 1023] = border_line;
+					line[(hscroll + width + 1) & 1023] = border_line;
+					uint16_t hscroll_addr = hscroll_base + ((y - (y_end - context->inactive_start)) & hscroll_mask) * 4;
+					hscroll = 1024 - (context->vdpmem[hscroll_addr] << 8 | context->vdpmem[hscroll_addr+1]) & 1023;
+				}
+				for (int y_off = context->inactive_start; y_off < context->inactive_start + 2; y_off++)
+				{
+					for (uint16_t col = 0; col < num_cols; col++)
+					{
+						uint16_t vscroll = context->vsram[col * 2 + (context->debug_modes[DEBUG_PLANE] & 1)] & 1023;
+						int y = (vscroll + y_off) & 1023;
+						pixel_t *line = fb + y * pitch / sizeof(pixel_t);
+						for (int x = col ? hscroll + col * 16 : hscroll - 2, x_end = col == num_cols-1 ? hscroll + width + 2 : x + (col ? 16 : 18); x < x_end; x++)
+						{
+							line[x & 1023] = border_line;
+						}
+					}
+				}
+			} else {
+				//full screen vscroll
+				uint16_t vscroll = context->vsram[context->debug_modes[DEBUG_PLANE] & 1] & 1023;
+				int y = (vscroll - 2) & 1023;
+				pixel_t *line = fb + y * pitch / sizeof(pixel_t);
+				for (int x = hscroll - 2, x_end = hscroll + width + 2; x < x_end; x++)
+				{
+					line[x & 1023] = border_line;
+				}
+				y = (y + 1) & 1023;
+				line = fb + y * pitch / sizeof(pixel_t);
+				for (int x = hscroll - 1, x_end = hscroll + width + 1; x < x_end; x++)
+				{
+					line[x & 1023] = border_line;
+				}
+				int y_end = y + context->inactive_start + 1;
+				for (y++; y < y_end; y++)
+				{
+					line = fb + (y & 1023) * pitch / sizeof(pixel_t);
+					line[(hscroll - 2) & 1023] = border_line;
+					line[(hscroll - 1) & 1023] = border_line;
+					line[(hscroll + width) & 1023] = border_line;
+					line[(hscroll + width + 1) & 1023] = border_line;
+					uint16_t hscroll_last = hscroll;
+					uint16_t hscroll_addr = hscroll_base + ((y - vscroll) & hscroll_mask) * 4;
+					hscroll = 1024 - (context->vdpmem[hscroll_addr] << 8 | context->vdpmem[hscroll_addr+1]) & 1023;
+					if (abs(hscroll - hscroll_last) > 512) {
+						//handle wraparound
+						if (hscroll > hscroll_last) {
+							hscroll_last += 1024;
+						} else {
+							hscroll += 1024;
+						}
+					}
+					if (hscroll_last < hscroll) {
+						for (int x = hscroll_last + width + 2, x_end = hscroll + width; x < x_end; x++)
+						{
+							line[x & 1023] = border_line;
+						}
+						line = fb + ((y+1) & 1023) * pitch / sizeof(pixel_t);
+						for (int x = hscroll_last, x_end = hscroll; x < x_end; x++)
+						{
+							line[x & 1023] = border_line;
+						}
+					} else if (hscroll_last > hscroll) {
+						for (int x = hscroll, x_end = hscroll_last; x < x_end; x++)
+						{
+							line[x & 1023] = border_line;
+						}
+						line = fb + ((y+1) & 1023) * pitch / sizeof(pixel_t);
+						for (int x = hscroll + width + 2, x_end = hscroll_last + width; x < x_end; x++)
+						{
+							line[x & 1023] = border_line;
+						}
+					}
+				}
+				line = fb + (y_end & 1023) * pitch / sizeof(pixel_t);
+				for (int x = hscroll - 2, x_end = hscroll + width + 2; x < x_end; x++)
+				{
+					line[x & 1023] = border_line;
+				}
+				line = fb + ((y_end + 1) & 1023) * pitch / sizeof(pixel_t);
+				for (int x = hscroll - 2, x_end = hscroll + width + 2; x < x_end; x++)
+				{
+					line[x & 1023] = border_line;
+				}
+			}
+		}
+	}
 }
 
 static void sprite_debug_mode5(pixel_t *fb, uint32_t pitch, vdp_context *context)

@@ -62,9 +62,9 @@ static void plane_debug_ui(void)
 	struct nk_context *context = windows[DEBUG_PLANE].context;
 	nk_input_end(context);
 	struct nk_image main_image = nk_image_id((int)render_get_window_texture(windows[DEBUG_PLANE].win_idx));
-	if (nk_begin(context, "Plane Debug", nk_rect(0, 0, windows[DEBUG_PLANE].tex_width + 100 + 8, windows[DEBUG_PLANE].tex_height + 8), NK_WINDOW_NO_SCROLLBAR)) {
+	if (nk_begin(context, "Plane Debug", nk_rect(0, 0, windows[DEBUG_PLANE].tex_width + 150 + 8, windows[DEBUG_PLANE].tex_height + 8), NK_WINDOW_NO_SCROLLBAR)) {
 		nk_layout_space_begin(context, NK_STATIC, windows[DEBUG_PLANE].tex_height, INT_MAX);
-		nk_layout_space_push(context, nk_rect(100, 0, windows[DEBUG_PLANE].tex_width, windows[DEBUG_PLANE].tex_height));
+		nk_layout_space_push(context, nk_rect(150, 0, windows[DEBUG_PLANE].tex_width, windows[DEBUG_PLANE].tex_height));
 		nk_image(context, main_image);
 		struct nk_rect bounds = nk_layout_widget_bounds(context);
 		bounds.x += 100;
@@ -74,7 +74,7 @@ static void plane_debug_ui(void)
 			//TODO: display plane position
 			int x = context->input.mouse.pos.x - bounds.x;
 			int y = context->input.mouse.pos.y - bounds.y;
-			switch (vdp->debug_modes[DEBUG_PLANE])
+			switch (vdp->debug_modes[DEBUG_PLANE] & 3)
 			{
 			case 0:
 			case 1:
@@ -110,10 +110,10 @@ static void plane_debug_ui(void)
 				y -= 128;
 				break;
 			}
-			nk_layout_space_push(context, nk_rect(0, windows[DEBUG_PLANE].tex_height - 52, 100, 32));
+			nk_layout_space_push(context, nk_rect(0, windows[DEBUG_PLANE].tex_height - 52, 150, 32));
 			snprintf(buf, sizeof(buf), "X: %d", x);
 			nk_label(context, buf, NK_TEXT_LEFT);
-			nk_layout_space_push(context, nk_rect(0, windows[DEBUG_PLANE].tex_height - 32, 100, 32));
+			nk_layout_space_push(context, nk_rect(0, windows[DEBUG_PLANE].tex_height - 32, 150, 32));
 			snprintf(buf, sizeof(buf), "Y: %d", y);
 			nk_label(context, buf, NK_TEXT_LEFT);
 		}
@@ -125,11 +125,19 @@ static void plane_debug_ui(void)
 		};
 		for (int i = 0; i < 4; i++)
 		{
-			nk_layout_space_push(context, nk_rect(0, i * 32, 100, 32));
-			int selected = i == vdp->debug_modes[DEBUG_PLANE];
+			nk_layout_space_push(context, nk_rect(0, i * 32, 150, 32));
+			int selected = i == (vdp->debug_modes[DEBUG_PLANE] & 3);
 			nk_selectable_label(context, names[i], NK_TEXT_ALIGN_LEFT, &selected);
 			if (selected) {
 				vdp->debug_modes[DEBUG_PLANE] = i;
+			}
+		}
+		if ((vdp->debug_modes[DEBUG_PLANE] & 3) < 3) {
+			nk_layout_space_push(context, nk_rect(0, 5 * 32, 150, 32));
+			if (nk_check_label(context, "Screen Border", vdp->debug_flags & DEBUG_FLAG_PLANE_BORDER)) {
+				vdp->debug_flags |= DEBUG_FLAG_PLANE_BORDER;
+			} else {
+				vdp->debug_flags &= ~DEBUG_FLAG_PLANE_BORDER;
 			}
 		}
 		nk_end(context);
@@ -225,7 +233,7 @@ uint8_t debug_create_window(uint8_t debug_type, char *caption, uint32_t width, u
 	switch (debug_type)
 	{
 	case DEBUG_PLANE:
-		win_width += 100;
+		win_width += 150;
 		render = plane_debug_ui;
 		break;
 	case DEBUG_CRAM:
