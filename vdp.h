@@ -71,6 +71,8 @@
 #define FLAG2_BYTE_PENDING   0x40
 #define FLAG2_PAUSE          0x80
 
+#define DEBUG_FLAG_PLANE_BORDER 0x01
+
 #define DISPLAY_ENABLE 0x40
 
 enum {
@@ -266,6 +268,7 @@ struct vdp_context {
 	uint8_t        enabled_debuggers;
 	uint8_t        debug_fb_indices[NUM_DEBUG_TYPES];
 	uint8_t        debug_modes[NUM_DEBUG_TYPES];
+	uint8_t        debug_flags;
 	uint8_t        pushed_frame;
 	uint8_t        type;
 	uint8_t        cram_latch;
