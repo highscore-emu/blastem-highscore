@@ -2296,6 +2296,18 @@ enum {
 	END
 };
 
+static void read_wait_progress(void)
+{
+	process_events();
+#ifndef IS_LIB
+	render_update_display();
+	vdp_context *vdp = current_system->get_vdp(current_system);
+	if (vdp) {
+		vdp_update_per_frame_debug(vdp);
+	}
+#endif
+}
+
 static uint8_t read_parse_command(debug_root *root, parsed_command *out, int indent_level)
 {
 	++indent_level;
@@ -2305,35 +2317,9 @@ static uint8_t read_parse_command(debug_root *root, parsed_command *out, int ind
 	}
 	putchar(' ');
 	fflush(stdout);
-#ifdef _WIN32
-#define wait 0
-#else
-	int wait = 1;
-	fd_set read_fds;
-	FD_ZERO(&read_fds);
-	struct timeval timeout;
-#endif
-	do {
-		process_events();
-#ifndef IS_LIB
-		render_update_display();
-		vdp_context *vdp = current_system->get_vdp(current_system);
-		if (vdp) {
-			vdp_update_per_frame_debug(vdp);
-		}
-#endif
-#ifndef _WIN32
-		timeout.tv_sec = 0;
-		timeout.tv_usec = 16667;
-		FD_SET(fileno(stdin), &read_fds);
-		if(select(fileno(stdin) + 1, &read_fds, NULL, NULL, &timeout) >= 1) {
-			wait = 0;
-		}
-#endif
-	} while (wait);
-
+	read_wait_progress();
 	char input_buf[1024];
-	if (!fgets(input_buf, sizeof(input_buf), stdin)) {
+	if (!fgets_timeout(input_buf, sizeof(input_buf), stdin, 16667, read_wait_progress)) {
 		fputs("fgets failed", stderr);
 		return READ_FAILED;
 	}
