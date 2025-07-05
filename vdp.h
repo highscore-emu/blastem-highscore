@@ -178,7 +178,6 @@ enum {
 	VDP_TMS9918A
 };
 
-typedef struct vdp_context vdp_context;
 typedef void (*vdp_hook)(vdp_context *);
 typedef void (*vdp_reg_hook)(vdp_context *, uint16_t reg, uint16_t value);
 typedef void (*vdp_data_hook)(vdp_context *, uint16_t value);
@@ -319,6 +318,7 @@ void vdp_release_framebuffer(vdp_context *context);
 void vdp_reacquire_framebuffer(vdp_context *context);
 void vdp_serialize(vdp_context *context, serialize_buffer *buf);
 void vdp_deserialize(deserialize_buffer *buf, void *vcontext);
+void vdp_update_per_frame_debug(vdp_context *context);
 void vdp_force_update_framebuffer(vdp_context *context);
 void vdp_toggle_debug_view(vdp_context *context, uint8_t debug_type);
 void vdp_inc_debug_mode(vdp_context *context);

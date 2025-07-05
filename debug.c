@@ -2317,6 +2317,10 @@ static uint8_t read_parse_command(debug_root *root, parsed_command *out, int ind
 		process_events();
 #ifndef IS_LIB
 		render_update_display();
+		vdp_context *vdp = current_system->get_vdp(current_system);
+		if (vdp) {
+			vdp_update_per_frame_debug(vdp);
+		}
 #endif
 #ifndef _WIN32
 		timeout.tv_sec = 0;

@@ -104,6 +104,7 @@ struct system_media {
 	uint8_t      byte_storage[3];
 };
 
+typedef struct vdp_context vdp_context;
 typedef void (*system_fun)(system_header *);
 typedef uint16_t (*system_fun_r16)(system_header *);
 typedef void (*system_str_fun)(system_header *, char *);
@@ -117,6 +118,7 @@ typedef void (*system_mrel_fun)(system_header *, uint8_t, int32_t, int32_t);
 typedef uint8_t *(*system_ptrszt_fun_rptr8)(system_header *, size_t *);
 typedef void (*system_ptr8_sizet_fun)(system_header *, uint8_t *, size_t);
 typedef void (*system_media_fun)(system_header *, system_media *);
+typedef vdp_context *(*system_fun_rvdp)(system_header *);
 
 #include "arena.h"
 #include "romdb.h"
@@ -151,6 +153,7 @@ struct system_header {
 	system_u8_fun           toggle_debug_view;
 	system_u8_fun           cassette_action;
 	system_media_fun        lockon_change;
+	system_fun_rvdp         get_vdp;
 	rom_info          info;
 	arena             *arena;
 	char              *next_rom;

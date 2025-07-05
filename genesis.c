@@ -2606,6 +2606,12 @@ static void toggle_debug_view(system_header *system, uint8_t debug_view)
 #endif
 }
 
+static vdp_context *get_vdp(system_header *system)
+{
+	genesis_context *gen = (genesis_context *)system;
+	return gen->vdp;
+}
+
 static void *tmss_rom_write_16(uint32_t address, void *context, uint16_t value)
 {
 	m68k_context *m68k = context;
@@ -2781,6 +2787,7 @@ static genesis_context *shared_init(uint32_t system_opts, rom_info *rom, uint8_t
 	gen->header.start_vgm_log = start_vgm_log;
 	gen->header.stop_vgm_log = stop_vgm_log;
 	gen->header.toggle_debug_view = toggle_debug_view;
+	gen->header.get_vdp = get_vdp;
 	gen->header.type = SYSTEM_GENESIS;
 	gen->header.info = *rom;
 	set_region(gen, rom, force_region);
@@ -3255,6 +3262,7 @@ genesis_context* alloc_config_pico(void *rom, uint32_t rom_size, void *lock_on, 
 	gen->header.start_vgm_log = start_vgm_log;
 	gen->header.stop_vgm_log = stop_vgm_log;
 	gen->header.toggle_debug_view = toggle_debug_view;
+	gen->header.get_vdp = get_vdp;
 	gen->header.type = stype;
 	gen->header.info = info;
 	set_region(gen, &info, force_region);
