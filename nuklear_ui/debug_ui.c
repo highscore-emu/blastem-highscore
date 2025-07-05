@@ -29,33 +29,13 @@ static void debug_handle_event(uint8_t which, SDL_Event *event)
 }
 
 #ifndef DISABLE_OPENGL
-vdp_context *get_vdp(void)
-{
-	if (!current_system) {
-		return NULL;
-	}
-	switch (current_system->type)
-	{
-	case SYSTEM_GENESIS:
-	case SYSTEM_SEGACD:
-	case SYSTEM_PICO:
-	case SYSTEM_COPERA:
-		return ((genesis_context *)current_system)->vdp;
-	case SYSTEM_SMS:
-	case SYSTEM_GAME_GEAR:
-	case SYSTEM_SG1000:
-	case SYSTEM_SC3000:
-		return ((sms_context *)current_system)->vdp;
-	case SYSTEM_COLECOVISION:
-		return ((coleco_context *)current_system)->vdp;
-	default:
-		return NULL;
-	}
-}
 
 static void plane_debug_ui(void)
 {
-	vdp_context *vdp = get_vdp();
+	if (!current_system || !current_system->get_vdp) {
+		return;
+	}
+	vdp_context *vdp = current_system->get_vdp(current_system);
 	if (!vdp) {
 		return;
 	}
@@ -149,7 +129,10 @@ static void plane_debug_ui(void)
 void write_cram_internal(vdp_context * context, uint16_t addr, uint16_t value);
 static void cram_debug_ui(void)
 {
-	vdp_context *vdp = get_vdp();
+	if (!current_system || !current_system->get_vdp) {
+		return;
+	}
+	vdp_context *vdp = current_system->get_vdp(current_system);
 	if (!vdp) {
 		return;
 	}

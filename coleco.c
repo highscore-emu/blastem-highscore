@@ -472,6 +472,12 @@ static void persist_save(system_header *system)
 {
 }
 
+static vdp_context *get_vdp(system_header *system)
+{
+	coleco_context *coleco = (coleco_context *)system;
+	return coleco->vdp;
+}
+
 coleco_context *alloc_configure_coleco(system_media *media)
 {
 	coleco_context *coleco = calloc(1, sizeof(coleco_context));
@@ -559,6 +565,7 @@ coleco_context *alloc_configure_coleco(system_media *media)
 	coleco->header.serialize = serialize;
 	coleco->header.deserialize = deserialize;
 	coleco->header.toggle_debug_view = toggle_debug_view;
+	coleco->header.get_vdp = get_vdp;
 	coleco->header.type = SYSTEM_COLECOVISION;
 
 	return coleco;

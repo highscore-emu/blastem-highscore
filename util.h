@@ -108,6 +108,8 @@ void socket_close(int sock);
 int socket_last_error(void);
 //Returns if the last socket error was EAGAIN/EWOULDBLOCK
 int socket_error_is_wouldblock(void);
+//works like fgets, but calls timeout_cb every timeout_usec microseconds while waiting for input
+char *fgets_timeout(char *dst, size_t size, FILE *f, uint64_t timeout_usec, void (*timeout_cb)(void));
 #if defined(__ANDROID__) && !defined(IS_LIB)
 FILE* fopen_wrapper(const char *path, const char *mode);
 #ifndef DISABLE_ZLIB

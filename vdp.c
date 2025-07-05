@@ -2911,7 +2911,7 @@ static void sprite_debug_tms(pixel_t *fb, uint32_t pitch, vdp_context *context)
 {
 }
 
-static void vdp_update_per_frame_debug(vdp_context *context)
+void vdp_update_per_frame_debug(vdp_context *context)
 {
 	if (context->enabled_debuggers & (1 << DEBUG_PLANE)) {
 		

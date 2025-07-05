@@ -1530,6 +1530,12 @@ static void lockon_change(system_header *system, system_media *media)
 	load_cassette(sms, media);
 }
 
+static vdp_context *get_vdp(system_header *system)
+{
+	sms_context *sms = (sms_context *)system;
+	return sms->vdp;
+}
+
 sms_context *alloc_configure_sms(system_media *media, system_type stype, uint32_t opts, uint8_t force_region)
 {
 	sms_context *sms = calloc(1, sizeof(sms_context));
@@ -1680,6 +1686,7 @@ sms_context *alloc_configure_sms(system_media *media, system_type stype, uint32_
 	sms->header.stop_vgm_log = stop_vgm_log;
 	sms->header.toggle_debug_view = toggle_debug_view;
 	sms->header.cassette_action = cassette_action;
+	sms->header.get_vdp = get_vdp;
 	sms->header.type = stype;
 	if (is_sc3000) {
 		sms->header.lockon_change = lockon_change;

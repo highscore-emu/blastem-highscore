@@ -757,6 +757,70 @@ int socket_error_is_wouldblock(void)
 	return WSAGetLastError() == WSAEWOULDBLOCK;
 }
 
+typedef struct {
+	HANDLE           request_event;
+	HANDLE           reply_event;
+	CRITICAL_SECTION lock;
+	FILE             *f;
+	char             *dst;
+	size_t           size;
+} stdio_timeout_state;
+
+static DWORD WINAPI stdio_timeout_thread(LPVOID param)
+{
+	stdio_timeout_state *state = param;
+	EnterCriticalSection(&state->lock);
+		for(;;)
+		{
+			while (!state->f)
+			{
+				LeaveCriticalSection(&state->lock);
+				WaitForSingleObject(state->request_event, INFINITE);
+				EnterCriticalSection(&state->lock);
+			}
+			char *dst = state->dst;
+			size_t size = state->size;
+			FILE *f = state->f;
+			LeaveCriticalSection(&state->lock);
+			dst = fgets(dst, size, f);
+			EnterCriticalSection(&state->lock);
+			state->dst = dst;
+			state->f = NULL;
+			SetEvent(&state->reply_event);
+		}
+	LeaveCriticalSection(&state->lock);
+	
+	return 0;
+}
+
+char *fgets_timeout(char *dst, size_t size, FILE *f, uint64_t timeout_usec, void (*timeout_cb)(void))
+{
+	static HANDLE workerThread;
+	static stdio_timeout_state state;
+	if (!workerThread) {
+		InitializeCriticalSection(&state.lock);
+		state.request_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+		state.reply_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+		workerThread = CreateThread(NULL, 64 * 1024, stdio_timeout_thread, &state, 0, NULL);
+	}
+	EnterCriticalSection(&state.lock);
+		state.f = f;
+		state.dst = dst;
+		state.size = size;
+		SetEvent(state.request_event);
+		while (state.f)
+		{
+			LeaveCriticalSection(&state.lock);
+			WaitForSingleObject(state.reply_event, timeout_usec / 1000);
+			EnterCriticalSection(&state.lock);
+			if (state.f) {
+				timeout_cb();
+			}
+		}
+	LeaveCriticalSection(&state.lock);
+	return state.dst;
+}
+
 #else
 #include <fcntl.h>
 #include <signal.h>
@@ -864,6 +928,26 @@ fallback:
 	}
 	return exe_dir;
 }
+
+char *fgets_timeout(char *dst, size_t size, FILE *f, uint64_t timeout_usec, void (*timeout_cb)(void))
+{
+	int wait = 1;
+	fd_set read_fds;
+	FD_ZERO(&read_fds);
+	struct timeval timeout;
+	do {
+		timeout.tv_sec = timeout_usec / 1000000;
+		timeout.tv_usec = timeout_usec % 1000000;
+		FD_SET(fileno(stdin), &read_fds);
+		if(select(fileno(stdin) + 1, &read_fds, NULL, NULL, &timeout) >= 1) {
+			wait = 0;
+		} else {
+			timeout_cb();
+		}
+	} while (wait);
+	return fgets(dst, size, f);
+}
+
 #include <dirent.h>
 
 #ifdef __ANDROID__

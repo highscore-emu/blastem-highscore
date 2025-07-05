@@ -2636,7 +2636,10 @@ int render_lookup_button(char *name)
 	if (!button_lookup) {
 		for (int i = SDL_CONTROLLER_BUTTON_A; i < SDL_CONTROLLER_BUTTON_MAX; i++)
 		{
-			button_lookup = tern_insert_int(button_lookup, SDL_GameControllerGetStringForButton(i), i);
+			const char *bname = SDL_GameControllerGetStringForButton(i);
+			if (bname) {
+				button_lookup = tern_insert_int(button_lookup, bname, i);
+			}
 		}
 		//alternative Playstation-style names
 		button_lookup = tern_insert_int(button_lookup, "cross", SDL_CONTROLLER_BUTTON_A);
