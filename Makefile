@@ -326,6 +326,7 @@ DISOBJS:=dis.o disasm.o backend.o 68kinst.o tern.o vos_program_module.o util.o
 MTESTOBJS:=trans.o serialize.o $(M68KOBJS) $(TRANSOBJS) util.o
 ZTESTOBJS:=ztestrun.o serialize.o $(Z80OBJS) $(TRANSOBJS) util.o
 CPMOBJS:=blastcpm.o util.o serialize.o $(Z80OBJS) $(TRANSOBJS)
+UPD78K2RUNOBJS:=upd78k2.o upd78k2run.o util.o backend.o tern.o
 
 LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB -DDISABLE_ZLIB
 
@@ -388,6 +389,9 @@ blastcpm : $(CPMOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT) $(PROFFLAGS)
 
 vos_prog_info : $(OBJDIR)/vos_prog_info.o $(OBJDIR)/vos_program_module.o
+	$(CC) -o $@ $^ $(OPT)
+
+upd78k2run : $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c

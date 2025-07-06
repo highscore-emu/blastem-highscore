@@ -1,0 +1,853 @@
+#"Minimum instruction cycle is 333 ns for internal ROM 500 ns for external at 12 MHz"
+#That's 4 clks for internal ROM, 6 clocks external
+#Above seems to be defined based on external clock input, but there's an internal divider
+#Instruction timing tables seem to specified in terms of this divided clock
+info
+	prefix upd78k2_
+	opcode_size 8
+	header upd78k2.h
+	body upd78k2_run_op
+	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg
+	include upd78k2_util.c
+regs
+	main 8 x a c b e d l h
+	psw 8
+	pc 16
+	sp 16
+	rbs 8
+	int_enable 8
+	int_priority_flag 8
+	chflags 8
+	zflag 8
+	scratch1 32
+	scratch2 32
+	mem_pointers ptr8 4
+	port_data 8 8
+	port_mode 8 8
+	mm 8
+	iram 8 256
+flags
+	register psw
+	I 7 none int_enable
+	Z 6 zero zflag
+	R 5 none rbs.1
+	A 4 half-carry chflags.3
+	B 3 none rbs.0
+	P 1 none int_priority_flag
+	C 0 carry chflags.7
+declare
+	uint8_t upd78237_sfr_read(uint32_t address, void *context);
+	void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value);
+	void init_upd78k2_opts(upd78k2_options *opts, memmap_chunk const *chunks, uint32_t num_chunks);
+	upd78k2_context *init_upd78k2_context(upd78k2_options *opts);
+
+#Prefix bytes
+# 0000 0001 -> saddr becomes sfr, mem becomes &mem
+# 0000 0010 -> bit instructions/ conditional branches
+# 0000 0011 -> more bit instructions / conditional branches
+# 0000 0110 -> base mode
+# 0000 1000 -> saddr/sfr bit instructions / conditional branches
+# 0000 1001 -> mov !addr16/stbc
+# 0000 1010 -> indexed mode
+# 0001 0110 -> register indirect
+
+sfr_read
+	arg offset 8
+	scratch1 = offset + 0xFF00
+	ocall read_8
+
+sfr_write
+	arg offset 8
+	arg value 8
+	scratch2 = offset + 0xFF00
+	scratch1 = value
+	ocall write_8
+	
+iram_read
+	arg offset 8
+	local normal_iram 8
+	normal_iram = 1
+	if offset >=U 0xE0
+		#register bank area
+		switch rbs
+		case 0
+			if offset >=U 0xF8
+				normal_iram = 0
+			end
+		case 1
+			if offset >=U 0xF0
+				if offset >=U 0xF8
+				else
+					normal_iram = 0
+				end
+			end
+		case 2
+			if offset >=U 0xE8
+				if offset >=U 0xF0
+				else
+					normal_iram = 0
+				end
+			end
+		case 3
+			if offset >=U 0xE8
+			else
+				normal_iram = 0
+			end
+		end
+	end
+	if normal_iram
+		scratch1 = iram.offset
+	else
+		scratch1 = offset & 7
+		scratch1 = main.scratch1
+	end
+
+iram_write
+	arg offset 8
+	arg value 8
+	local normal_iram 8
+	local regnum 8
+	normal_iram = 1
+	if offset >=U 0xE0
+		#register bank area
+		switch rbs
+		case 0
+			if offset >=U 0xF8
+				normal_iram = 0
+			end
+		case 1
+			if offset >=U 0xF0
+				if offset >=U 0xF8
+				else
+					normal_iram = 0
+				end
+			end
+		case 2
+			if offset >=U 0xE8
+				if offset >=U 0xF0
+				else
+					normal_iram = 0
+				end
+			end
+		case 3
+			if offset >=U 0xE8
+			else
+				normal_iram = 0
+			end
+	end
+	if normal_iram
+		iram.offset = value
+	else
+		regnum = offset & 8
+		main.regnum = value
+	end
+
+mem_read_no_exp
+	arg addr 32
+	local offset 8
+	if addr >=U 0xFE00
+		if addr >=U 0xFF00
+			offset = addr
+			sfr_read offset
+		else
+			offset = addr
+			iram_read offset
+		end
+	else
+		scratch1 = addr
+		ocall read_8
+	end
+
+mem_write_no_exp
+	arg addr 32
+	arg value 8
+	local offset 8
+	if addr >=U 0xFE00
+		if addr >=U 0xFF00
+			offset = addr
+			sfr_write offset value
+		else
+			offset = addr
+			iram_write offset value
+		end
+	else
+		scratch2 = addr
+		scratch1 = value
+		ocall write_8
+	end
+
+upd78k2_op_fetch
+	mem_read_no_exp pc
+	pc += 1
+
+upd78k2_op_fetch_word
+	local tmp 8
+	upd78k2_op_fetch
+	tmp = scratch1
+	upd78k2_op_fetch
+	scratch1 <<= 8
+	scratch1 |= tmp
+
+upd78k2_run_op
+	upd78k2_op_fetch
+	dispatch scratch1
+
+saddr_read
+	arg offset 8
+	local tmp 8
+	if offset >=U 0xE0
+		#sfr area
+		tmp = offset - 0xE0
+		sfr_read tmp
+	else
+		tmp = offset + 0x20
+		iram_read tmp
+	end
+
+saddr_write
+	arg offset 8
+	arg value 8
+	local tmp 8
+	if offset >=U 0xE0
+		#sfr area
+		tmp = offset - 0xE0
+		sfr_write tmp value
+	else
+		tmp = offset + 0x20
+		iram_write tmp value
+	end
+
+mem_read
+	arg address 16
+	arg alt_bank 8
+	local full_address 32
+	local meg_enable 8
+	meg_enable = mm & 0x40
+	if meg_enable
+		if alt_bank
+			full_address = port_data.6 & 0xF
+		else
+			full_address = port_mode.6 & 0xF
+		end
+		full_address <<= 16
+		full_address |= address
+	else
+		full_address = address
+	end
+	mem_read_no_exp full_address
+
+mem_write
+	arg address 16
+	arg value 8
+	arg alt_bank 8
+	local full_address 32
+	local meg_enable 8
+	meg_enable = mm & 0x40
+	if meg_enable
+		if alt_bank
+			full_address = port_data.6 & 0xF
+		else
+			full_address = port_mode.6 & 0xF
+		end
+		full_address <<= 16
+		full_address |= address
+	else
+		full_address = address
+	end
+	mem_write_no_exp full_address value
+
+push_word
+	arg value 16
+	local tmp 8
+	tmp = value >> 8
+	sp -= 1
+	mem_write_no_exp sp tmp
+	tmp = value
+	sp -= 1
+	mem_write_no_exp sp tmp
+
+pop_word
+	mem_read_no_exp sp
+	dst = scratch1
+	sp += 1
+	mem_read_no_exp sp
+	scratch1 <<= 8
+	dst |= scratch1
+	sp += 1
+
+00000000 nop
+	cycles 2 #minimum cycle time appears to be 4 (ignoring internal divider)
+
+00000001 sfr_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 sfr
+
+00000010 bit1_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 bit1
+
+00000011 bit2_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 bit2
+
+00000101 muldiv_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 muldiv
+
+00000110 base_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 base
+
+00001000 sfrbit_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 sfrbit
+
+00001001 spmov_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 spmov
+
+00001010 indexed_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 indexed
+
+00010110 regind_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 regind
+
+00100100 mov_reg_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 mov_reg
+
+sfr 00000110 alt_base_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 alt_base
+
+sfr 00001010 alt_indexed_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 alt_indexed
+
+sfr 00010110 alt_regind_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 alt_regind
+
+aluop
+	arg op 8
+	arg src 8
+	switch op
+	case 0
+		dst += src
+		update_flags ZAC
+	case 1
+		adc dst src dst
+		update_flags ZAC
+	case 2
+		dst -= src
+		update_flags ZAC
+	case 3
+		sbc dst src dst
+		update_flags ZAC
+	case 4
+		dst &= src
+		update_flags Z
+	case 5
+		dst ^= src
+		update_flags Z
+	case 6
+		dst |= src
+		update_flags Z
+	case 7
+		cmp dst src
+		update_flags ZAC
+	end
+
+aluop16
+	arg op 8
+	arg src 16
+	switch op
+	case 0
+		dst += src
+		update_flags ZAC
+	case 2
+		dst -= src
+		update_flags ZAC
+	case 7
+		dst -= src
+		update_flags ZAC
+	default
+		#TODO: what happens in these invalid cases
+	end
+
+10001PPP alu_r_r
+	local tmp_src 16
+	local tmp_dst 16
+	upd78k2_op_fetch
+	scratch2 = scratch1 >> 4
+	if scratch2 >=U 7
+		#TODO: is MSB just ignored or is this treated as some kind of illegal instruction or nop?
+	else
+		scratch1 &= 0xF
+		if scratch1 >=U 7
+			scratch1 &= 7
+			meta dst tmp_dst
+			tmp_dst = a << 8
+			tmp_dst |= x
+			switch scratch1
+			case 0
+				tmp_src = a << 8
+				tmp_src |= x
+			case 2
+				tmp_src = b << 8
+				tmp_src |= c
+			case 4
+				tmp_src = d << 8
+				tmp_src |= e
+			case 6
+				tmp_src = h << 8
+				tmp_src |= l
+			default
+				#TODO: what happens in these invalid cases
+			end
+			aluop16 P tmp_src
+			x = tmp_dst
+			a = tmp_dst >> 8
+		else
+			meta dst main.scratch2
+			cycles 2 #penalty for extra IRAM access since regs are technically stored there?
+			aluop P main.scratch1
+		end
+	end
+
+10101PPP alu_immed
+	upd78k2_op_fetch
+	meta dst a
+	aluop P scratch1
+	
+calc_addr_base
+	arg regpair 8
+	local tmp 16
+	upd78k2_op_fetch
+	switch regpair
+	case 0
+		#[de+byte]
+		tmp = d << 8
+		tmp |= e
+		adst += tmp
+	case 1
+		#[sp+byte]
+		adst += sp
+	case 2
+		#[hl+byte]
+		tmp = h << 8
+		tmp |= l
+		adst += tmp
+	end
+
+read_base_mode
+	arg regpair 8
+	arg alt_bank 8
+	meta adst scratch1
+	calc_addr_base regpair
+	mem_read scratch1 alt_bank
+
+write_base_mode
+	arg regpair 8
+	arg value 8
+	arg alt_bank 8
+	meta adst scratch2
+	calc_addr_base regpair
+	mem_write scratch2 value alt_bank
+	
+calc_addr_regind
+	arg regpair 8
+	local tmp 16
+	switch regpair
+	case 0
+		#[de+]
+		adst = d << 8
+		adst |= e
+		tmp = adst + 1
+		e = tmp
+		d = tmp >> 8
+	case 1
+		#[hl+]
+		adst = h << 8
+		adst |= l
+		tmp = adst + 1
+		l = tmp
+		h = tmp >> 8
+	case 2
+		#[de-]
+		adst = d << 8
+		adst |= e
+		tmp = adst - 1
+		e = tmp
+		d = tmp >> 8
+	case 3
+		#[hl-]
+		adst = h << 8
+		adst |= l
+		tmp = adst - 1
+		l = tmp
+		h = tmp >> 8
+	case 4
+		#[de]
+		adst = d << 8
+		adst |= e
+	case 5
+		#[hl]
+		adst = h << 8
+		adst |= l
+	end
+
+read_regind_mode
+	arg regpair 8
+	arg alt_bank 8
+	meta adst scratch1
+	calc_addr_regind regpair
+	mem_read scratch1 alt_bank
+
+write_regind_mode
+	arg regpair 8
+	arg value 8
+	arg alt_bank 8
+	meta adst scratch2
+	calc_addr_regind regpair
+	mem_write scratch2 value alt_bank
+
+calc_addr_indexed
+	arg index_reg 8
+	local tmp 16
+	upd78k2_op_fetch_word
+	switch index_reg
+	case 0
+		tmp = d << 8
+		tmp |= e
+		adst += tmp
+	case 1
+		adst += a
+	case 2
+		tmp = h << 8
+		tmp |= l
+		adst += tmp
+	case 3
+		adst += b
+	end
+
+read_indexed_mode
+	arg index_reg 8
+	arg alt_bank 8
+	meta adst scratch1
+	calc_addr_indexed index_reg
+	mem_read scratch1 alt_bank
+
+write_indexed_mode
+	arg index_reg 8
+	arg value 8
+	arg alt_bank 8
+	meta adst scratch2
+	calc_addr_indexed index_reg
+	mem_write scratch2 value alt_bank
+
+base 00RR1PPP alu_base
+	invalid R 3
+	read_base_mode R 0
+	meta dst a
+	aluop P scratch1
+
+alt_base 00RR1PPP alu_alt_base
+	invalid R 3
+	read_base_mode R 1
+	meta dst a
+	aluop P scratch1
+
+base 00RR0000 mov_a_base
+	invalid R 3
+	read_base_mode R 0
+	a = scratch1
+	
+alt_base 00RR0000 alt_mov_a_base
+	invalid R 3
+	read_base_mode R 1
+	a = scratch1
+
+base 10RR0000 mov_base_a
+	invalid R 3
+	write_base_mode R a 0
+
+alt_base 10RR0000 alt_mov_base_a
+	invalid R 3
+	write_base_mode R a 1
+
+regind 0RRR1PPP alu_reg_indirect
+	invalid R 6
+	invalid R 7
+	read_regind_mode R 0
+	meta dst a
+	aluop P scratch1
+
+alt_regind 0RRR1PPP alu_alt_reg_indirect
+	invalid R 6
+	invalid R 7
+	read_regind_mode R 1
+	meta dst a
+	aluop P scratch1
+
+regind 0RRR0000 mov_a_reg_indirect
+	invalid R 6
+	invalid R 7
+	read_regind_mode R 0
+	a = scratch1
+
+alt_regind 0RRR0000 alt_mov_a_reg_indirect
+	invalid R 6
+	invalid R 7
+	read_regind_mode R 1
+	a = scratch1
+	
+regind 1RRR0000 mov_reg_indirect_a
+	invalid R 6
+	invalid R 7
+	write_regind_mode R a 0
+
+alt_regind 1RRR0000 alt_mov_reg_indirect_a
+	invalid R 6
+	invalid R 7
+	write_regind_mode R a 1
+
+01010RRR mov_reg_indirect_a_short
+	invalid R 6
+	invalid R 7
+	write_regind_mode R a 0
+
+01011RRR mov_a_reg_indirect_short
+	invalid R 6
+	invalid R 7
+	read_regind_mode R 0
+	a = scratch1
+
+indexed 00RR1PPP alu_indexed
+	read_indexed_mode R 0
+	meta dst a
+	aluop P scratch1
+
+alt_indexed 00RR1PPP alu_alt_indexed
+	read_indexed_mode R 1
+	meta dst a
+	aluop P scratch1
+
+indexed 00RR0000 mov_a_indexed
+	read_indexed_mode R 0
+	a = scratch1
+
+alt_indexed 00RR0000 alt_mov_a_indexed
+	read_indexed_mode R 1
+	a = scratch1
+
+indexed 10RR0000 mov_indexed_a
+	write_indexed_mode R a 0
+
+alt_indexed 10RR0000 alt_mov_indexed_a
+	write_indexed_mode R a 1
+
+mov_reg 0DD01SS0 movw_rp_rp
+	local dst 8
+	local src 8
+	dst = D << 1
+	src = S << 1
+	main.dst = main.src
+	dst += 1
+	src += 1
+	main.dst = main.src
+
+mov_reg 0DDD0SSS mov_r_r
+	main.D = main.S
+
+01100PP0 movw_rp_immed
+	local dst 8
+	dst = P << 1
+	upd78k2_op_fetch
+	main.dst = scratch1
+	dst += 1
+	upd78k2_op_fetch
+	main.dst = scratch1
+
+11000RRR inc_r
+	cycles 2
+	main.R += 1
+	update_flags ZA
+
+11001RRR dec_r
+	cycles 2
+	main.R -= 1
+	update_flags ZA
+
+11010RRR mov_a_r
+	a = main.R
+
+muldiv 01001PP0 br_rp
+	local reg 8
+	local tmp 16
+	reg = P << 1
+	pc = main.reg
+	reg += 1
+	tmp = main.reg << 8
+	pc |= tmp
+
+00010100 br_rel
+	upd78k2_op_fetch
+	sext 16 scratch1 scratch1
+	pc += scratch1
+
+00101100 br_abs
+	upd78k2_op_fetch_word
+	pc = scratch1
+
+100000FS bcc
+	local flag 8
+	upd78k2_op_fetch
+	if F
+		flag = chflags >> 7
+	else
+		flag = zflag
+	end
+	if flag = S
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+muldiv 01011PP0 call_rp
+	local reg 8
+	local tmp 16
+	push_word pc
+	reg = P << 1
+	pc = main.reg
+	reg += 1
+	tmp = main.reg << 8
+	pc |= tmp
+
+00101000 call_long
+	local address 16
+	upd78k2_op_fetch_word
+	address = scratch1
+	push_word pc
+	pc = address
+
+10010AAA call_short
+	local address 16
+	address = A << 8
+	address |= 0x800
+	upd78k2_op_fetch
+	address |= scratch1
+	push_word pc
+	pc = address
+
+111TTTTT call_table
+	local address 16
+	mem_read_no_exp T
+	address = scratch1
+	scratch1 = T + 1
+	mem_read_no_exp scratch1
+	scratch1 <<= 8
+	address |= 8
+	push_word pc
+	pc = address
+
+01010110 ret
+	meta dst pc
+	pop_word
+
+001101PP pop_rp
+	local rp 8
+	local word 16
+	meta dst word
+	pop_word
+	main.rp = word
+	rp += 1
+	main.rp = word >> 8
+	
+001111PP push_rp
+	local rp 8
+	local word 16
+	rp = P << 1
+	rp += 1
+	word = main.rp << 8
+	rp -= 1
+	word |= main.rp
+	push_word word
+
+muldiv 101010NN sel
+	local offset 8
+	if N != rbs
+		offset = rbs << 3
+		offset = 0xF8 - offset
+		iram.offset = x
+		offset += 1
+		iram.offset = a
+		offset += 1
+		iram.offset = c
+		offset += 1
+		iram.offset = b
+		offset += 1
+		iram.offset = e
+		offset += 1
+		iram.offset = d
+		offset += 1
+		iram.offset = l
+		offset += 1
+		iram.offset = h
+		offset = N << 3
+		offset = 0xF8 - offset
+		x = iram.offset
+		offset += 1
+		a = iram.offset
+		offset += 1
+		c = iram.offset
+		offset += 1
+		b = iram.offset
+		offset += 1
+		e = iram.offset
+		offset += 1
+		d = iram.offset
+		offset += 1
+		l = iram.offset
+		offset += 1
+		h = iram.offset
+		rbs = N
+	end
+
+muldiv 11001000 incw_sp
+	sp += 1
+
+muldiv 11001001 decw_sp
+	sp -= 1
+
+00001011 movw_sfrp_immed
+	upd78k2_op_fetch
+	if scratch1 = 0xFC
+		#unclear if SP is actually mapped in the SFR space
+		#or if this is special cased, but the docs don't
+		#suggest you can write to SP with other SFR-targeting
+		#instructions so I'm assuming the latter.
+		upd78k2_op_fetch
+		sp = scratch1
+		upd78k2_op_fetch
+		scratch1 <<= 8
+		sp |= scratch1
+	else
+		scratch2 = scratch1
+		upd78k2_op_fetch
+		sfr_write scratch2 scratch1
+		scratch2 += 1
+		upd78k2_op_fetch
+		sfr_write scratch2 scratch1
+	end
+
+00001100 movw_sadrp_word
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	upd78k2_op_fetch
+	saddr_write offset scratch1
+	offset += 1
+	upd78k2_op_fetch
+	saddr_write offset scratch1
