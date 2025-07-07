@@ -319,6 +319,7 @@ class SubRoutine(Block):
 		argValues = {}
 		if parent:
 			self.regValues = parent.regValues
+		output.append('\n\t{')
 		prog.pushScope(self)
 		i = 0
 		for name,size in self.args:
@@ -330,6 +331,7 @@ class SubRoutine(Block):
 		self.argValues = argValues
 		self.processOps(prog, argValues, output, otype, self.implementation)
 		prog.popScope()
+		output.append('\n\t}')
 		
 	def __str__(self):
 		pieces = [self.name]
@@ -1420,8 +1422,11 @@ class NormalOp:
 						param = fieldVals[param]
 					else:
 						maybeLocal = parent.resolveLocal(param)
-						if maybeLocal and maybeLocal in parent.regValues:
-							param = parent.regValues[maybeLocal]
+						if maybeLocal:
+							if maybeLocal in parent.regValues:
+								param = parent.regValues[maybeLocal]
+							else:
+								param = maybeLocal
 				procParams.append(param)
 			prog.subroutines[self.op].inline(prog, procParams, output, otype, parent)
 		else:
@@ -1541,7 +1546,7 @@ class Switch(ChildBlock):
 				op.processDispatch(prog)
 	
 	def __str__(self):
-		keys = self.cases.keys()
+		keys = list(self.cases.keys())
 		keys.sort()
 		lines = ['\n\tswitch']
 		for case in keys:
@@ -1568,7 +1573,12 @@ def _eqCImpl(prog, parent, fieldVals, output):
 		return '\n\tif (!{a}) {{'.format(a=prog.resolveParam(prog.lastDst, None, {}))
 
 def _neqCImpl(prog, parent, fieldVals, output):
-	return '\n\tif ({a}) {{'.format(a=prog.resolveParam(prog.lastDst, None, {}))
+	if prog.lastOp.op == 'cmp':
+		output.pop()
+		params = [prog.resolveParam(p, parent, fieldVals) for p in prog.lastOp.params]
+		return '\n\tif ({a} != {b}) '.format(a=params[1], b = params[0]) + '{'
+	else:
+		return '\n\tif ({a}) {{'.format(a=prog.resolveParam(prog.lastDst, None, {}))
 	
 _ifCmpImpl = {
 	'c': {
@@ -2206,7 +2216,8 @@ class Program:
 			if self.body in self.subroutines:
 				pieces.append('\nvoid {pre}execute({type} *context, uint32_t target_cycle)'.format(pre = self.prefix, type = self.context_type))
 				pieces.append('\n{')
-				pieces.append('\n\t{sync}(context, target_cycle);'.format(sync=self.sync_cycle))
+				if self.sync_cycle:
+					pieces.append('\n\t{sync}(context, target_cycle);'.format(sync=self.sync_cycle))
 				if self.pc_reg:
 					pieces.append('\n\tif (context->breakpoints) {')
 					pieces.append('\n\t\twhile (context->cycles < target_cycle)')

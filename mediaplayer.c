@@ -45,6 +45,11 @@ void ym_adjust(chip_info *chip)
 	}
 }
 
+void ym_adjust_clock(chip_info *chip, uint32_t percent)
+{
+	ym_adjust_master_clock(chip->context, chip->clock * percent / 100);
+}
+
 void ym_scope(chip_info *chip, oscilloscope *scope)
 {
 	ym_enable_scope(chip->context, scope, chip->clock);
@@ -77,6 +82,11 @@ void psg_adjust(chip_info *chip)
 	}
 }
 
+void psg_adjust_clock(chip_info *chip, uint32_t percent)
+{
+	psg_adjust_master_clock(chip->context, chip->clock * percent / 100);
+}
+
 void psg_scope(chip_info *chip, oscilloscope *scope)
 {
 	psg_enable_scope(chip->context, scope, chip->clock);
@@ -96,6 +106,11 @@ void pcm_adjust(chip_info *chip)
 		chip->samples -= cycles_to_samples(chip->clock, deduction);
 		pcm->cycle -= deduction;
 	}
+}
+
+void pcm_adjust_clock(chip_info *chip, uint32_t percent)
+{
+	rf5c164_adjust_master_clock(chip->context, chip->clock * percent / 100);
 }
 
 void pcm_scope(chip_info *chip, oscilloscope *scope)
@@ -691,15 +706,20 @@ frame_end:
 	return;
 }
 
+static void wave_stop(media_player *player)
+{
+	player->current_offset = player->wave->format_header.size + offsetof(wave_header, audio_format);
+	player->state = STATE_PAUSED;
+	player->playback_time = 0;
+}
+
 void wave_frame(media_player *player)
 {
 	for (uint32_t remaining_samples = player->wave->sample_rate / 60; remaining_samples > 0; remaining_samples--)
 	{
 		uint32_t sample_size = player->wave->bits_per_sample * player->wave->num_channels / 8;
 		if (sample_size > player->media->size || player->current_offset > player->media->size - sample_size) {
-			player->current_offset = player->wave->format_header.size + offsetof(wave_header, audio_format);
-			player->state = STATE_PAUSED;
-			player->playback_time = 0;
+			wave_stop(player);
 			return;
 		}
 		if (player->wave->bits_per_sample == 16) {
@@ -725,6 +745,13 @@ void wave_frame(media_player *player)
 	}
 }
 
+static void flac_stop(media_player *player)
+{
+	player->state = STATE_PAUSED;
+	player->playback_time = 0;
+	flac_seek(player->flac, 0);
+}
+
 void flac_frame(media_player *player)
 {
 	for (uint32_t remaining_samples = player->flac->sample_rate / 60; remaining_samples > 0; remaining_samples--)
@@ -733,8 +760,7 @@ void flac_frame(media_player *player)
 		if (flac_get_sample(player->flac, samples, 2)) {
 			render_put_stereo_sample(player->audio, samples[0], samples[1]);
 		} else {
-			player->state = STATE_PAUSED;
-			player->playback_time = 0;
+			flac_stop(player);
 			return;
 		}
 	}
@@ -785,6 +811,7 @@ void vgm_init(media_player *player, uint32_t opts)
 			.context = ym,
 			.run = (chip_run_fun)ym_run,
 			.adjust = ym_adjust,
+			.adjust_clock = ym_adjust_clock,
 			.scope = ym_scope,
 			.no_scope = ym_no_scope,
 			.free = (chip_noarg_fun)ym_free,
@@ -803,6 +830,7 @@ void vgm_init(media_player *player, uint32_t opts)
 			.context = psg,
 			.run = (chip_run_fun)psg_run,
 			.adjust = psg_adjust,
+			.adjust_clock = psg_adjust_clock,
 			.scope = psg_scope,
 			.no_scope = ym_no_scope,
 			.free = (chip_noarg_fun)psg_free,
@@ -820,6 +848,7 @@ void vgm_init(media_player *player, uint32_t opts)
 			.context = pcm,
 			.run = (chip_run_fun)rf5c164_run,
 			.adjust = pcm_adjust,
+			.adjust_clock = pcm_adjust_clock,
 			.scope = pcm_scope,
 			.no_scope = pcm_no_scope,
 			.free = pcm_free,
@@ -837,6 +866,7 @@ void vgm_init(media_player *player, uint32_t opts)
 			.context = pcm,
 			.run = (chip_run_fun)rf5c164_run,
 			.adjust = pcm_adjust,
+			.adjust_clock = pcm_adjust_clock,
 			.scope = pcm_scope,
 			.no_scope = pcm_no_scope,
 			.free = pcm_free,
@@ -1027,16 +1057,61 @@ static void toggle_debug_view(system_header *system, uint8_t debug_view)
 #endif
 }
 
+static void inc_debug_mode(system_header * system)
+{
+}
+
+static void soft_reset(system_header * system)
+{
+	media_player *player = (media_player *)system;
+	switch(player->media_type)
+	{
+	case AUDIO_VGM:
+		vgm_stop(player);
+		break;
+	case AUDIO_WAVE:
+		wave_stop(player);
+		break;
+	case AUDIO_FLAC:
+		flac_stop(player);
+		break;
+	}
+	player->state = STATE_PLAY;
+}
+
+static void set_speed_percent(system_header * system, uint32_t percent)
+{
+	media_player *player = (media_player *)system;
+	switch(player->media_type)
+	{
+	case AUDIO_VGM:
+		for (uint32_t i = 0; i < player->num_chips; i++)
+		{
+			player->chips[i].adjust_clock(player->chips + i, percent);
+		}
+		break;
+	case AUDIO_WAVE:
+		render_audio_adjust_clock(player->audio, player->wave->sample_rate * percent / 100, 1);
+		break;
+	case AUDIO_FLAC:
+		render_audio_adjust_clock(player->audio, player->wave->sample_rate * percent / 100, 1);
+		break;
+	}
+}
+
 media_player *alloc_media_player(system_media *media, uint32_t opts)
 {
 	media_player *player = calloc(1, sizeof(media_player));
 	player->header.start_context = start_player;
 	player->header.resume_context = resume_player;
 	player->header.request_exit = request_exit;
+	player->header.soft_reset = soft_reset;
 	player->header.free_context = free_player;
+	player->header.set_speed_percent = set_speed_percent;
 	player->header.gamepad_down = gamepad_down;
 	player->header.gamepad_up = gamepad_up;
 	player->header.toggle_debug_view = toggle_debug_view;
+	player->header.inc_debug_mode = inc_debug_mode;
 	player->header.type = SYSTEM_MEDIA_PLAYER;
 	player->header.info.name = strdup(media->name);
 

@@ -354,7 +354,7 @@ void handle_binding_up(keybinding * binding)
 			}
 			break;
 		case UI_LOAD_STATE:
-			if (allow_content_binds) {
+			if (allow_content_binds && current_system->load_state) {
 				current_system->load_state(current_system, QUICK_SAVE_SLOT);
 			}
 			break;
@@ -478,27 +478,6 @@ void handle_binding_up(keybinding * binding)
 		case UI_CD_GRAPHICS_DEBUG:
 			if (allow_content_binds && current_system->toggle_debug_view) {
 				current_system->toggle_debug_view(current_system, binding->subtype_a - UI_PLANE_DEBUG + DEBUG_PLANE);
-				/*
-				vdp_context *vdp = NULL;
-				if (current_system->type == SYSTEM_GENESIS || current_system->type == SYSTEM_SEGACD) {
-					genesis_context *gen = (genesis_context *)current_system;
-					vdp = gen->vdp;
-				} else if (current_system->type == SYSTEM_SMS) {
-					sms_context *sms = (sms_context *)current_system;
-					vdp = sms->vdp;
-				}
-				if (vdp) {
-					uint8_t debug_type;
-					switch(binding->subtype_a)
-					{
-					case UI_PLANE_DEBUG: debug_type = VDP_DEBUG_PLANE; break;
-					case UI_VRAM_DEBUG: debug_type = VDP_DEBUG_VRAM; break;
-					case UI_CRAM_DEBUG: debug_type = VDP_DEBUG_CRAM; break;
-					case UI_COMPOSITE_DEBUG: debug_type = VDP_DEBUG_COMPOSITE; break;
-					default: return;
-					}
-					vdp_toggle_debug_view(vdp, debug_type);
-				}*/
 				break;
 			}
 		case UI_PASTE:

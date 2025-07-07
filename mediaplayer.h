@@ -15,11 +15,13 @@ typedef void (*chip_run_fun)(void *context, uint32_t cycle);
 typedef void (*chip_scope_fun)(chip_info *chip, oscilloscope *scope);
 typedef void (*chip_noarg_fun)(void *context);
 typedef void (*chip_adjust_fun)(chip_info *chip);
+typedef void (*chip_clock_fun)(chip_info *chip, uint32_t percent);
 typedef void (*chip_stream_fun)(chip_info *chip, uint8_t port, uint8_t command, uint16_t sample);
 struct chip_info {
 	void            *context;
 	chip_run_fun    run;
 	chip_adjust_fun adjust;
+	chip_clock_fun  adjust_clock;
 	chip_scope_fun  scope;
 	chip_noarg_fun  no_scope;
 	chip_noarg_fun  free;
