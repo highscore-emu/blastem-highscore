@@ -7,6 +7,7 @@ info
 	opcode_size 8
 	header upd78k2.h
 	body upd78k2_run_op
+	sync_cycle upd78k2_sync_cycle
 	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg
 	include upd78k2_util.c
 regs
@@ -19,12 +20,21 @@ regs
 	int_priority_flag 8
 	chflags 8
 	zflag 8
+	stbc 8
+	int_cycle 32
 	scratch1 32
 	scratch2 32
 	mem_pointers ptr8 4
 	port_data 8 8
 	port_mode 8 8
 	mm 8
+	if0 16
+	mk0 16
+	pr0 16
+	ism0 16
+	intm0 8
+	intm1 8
+	ist 8
 	iram 8 256
 flags
 	register psw
@@ -40,6 +50,7 @@ declare
 	void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value);
 	void init_upd78k2_opts(upd78k2_options *opts, memmap_chunk const *chunks, uint32_t num_chunks);
 	upd78k2_context *init_upd78k2_context(upd78k2_options *opts);
+	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
 
 #Prefix bytes
 # 0000 0001 -> saddr becomes sfr, mem becomes &mem
@@ -134,6 +145,7 @@ iram_write
 			else
 				normal_iram = 0
 			end
+		end
 	end
 	if normal_iram
 		iram.offset = value
@@ -421,6 +433,18 @@ aluop16
 	upd78k2_op_fetch
 	meta dst a
 	aluop P scratch1
+
+01101PPP alu_saddr_immed
+	local offset 8
+	local immed 8
+	upd78k2_op_fetch
+	offset = scratch1
+	upd78k2_op_fetch
+	immed = scratch1
+	saddr_read offset
+	meta dst scratch1
+	aluop P immed
+	saddr_write offset scratch1
 	
 calc_addr_base
 	arg regpair 8
@@ -671,6 +695,32 @@ mov_reg 0DDD0SSS mov_r_r
 	upd78k2_op_fetch
 	main.dst = scratch1
 
+10111RRR mov_r_immed
+	local dst 8
+	dst = R << 1
+	upd78k2_op_fetch
+	main.dst = scratch1
+
+spmov 11000000 mov_stbc_immed
+	local tmp 8
+	upd78k2_op_fetch
+	tmp = ~scratch1
+	upd78k2_op_fetch
+	if tmp = scratch1
+		stbc = tmp
+		#TODO: actually handle stbc changes
+	end
+
+spmov 11110000 mov_a_abs
+	upd78k2_op_fetch_word
+	mem_read_no_exp scratch1
+	a = scratch1
+
+spmov 11110001 mov_abs_a
+	upd78k2_op_fetch_word
+	scratch2 = scratch1
+	mem_write_no_exp scratch2 a
+
 11000RRR inc_r
 	cycles 2
 	main.R += 1
@@ -715,6 +765,102 @@ muldiv 01001PP0 br_rp
 		pc += scratch1
 	end
 
+bit1 10100BBB bf_psw
+	local mask 8
+	upd78k2_op_fetch
+	mask = 1 << B
+	mask &= psw
+	if =
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+bit1 10110BBB bt_psw
+	local mask 8
+	upd78k2_op_fetch
+	mask = 1 << B
+	mask &= psw
+	if !=
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+bit2 1010RBBB bf_r
+	local mask 8
+	upd78k2_op_fetch
+	mask = 1 << B
+	mask &= main.R
+	if =
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+bit2 1011RBBB bt_r
+	local mask 8
+	upd78k2_op_fetch
+	mask = 1 << B
+	mask &= main.R
+	if !=
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+sfrbit 10100BBB bf_saddr
+	local mask 8
+	local tmp 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	tmp = scratch1
+	mask = 1 << B
+	upd78k2_op_fetch
+	mask &= tmp
+	if =
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+01110BBB bt_saddr
+	local mask 8
+	local tmp 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	tmp = scratch1
+	mask = 1 << B
+	upd78k2_op_fetch
+	mask &= tmp
+	if !=
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+sfrbit 10101BBB bf_sfr
+	local mask 8
+	local tmp 8
+	upd78k2_op_fetch
+	sfr_read scratch1
+	tmp = scratch1
+	mask = 1 << B
+	upd78k2_op_fetch
+	mask &= tmp
+	if =
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+sfrbit 10111BBB bt_sfr
+	local mask 8
+	local tmp 8
+	upd78k2_op_fetch
+	sfr_read scratch1
+	tmp = scratch1
+	mask = 1 << B
+	upd78k2_op_fetch
+	mask &= tmp
+	if !=
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
 muldiv 01011PP0 call_rp
 	local reg 8
 	local tmp 16
@@ -743,6 +889,9 @@ muldiv 01011PP0 call_rp
 
 111TTTTT call_table
 	local address 16
+	local offset 8
+	offset = T << 1
+	offset += 0x40
 	mem_read_no_exp T
 	address = scratch1
 	scratch1 = T + 1
@@ -751,6 +900,19 @@ muldiv 01011PP0 call_rp
 	address |= 8
 	push_word pc
 	pc = address
+
+01001010 di
+	int_enable = 0
+	update_sync
+
+01001011 ei
+	int_enable = 1
+	update_sync
+	
+	if cycles >=U int_cycle
+		int_cycle = cycles + 1
+	end
+
 
 01010110 ret
 	meta dst pc
@@ -822,6 +984,7 @@ muldiv 11001001 decw_sp
 	sp -= 1
 
 00001011 movw_sfrp_immed
+	local offset 8
 	upd78k2_op_fetch
 	if scratch1 = 0xFC
 		#unclear if SP is actually mapped in the SFR space
@@ -834,12 +997,12 @@ muldiv 11001001 decw_sp
 		scratch1 <<= 8
 		sp |= scratch1
 	else
-		scratch2 = scratch1
+		offset = scratch1
 		upd78k2_op_fetch
-		sfr_write scratch2 scratch1
-		scratch2 += 1
+		sfr_write offset scratch1
+		offset += 1
 		upd78k2_op_fetch
-		sfr_write scratch2 scratch1
+		sfr_write offset scratch1
 	end
 
 00001100 movw_sadrp_word
@@ -850,4 +1013,218 @@ muldiv 11001001 decw_sp
 	saddr_write offset scratch1
 	offset += 1
 	upd78k2_op_fetch
+	saddr_write offset scratch1
+
+00101011 mov_sfr_immed
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	upd78k2_op_fetch
+	if offset = 0xFE
+		psw = scratch1
+	else
+		sfr_write offset scratch1
+	end
+
+00111010 mov_saddr_immed
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	upd78k2_op_fetch
+	saddr_write offset scratch1
+
+sfrbit 00000BBB mov1_cy_saddr
+	local mask 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	mask = 1 << B
+	scratch1 &= mask
+	if =
+		update_flags C0
+	else
+		update_flags C1
+	end
+
+sfrbit 00001BBB mov1_cy_sfr
+	local mask 8
+	upd78k2_op_fetch
+	sfr_read scratch1
+	mask = 1 << B
+	scratch1 &= mask
+	if =
+		update_flags C0
+	else
+		update_flags C1
+	end
+
+sfrbit 00010BBB mov1_saddr_cy
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	mask = 1 << B
+	if chflags >=U 0x80
+		scratch1 |= mask
+	else
+		mask = ~mask
+		scratch1 &= mask
+	end
+	saddr_write offset scratch1
+
+sfrbit 00011BBB mov1_sfr_cy
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_read offset
+	mask = 1 << B
+	if chflags >=U 0x80
+		scratch1 |= mask
+	else
+		mask = ~mask
+		scratch1 &= mask
+	end
+	sfr_write offset scratch1
+
+sfrbit 001I0BBB and1_cy_saddr
+	local mask 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	if I
+		scratch1 = ~scratch1
+	end
+	mask = 1 << B
+	scratch1 &= mask
+	if =
+		update_flags C0
+	end
+
+sfrbit 001I1BBB and1_cy_sfr
+	local mask 8
+	upd78k2_op_fetch
+	sfr_read scratch1
+	if I
+		scratch1 = ~scratch1
+	end
+	mask = 1 << B
+	scratch1 &= mask
+	if =
+		update_flags C0
+	end
+
+sfrbit 010I0BBB or1_cy_saddr
+	local mask 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	if I
+		scratch1 = ~scratch1
+	end
+	mask = 1 << B
+	scratch1 &= mask
+	if !=
+		update_flags C1
+	end
+
+sfrbit 010I1BBB or1_cy_sfr
+	local mask 8
+	upd78k2_op_fetch
+	sfr_read scratch1
+	if I
+		scratch1 = ~scratch1
+	end
+	mask = 1 << B
+	scratch1 &= mask
+	if !=
+		update_flags C1
+	end
+
+sfrbit 01100BBB xor1_cy_saddr
+	local mask 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	mask = 1 << B
+	scratch1 &= mask
+	if !=
+		if chflags >=U 0x80
+			update_flags C0
+		else
+			update_flags C1
+		end
+	end
+
+sfrbit 01101BBB xor1_cy_sfr
+	local mask 8
+	upd78k2_op_fetch
+	sfr_read scratch1
+	mask = 1 << B
+	scratch1 &= mask
+	if !=
+		if chflags >=U 0x80
+			update_flags C0
+		else
+			update_flags C1
+		end
+	end
+
+sfrbit 01110BBB not1_saddr
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	mask = 1 << B
+	scratch1 ^= mask
+	saddr_write offset scratch1
+
+sfrbit 01111BBB not1_sfr
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_read offset
+	mask = 1 << B
+	scratch1 ^= mask
+	sfr_write offset scratch1
+
+sfrbit 10001BBB set1_sfr
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_read offset
+	mask = 1 << B
+	scratch1 |= mask
+	sfr_write offset scratch1
+
+sfrbit 10011BBB clr1_sfr
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_read offset
+	mask = 1 << B
+	mask = ~mask
+	scratch1 &= mask
+	sfr_write offset scratch1
+
+10110BBB set1_saddr_cy
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	mask = 1 << B
+	scratch1 |= mask
+	saddr_write offset scratch1
+
+10100BBB clr1_saddr_cy
+	local mask 8
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	mask = 1 << B
+	mask = ~mask
+	scratch1 &= mask
 	saddr_write offset scratch1

@@ -349,6 +349,7 @@ endif
 -include $(OBJDIR)/trans.d
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
+-include $(OBJDIR)/upd78k2run.d
 
 $(OBJDIR) :
 	mkdir -p $(OBJDIR)/nuklear_ui
