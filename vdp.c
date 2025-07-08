@@ -2129,8 +2129,14 @@ static void vdp_advance_line(vdp_context *context)
 			jump_end = 0x1E5;
 		}
 	} else {
-		jump_start = 0xDB;
-		jump_end = 0x1D5;
+		//TODO: extended heights on VDPs with that feature
+		if (context->flags2 & FLAG2_REGION_PAL) {
+			jump_start = 0xF3;
+			jump_end = 0x1BA;
+		} else {
+			jump_start = 0xDB;
+			jump_end = 0x1D5;
+		}
 	}
 
 	if (context->enabled_debuggers & (1 << DEBUG_CRAM | 1 << DEBUG_COMPOSITE)) {
