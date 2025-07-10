@@ -345,11 +345,11 @@ endif
 
 -include $(MAINOBJS:%.o=$(OBJDIR)/%.d)
 -include $(LIBOBJS:%.o=$(LIBOBJDIR)/%.d)
--include $(DISOBJS:.o=$(OBJDIR)/%.d)
+-include $(DISOBJS:%.o=$(OBJDIR)/%.d)
+-include $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.d)
 -include $(OBJDIR)/trans.d
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
--include $(OBJDIR)/upd78k2run.d
 
 $(OBJDIR) :
 	mkdir -p $(OBJDIR)/nuklear_ui
