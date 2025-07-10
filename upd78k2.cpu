@@ -8,6 +8,7 @@ info
 	header upd78k2.h
 	body upd78k2_run_op
 	sync_cycle upd78k2_sync_cycle
+	interrupt upd78k2_interrupt
 	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg
 	include upd78k2_util.c
 regs
@@ -27,14 +28,29 @@ regs
 	mem_pointers ptr8 4
 	port_data 8 8
 	port_mode 8 8
-	mm 8
-	if0 16
-	mk0 16
-	pr0 16
-	ism0 16
-	intm0 8
-	intm1 8
-	ist 8
+	puo 8 #pull-up option register
+	pmc3 8 #port 3 pin configuration
+	cr00 16 #16-bit timer comapre register 0
+	cr01 16 #16-bit timer compare register 1
+	crc0 8 #Capture/compare control register 0
+	tm0 16 #16-bit timer register 0
+	tm0_cycle 32
+	tmc0 8 #Timer control register 0
+	cr10 8 #8-bit timer 1 compare register 0
+	cr11 8 #8-bit timer 1 compare register 1
+	tm1 8 #8-bit timer register 1
+	tm1_cycle 32
+	prm1 8 #Timer pre-scaler mode register 1
+	tmc1 8 #Timer control register 1
+	crc1 8 #Capture/compare control regiser 1
+	mm 8 #Memory expansion mode register
+	if0 16 #Interrupt request flag register
+	mk0 16 #interrupt mask flag register
+	pr0 16 #Priority specification flag register
+	ism0 16 #Interrupt service mode specification flag register
+	intm0 8 #External interrupt mode register 0
+	intm1 8 #External interrupt mode register 1
+	ist 8 #Interrupt status register
 	iram 8 256
 flags
 	register psw
@@ -112,6 +128,8 @@ iram_read
 		scratch1 = offset & 7
 		scratch1 = main.scratch1
 	end
+	#FIXME cycle count
+	cycles 2
 
 iram_write
 	arg offset 8
@@ -153,6 +171,8 @@ iram_write
 		regnum = offset & 8
 		main.regnum = value
 	end
+	#FIXME: cycle count
+	cycles 2
 
 mem_read_no_exp
 	arg addr 32
@@ -206,27 +226,19 @@ upd78k2_run_op
 
 saddr_read
 	arg offset 8
-	local tmp 8
-	if offset >=U 0xE0
-		#sfr area
-		tmp = offset - 0xE0
-		sfr_read tmp
+	if offset >=U 0x20
+		iram_read offset
 	else
-		tmp = offset + 0x20
-		iram_read tmp
+		sfr_read offset
 	end
 
 saddr_write
 	arg offset 8
 	arg value 8
-	local tmp 8
-	if offset >=U 0xE0
-		#sfr area
-		tmp = offset - 0xE0
-		sfr_write tmp value
+	if offset >=U 0x20
+		iram_write offset value
 	else
-		tmp = offset + 0x20
-		iram_write tmp value
+		sfr_write offset value
 	end
 
 mem_read
@@ -1228,3 +1240,17 @@ sfrbit 10011BBB clr1_sfr
 	mask = ~mask
 	scratch1 &= mask
 	saddr_write offset scratch1
+
+upd78k2_interrupt
+	if cycles >=U int_cycle
+		update_sync
+		if int_enable
+			scratch1 = ~mk0
+			scratch1 &= if0
+			if !=
+				ocall calc_vector
+				mem_read_no_exp scratch1
+				pc = scratch1
+			end
+		end
+	end

@@ -65,6 +65,6 @@ int main(int argc, char **argv)
 	init_upd78k2_opts(&opts, upd_map, 4);
 	upd = init_upd78k2_context(&opts);
 	upd->pc = rom[0] | rom[1] << 8;
-	upd78k2_execute(upd, 10000);
+	upd78k2_execute(upd, 10000000);
 	return 0;
 }
