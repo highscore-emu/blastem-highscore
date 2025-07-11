@@ -193,6 +193,18 @@ uint8_t upd78237_sfr_read(uint32_t address, void *context)
 	}
 	switch (address)
 	{
+	case 0x10:
+		return upd->cr00;
+	case 0x11:
+		return upd->cr00 >> 8;
+	case 0x12:
+		return upd->cr01;
+	case 0x13:
+		return upd->cr01 >> 8;
+	case 0x14:
+		return upd->cr10;
+	case 0x1C:
+		return upd->cr11;
 	case 0x21:
 	case 0x26:
 		return upd->port_mode[address & 0x7];
@@ -269,7 +281,7 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 			upd78k2_update_timer0(upd);
 			upd->cr01 &= 0xFF00;
 			upd->cr01 |= value;
-			printf("CR01: %04X\n", upd->cr00);
+			printf("CR01: %04X\n", upd->cr01);
 			upd78k2_calc_next_int(upd);
 			break;
 		case 0x13:
@@ -438,12 +450,15 @@ void upd78k2_calc_vector(upd78k2_context *upd)
 {
 	uint32_t pending_enabled = upd->scratch1;
 	uint32_t vector = 0x6;
+	uint32_t bit = 1;
 	while (pending_enabled)
 	{
 		if (pending_enabled & 1) {
+			upd->if0 &= ~bit;
 			upd->scratch1 = vector;
 			return;
 		}
+		bit <<= 1;
 		pending_enabled >>= 1;
 		vector += 2;
 		if (vector == 0xE) {

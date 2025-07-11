@@ -1253,7 +1253,12 @@ def _rrcCImpl(prog, params, rawParams, flagUpdates):
 	return ret
 	
 def _updateSyncCImpl(prog, params):
-	return '\n\t{sync}(context, target_cycle);'.format(sync=prog.sync_cycle)
+	ret = ''
+	if prog.needFlagDisperse:
+		ret += prog.flags.disperseFlags(prog, 'c')
+		prog.needFlagDispserse = False
+	ret += f'\n\t{prog.sync_cycle}(context, target_cycle);'
+	return ret
 
 _opMap = {
 	'mov': Op(lambda val: val).cUnaryOperator(''),
