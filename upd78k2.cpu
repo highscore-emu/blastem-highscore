@@ -9,7 +9,7 @@ info
 	body upd78k2_run_op
 	sync_cycle upd78k2_sync_cycle
 	interrupt upd78k2_interrupt
-	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg
+	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg xch_reg
 	include upd78k2_util.c
 regs
 	main 8 x a c b e d l h
@@ -345,6 +345,10 @@ pop_word
 00100100 mov_reg_prefix
 	upd78k2_op_fetch
 	dispatch scratch1 mov_reg
+
+00100101 xch_reg_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 xch_reg
 
 sfr 00000110 alt_base_prefix
 	upd78k2_op_fetch
@@ -764,6 +768,32 @@ mov_reg 0DDD0SSS mov_r_r
 	upd78k2_op_fetch
 	main.dst = scratch1
 
+muldiv 1110001R movw_ax_mem
+	local address 16
+	local reg 8
+	reg = R << 2
+	reg |= 5
+	address = main.reg << 8
+	reg -= 1
+	address |= main.reg
+	mem_read address 0
+	x = scratch1
+	address += 1
+	mem_read address 0
+	a = scratch1
+
+muldiv 1110011R movw_mem_ax
+	local address 16
+	local reg 8
+	reg = R << 2
+	reg |= 5
+	address = main.reg << 8
+	reg -= 1
+	address |= main.reg
+	mem_write address x 0
+	address += 1
+	mem_write address a 0
+
 10111RRR mov_r_immed
 	local dst 8
 	dst = R << 1
@@ -845,6 +875,12 @@ spmov 11110001 mov_abs_a
 	sfr_write offset x
 	offset += 1
 	sfr_write offset a
+	
+xch_reg 0DDD0SSS xch_r_r
+	xchg main.D main.S
+
+11011RRR xch_a_r
+	xchg a main.R
 
 11000RRR inc_r
 	cycles 2
@@ -1125,6 +1161,34 @@ muldiv 11001000 incw_sp
 
 muldiv 11001001 decw_sp
 	sp -= 1
+
+010001PP incw_rp
+	local rp 16
+	local reg 8
+	reg = P << 1
+	reg += 1
+	rp = main.reg << 8
+	reg -= 1
+	rp |= main.reg
+	rp += 1
+	update_flags ZA
+	main.reg = rp
+	reg += 1
+	main.reg = rp >> 8
+
+010011PP decw_rp
+	local rp 16
+	local reg 8
+	reg = P << 1
+	reg += 1
+	rp = main.reg << 8
+	reg -= 1
+	rp |= main.reg
+	rp -= 1
+	update_flags ZA
+	main.reg = rp
+	reg += 1
+	main.reg = rp >> 8
 
 00001011 movw_sfrp_immed
 	local offset 8
