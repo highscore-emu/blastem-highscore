@@ -224,6 +224,7 @@ class Instruction(Block):
 	def generateBody(self, value, prog, otype):
 		output = []
 		prog.meta = {}
+		prog.declaredLocals.clear()
 		prog.pushScope(self)
 		self.regValues = {}
 		for var in self.locals:
@@ -260,6 +261,8 @@ class Instruction(Block):
 			begin += '\n\tuint{sz}_t {name};'.format(sz=self.locals[var], name=var)
 		for size in prog.temp:
 			begin += '\n\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size)
+		for name in prog.declaredLocals:
+			begin += f'\n\tuint{prog.declaredLocals[name]}_t {name};'
 		prog.popScope()
 		if prog.dispatch == 'goto':
 			output += prog.nextInstruction(otype)
@@ -283,6 +286,7 @@ class SubRoutine(Block):
 		self.locals = {}
 		self.regValues = {}
 		self.argValues = {}
+		self.sizedLocals = {}
 	
 	def addOp(self, op):
 		if op.op == 'arg':
@@ -298,6 +302,8 @@ class SubRoutine(Block):
 			self.implementation.append(op)
 			
 	def resolveLocal(self, name):
+		if name in self.sizedLocals:
+			return self.sizedLocals[name]
 		if name in self.locals:
 			return self.name + '_' + name
 		return None
@@ -319,7 +325,6 @@ class SubRoutine(Block):
 		argValues = {}
 		if parent:
 			self.regValues = parent.regValues
-		output.append('\n\t{')
 		prog.pushScope(self)
 		i = 0
 		for name,size in self.args:
@@ -327,11 +332,17 @@ class SubRoutine(Block):
 			i += 1
 		for name in self.locals:
 			size = self.locals[name]
-			output.append('\n\tuint{size}_t {sub}_{local};'.format(size=size, sub=self.name, local=name))
+			fullName = f'{self.name}_{name}'
+			declare = not fullName in prog.declaredLocals 
+			if not declare and prog.declaredLocals[fullName] != size:
+				self.sizedLocals[name] = fullName
+				fullName = f'{self.name}_{size}_{name}'
+				declare = True
+			if declare:
+				prog.declaredLocals[fullName] = size
 		self.argValues = argValues
 		self.processOps(prog, argValues, output, otype, self.implementation)
 		prog.popScope()
-		output.append('\n\t}')
 		
 	def __str__(self):
 		pieces = [self.name]
@@ -2082,6 +2093,7 @@ class Program:
 		self.declares = []
 		self.lastSize = None
 		self.mainDispatch = set()
+		self.declaredLocals = {}
 		
 	def __str__(self):
 		pieces = []
@@ -2181,12 +2193,22 @@ class Program:
 			if self.interrupt in self.subroutines:
 				self.meta = {}
 				self.temp = {}
-				self.subroutines[self.interrupt].inline(self, [], output, otype, None)
+				body = []
+				self.declaredLocals.clear()
+				self.subroutines[self.interrupt].inline(self, [], body, otype, None)
+				for name in self.declaredLocals:
+					output.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
+				output += body
 				output.append('\n\t}')
 			
 			self.meta = {}
 			self.temp = {}
-			self.subroutines[self.body].inline(self, [], output, otype, None)
+			self.declaredLocals.clear()
+			body = []
+			self.subroutines[self.body].inline(self, [], body, otype, None)
+			for name in self.declaredLocals:
+				output.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
+			output += body
 		return output
 	
 	def build(self, otype):
@@ -2229,9 +2251,12 @@ class Program:
 						self.meta = {}
 						self.temp = {}
 						intpieces = []
+						self.declaredLocals.clear()
 						self.subroutines[self.interrupt].inline(self, [], intpieces, otype, None)
 						for size in self.temp:
 							pieces.append('\n\t\t\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
+						for name in self.declaredLocals:
+							pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
 						pieces += intpieces
 					if self.pc_offset:
 						pieces.append(f'\n\t\t\tuint32_t debug_pc = context->{self.pc_reg} - {self.pc_offset};')
@@ -2245,7 +2270,12 @@ class Program:
 					pieces.append('\n\t\t\t}')
 					self.meta = {}
 					self.temp = {}
-					self.subroutines[self.body].inline(self, [], pieces, otype, None)
+					self.declaredLocals.clear()
+					bodyPieces = []
+					self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
+					for name in self.declaredLocals:
+						pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
+					pieces += bodyPieces
 					pieces.append('\n\t}')
 					pieces.append('\n\t} else {')
 				pieces.append('\n\twhile (context->cycles < target_cycle)')
@@ -2257,13 +2287,21 @@ class Program:
 					self.meta = {}
 					self.temp = {}
 					intpieces = []
+					self.declaredLocals.clear()
 					self.subroutines[self.interrupt].inline(self, [], intpieces, otype, None)
 					for size in self.temp:
 						pieces.append('\n\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
+					for name in self.declaredLocals:
+						pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
 					pieces += intpieces
 				self.meta = {}
 				self.temp = {}
-				self.subroutines[self.body].inline(self, [], pieces, otype, None)
+				self.declaredLocals.clear()
+				bodyPieces = []
+				self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
+				for name in self.declaredLocals:
+					pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
+				pieces += bodyPieces
 				pieces.append('\n\t}')
 				if self.pc_reg:
 					pieces.append('\n\t}')

@@ -1803,3 +1803,13 @@ T-83056 {
 		2 gamepad3.2
 	}
 }
+a704a1538fb4392e4631e96dce11eeff99d9b04a {
+	name Back to the Future Part III
+	#has JUE in header, but fails to work in E mode
+	regions JU
+}
+c808ee7f6f61c096ab73b68dd181e25fdcfde243 {
+	name Back to the Future Part III
+	#has JUE in header, but only works in E mode
+	regions E
+}
