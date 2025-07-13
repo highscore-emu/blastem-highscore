@@ -188,11 +188,27 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 uint8_t upd78237_sfr_read(uint32_t address, void *context)
 {
 	upd78k2_context *upd = context;
-	if (address < 8) {
-		return upd->port_data[address];
-	}
 	switch (address)
 	{
+	case 0x00:
+	case 0x04:
+	case 0x05:
+	case 0x06:
+		return upd->port_data[address];
+	case 0x02:
+	case 0x07:
+		//input only
+		if (upd->io_read) {
+			upd->io_read(upd, address);
+		}
+		return upd->port_input[address];
+		break;
+	case 0x01:
+	case 0x03:
+		if (upd->io_read) {
+			upd->io_read(upd, address);
+		}
+		return (upd->port_input[address] & upd->port_mode[address]) | (upd->port_data[address] & ~upd->port_mode[address]);
 	case 0x10:
 		return upd->cr00;
 	case 0x11:
@@ -262,6 +278,9 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 		case 0x06:
 			printf("P%X: %02X\n", address & 7, value);
 			upd->port_data[address & 7] = value;
+			if (upd->io_write) {
+				upd->io_write(upd, address);
+			}
 			break;
 		case 0x10:
 			upd78k2_update_timer0(upd);
@@ -400,9 +419,11 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 			printf("ISM0: %04X\n", upd->ism0);
 			break;
 		case 0xF4:
+			printf("INTM0: %02X\n", value);
 			upd->intm0 = value;
 			break;
 		case 0xF5:
+			printf("INTM1: %02X\n", value);
 			upd->intm1 = value;
 			break;
 		case 0xF8:

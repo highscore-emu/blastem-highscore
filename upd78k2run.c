@@ -10,13 +10,13 @@ void render_infobox(char * title, char * buf)
 {
 }
 
-uint8_t pram[384];
-uint8_t rom[0xFC80];
+uint8_t pram[768];
+uint8_t rom[0xFB00];
 
 const memmap_chunk upd_map[] = {
-	{ 0x0000, 0xFC80, 0xFFFFF, .flags = MMAP_READ, .buffer = rom},
-	{ 0xFC80, 0xFD00, 0x7F, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE, .buffer = pram},
-	{ 0xFD00, 0xFE00, 0xFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE, .buffer = pram + 128},
+	{ 0x0000, 0xFB00, 0xFFFFF, .flags = MMAP_READ, .buffer = rom},
+	{ 0xFB00, 0xFD00, 0x1FF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE, .buffer = pram},
+	{ 0xFD00, 0xFE00, 0xFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE, .buffer = pram + 512},
 	{ 0xFF00, 0xFFFF, 0xFF, .read_8 = upd78237_sfr_read, .write_8 = upd78237_sfr_write}
 };
 
@@ -64,6 +64,10 @@ int main(int argc, char **argv)
 	fclose(f);
 	init_upd78k2_opts(&opts, upd_map, 4);
 	upd = init_upd78k2_context(&opts);
+	upd->port_input[2] = 0xFF;
+	upd->port_input[3] = 0x20;
+	upd->port_input[7] = 0xF7;
+	
 	upd->pc = rom[0] | rom[1] << 8;
 	upd78k2_execute(upd, 10000000);
 	return 0;

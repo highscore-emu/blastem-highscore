@@ -2462,6 +2462,8 @@ def parse(args):
 	info = {}
 	line_num = 0
 	cur_object = None
+	usedInstNames = set()
+	usedBitPatterns = set()
 	for line in f:
 		line_num += 1
 		line,_,comment = line.partition('#')
@@ -2530,7 +2532,15 @@ def parse(args):
 						else:
 							fields[char] = (curbit, 1)
 					curbit -= 1
-				cur_object = Instruction(value, fields, name.strip())
+				name = name.strip()
+				if name in usedInstNames:
+					raise Exception(f'Instruction name {name} was already used!')
+				usedInstNames.add(name)
+				pattern = (table, bitpattern)
+				if pattern in usedBitPatterns:
+					raise Exception(f'Pattern {pattern} was already defined')
+				usedBitPatterns.add(pattern)
+				cur_object = Instruction(value, fields, name)
 				instructions.setdefault(table, []).append(cur_object)
 			elif line.strip() == 'regs':
 				if registers is None:
