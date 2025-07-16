@@ -37,5 +37,7 @@ void add_segacd_maincpu_labels(disasm_context *context);
 void add_segacd_subcpu_labels(disasm_context *context);
 disasm_context *create_68000_disasm(void);
 disasm_context *create_z80_disasm(void);
+disasm_context *create_upd78k2_disasm(void);
+void add_upd7823x_labels(disasm_context *context);
 
 #endif //DISASM_H_

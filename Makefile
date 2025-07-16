@@ -327,6 +327,7 @@ MTESTOBJS:=trans.o serialize.o $(M68KOBJS) $(TRANSOBJS) util.o
 ZTESTOBJS:=ztestrun.o serialize.o $(Z80OBJS) $(TRANSOBJS) util.o
 CPMOBJS:=blastcpm.o util.o serialize.o $(Z80OBJS) $(TRANSOBJS)
 UPD78K2RUNOBJS:=upd78k2.o upd78k2run.o util.o backend.o tern.o
+UPDDISOBJS:=upddis.o upd78k2_dis.o disasm.o tern.o util.o backend.o
 
 LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB -DDISABLE_ZLIB
 
@@ -347,6 +348,7 @@ endif
 -include $(LIBOBJS:%.o=$(LIBOBJDIR)/%.d)
 -include $(DISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.d)
+-include $(UPDDISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(OBJDIR)/trans.d
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
@@ -393,6 +395,9 @@ vos_prog_info : $(OBJDIR)/vos_prog_info.o $(OBJDIR)/vos_program_module.o
 	$(CC) -o $@ $^ $(OPT)
 
 upd78k2run : $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.o)
+	$(CC) -o $@ $^ $(OPT)
+
+upddis$(EXE) : $(UPDDISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c
