@@ -71,6 +71,7 @@ declare
 	upd78k2_context *init_upd78k2_context(upd78k2_options *opts);
 	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
 	typedef void (upd_io_fun)(upd78k2_context *upd, uint8_t offset);
+	void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction);
 
 #Prefix bytes
 # 0000 0001 -> saddr becomes sfr, mem becomes &mem

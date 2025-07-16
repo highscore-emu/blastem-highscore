@@ -9,6 +9,7 @@
 #include "paths.h"
 #include "util.h"
 #include "cdimage.h"
+#include "laseractive.h"
 
 #define SMD_HEADER_SIZE 512
 #define SMD_MAGIC1 0x03
@@ -405,6 +406,8 @@ system_header *alloc_config_system(system_type stype, system_media *media, uint3
 	case SYSTEM_PICO:
 	case SYSTEM_COPERA:
 		return &(alloc_config_pico(media->buffer, media->size, lock_on, lock_on_size, opts, force_region, stype))->header;
+	case SYSTEM_LASERACTIVE:
+		return &(alloc_laseractive(media, opts))->header;
 	default:
 		return NULL;
 	}

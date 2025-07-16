@@ -1,13 +1,18 @@
 #include <string.h>
 
+//#define FETCH_DEBUG
 void upd78k2_read_8(upd78k2_context *upd)
 {
+#ifdef FETCH_DEBUG
 	uint32_t tmp = upd->scratch1;
+#endif
 	upd->scratch1 = read_byte(upd->scratch1, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+#ifdef FETCH_DEBUG
 	if (tmp == upd->pc) {
 		printf("uPD78K/II fetch %04X: %02X, AX=%02X%02X BC=%02X%02X DE=%02X%02X HL=%02X%02X SP=%04X\n", tmp, upd->scratch1,
 			upd->main[1], upd->main[0], upd->main[3], upd->main[2], upd->main[5], upd->main[4], upd->main[7], upd->main[6], upd->sp);
 	}
+#endif
 	//FIXME: cycle count
 	upd->cycles += 2 * upd->opts->gen.clock_divider;
 }
@@ -179,9 +184,11 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 			next_int = cycle;
 		}
 	}
+#ifdef FETCH_DEBUG
 	if (next_int != upd->int_cycle) {
 		printf("UPD78K/II int cycle: %u, cur cycle %u\n", next_int, upd->cycles);
 	}
+#endif
 	upd->int_cycle = next_int;
 }
 
@@ -491,4 +498,25 @@ void upd78k2_calc_vector(upd78k2_context *upd)
 		}
 	}
 	fatal_error("upd78k2_calc_vector: %X\n", upd->scratch1);
+}
+
+void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction)
+{
+	upd78k2_update_timer0(upd);
+	upd78k2_update_timer1(upd);
+	if (upd->cycles <= deduction) {
+		upd->cycles = 0;
+	} else {
+		upd->cycles -= deduction;
+	}
+	if (upd->tm0_cycle <= deduction) {
+		upd->tm0_cycle = 0;
+	} else {
+		upd->tm0_cycle -= deduction;
+	}
+	if (upd->tm1_cycle <= deduction) {
+		upd->tm1_cycle = 0;
+	} else {
+		upd->tm1_cycle -= deduction;
+	}
 }

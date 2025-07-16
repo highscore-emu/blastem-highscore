@@ -283,7 +283,8 @@ endif
 COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o nor.o $(M68KOBJS) \
 	sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
 	$(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o gen_player.o coleco.o pico_pcm.o ymz263b.o \
-	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o
+	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o \
+	laseractive.o upd78k2_dis.o upd78k2.o
 
 ifdef NOZ80
 CFLAGS+=-DNO_Z80
@@ -337,10 +338,10 @@ ORDERONLY:=$(OBJDIR)
 LIBORDERONLY:=$(LIBOBJDIR)
 ifdef NEW_CORE
 ifeq ($(wildcard $(OBJDIR)/*.d),)
-ORDERONLY+= m68k.c z80.c
+ORDERONLY+= m68k.c z80.c upd78k2.c
 endif
 ifeq ($(wildcard $(LIBOBJDIR)/*.d),)
-LIBORDERONLY+= m68k.c z80.c
+LIBORDERONLY+= m68k.c z80.c upd78k2.c
 endif
 endif
 
