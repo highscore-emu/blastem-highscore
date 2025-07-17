@@ -338,11 +338,18 @@ ORDERONLY:=$(OBJDIR)
 LIBORDERONLY:=$(LIBOBJDIR)
 ifdef NEW_CORE
 ifeq ($(wildcard $(OBJDIR)/*.d),)
-ORDERONLY+= m68k.c z80.c upd78k2.c
+ORDERONLY+= m68k.c z80.c
 endif
 ifeq ($(wildcard $(LIBOBJDIR)/*.d),)
-LIBORDERONLY+= m68k.c z80.c upd78k2.c
+LIBORDERONLY+= m68k.c z80.c
 endif
+endif
+
+ifeq ($(wildcard $(OBJDIR)/*.d),)
+ORDERONLY+= upd78k2.c
+endif
+ifeq ($(wildcard $(LIBOBJDIR)/*.d),)
+LIBORDERONLY+= upd78k2.c
 endif
 
 -include $(MAINOBJS:%.o=$(OBJDIR)/%.d)
