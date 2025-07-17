@@ -5,6 +5,7 @@
 #include "render_audio.h"
 #include "blastem.h"
 #include "util.h"
+#include "debug.h"
 
 static void gamepad_down(system_header *system, uint8_t pad, uint8_t button)
 {
@@ -72,6 +73,12 @@ static void resume_laseractive(system_header *system)
 	uint32_t next = next_audio < next_video ? next_audio : next_video;
 	while (!la->header.should_exit)
 	{
+#ifndef IS_LIB
+		if (la->header.enter_debugger) {
+			la->header.enter_debugger = 0;
+			upd_debugger(la->upd);
+		}
+#endif
 		upd78k2_execute(la->upd, next);
 		while (la->upd->cycles >= next_audio) {
 			for (int i = 0; i < 16; i++)
