@@ -2246,6 +2246,7 @@ class Program:
 				pieces.append('\nvoid {pre}execute({type} *context, uint32_t target_cycle)'.format(pre = self.prefix, type = self.context_type))
 				pieces.append('\n{')
 				bodyPieces = []
+				self.temp = {}
 				self.declaredLocals.clear()
 				if self.sync_cycle:
 					bodyPieces.append('\n\t{sync}(context, target_cycle);'.format(sync=self.sync_cycle))
@@ -2258,10 +2259,7 @@ class Program:
 						bodyPieces.append(f'\n\t\t\t\t{self.sync_cycle}(context, target_cycle);')
 						bodyPieces.append('\n\t\t\t}')
 						self.meta = {}
-						self.temp = {}
 						self.subroutines[self.interrupt].inline(self, [], bodyPieces, otype, None)
-						for size in self.temp:
-							bodyPieces.append('\n\t\t\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
 					if self.pc_offset:
 						bodyPieces.append(f'\n\t\t\tuint32_t debug_pc = context->{self.pc_reg} - {self.pc_offset};')
 						pc_reg = 'debug_pc'
@@ -2273,7 +2271,6 @@ class Program:
 					bodyPieces.append(f'\n\t\t\t\thandler(context, {pc_reg});')
 					bodyPieces.append('\n\t\t\t}')
 					self.meta = {}
-					self.temp = {}
 					self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
 					bodyPieces.append('\n\t}')
 					bodyPieces.append('\n\t} else {')
@@ -2284,15 +2281,13 @@ class Program:
 					bodyPieces.append(f'\n\t\t\t{self.sync_cycle}(context, target_cycle);')
 					bodyPieces.append('\n\t\t}')
 					self.meta = {}
-					self.temp = {}
 					self.subroutines[self.interrupt].inline(self, [], bodyPieces, otype, None)
-					for size in self.temp:
-						bodyPieces.append('\n\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
 				self.meta = {}
-				self.temp = {}
 				self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
 				for name in self.declaredLocals:
 					pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
+				for size in self.temp:
+					pieces.append('\n\t\t\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
 				pieces += bodyPieces
 				pieces.append('\n\t}')
 				if self.pc_reg:
