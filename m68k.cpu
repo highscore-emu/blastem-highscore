@@ -2159,7 +2159,7 @@ m68k_save_dst
 	lowx_corf = dst & 0xF
 	lowy_cmp = 0
 	sbc lowx_corf lowy_cmp lowy_cmp
-	if lowy_cmp >= 0xA
+	if lowy_cmp >=U 0xA
 		lowx_corf = 6
 		lowy_cmp = 0xA6
 	else
