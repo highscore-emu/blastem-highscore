@@ -150,7 +150,7 @@ static uint16_t disasm_mov_sfr_a(char *dst, upd_address_ref *ref, uint16_t addre
 		ref_addr = 0xFF00 | offset;
 		ref_type = UPD_REF_OP;
 		format_address(context, addr_buf, ref_addr);
-		sprintf(dst, "mov a,%s", addr_buf);
+		sprintf(dst, "mov %s,a", addr_buf);
 	}
 	if (ref) {
 		ref->address = ref_addr;
