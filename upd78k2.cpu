@@ -559,20 +559,21 @@ calc_addr_base
 	arg regpair 8
 	local tmp 16
 	upd78k2_op_fetch
+	adst = scratch1 & 0xFF
 	switch regpair
 	case 0
 		#[de+byte]
 		tmp = d << 8
 		tmp |= e
-		adst += tmp
+		add tmp adst adst 1
 	case 1
 		#[sp+byte]
-		adst += sp
+		add sp adst adst 1
 	case 2
 		#[hl+byte]
 		tmp = h << 8
 		tmp |= l
-		adst += tmp
+		add tmp adst adst 1
 	end
 
 read_base_mode
