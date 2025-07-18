@@ -345,10 +345,12 @@ LIBORDERONLY+= m68k.c z80.c
 endif
 endif
 
-ifeq ($(wildcard $(OBJDIR)/*.d),)
+#if we've never built the uPD78K2 core before we don't know which other files
+#depend on its header, so force DSL compilation to occur before everything else
+ifeq ($(wildcard $(OBJDIR)/upd78k2.d),)
 ORDERONLY+= upd78k2.c
 endif
-ifeq ($(wildcard $(LIBOBJDIR)/*.d),)
+ifeq ($(wildcard $(LIBOBJDIR)/upd78k2.d),)
 LIBORDERONLY+= upd78k2.c
 endif
 
