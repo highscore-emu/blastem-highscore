@@ -304,6 +304,81 @@ void add_segacd_subcpu_labels(disasm_context *context)
 	weak_label(context, "CDD_CTRL_BYTE", 0xFFFF8037);
 }
 
+void add_upd7823x_labels(disasm_context *context)
+{
+	weak_label(context, "P0", 0xFF00);
+	weak_label(context, "P1", 0xFF01);
+	weak_label(context, "P2", 0xFF02);
+	weak_label(context, "P3", 0xFF03);
+	weak_label(context, "P4", 0xFF04);
+	weak_label(context, "P5", 0xFF05);
+	weak_label(context, "P6", 0xFF06);
+	weak_label(context, "P7", 0xFF07);
+	weak_label(context, "P0L", 0xFF0A);
+	weak_label(context, "P0B", 0xFF0B);
+	weak_label(context, "RTPC", 0xFF0C);
+	weak_label(context, "CR00", 0xFF10);
+	weak_label(context, "CR01", 0xFF12);
+	weak_label(context, "CR10", 0xFF14);
+	weak_label(context, "CR20", 0xFF15);
+	weak_label(context, "CR21", 0xFF16);
+	weak_label(context, "CR30", 0xFF17);
+	weak_label(context, "CR02", 0xFF18);
+	weak_label(context, "CR22", 0xFF1A);
+	weak_label(context, "CR11", 0xFF1C);
+	weak_label(context, "PM0", 0xFF20);
+	weak_label(context, "PM1", 0xFF21);
+	weak_label(context, "PM3", 0xFF23);
+	weak_label(context, "PM5", 0xFF25);
+	weak_label(context, "PM6", 0xFF26);
+	weak_label(context, "CRC0", 0xFF30);
+	weak_label(context, "TOC", 0xFF31);
+	weak_label(context, "CRC1", 0xFF32);
+	weak_label(context, "CRC2", 0xFF34);
+	weak_label(context, "PUO", 0xFF40);
+	weak_label(context, "PMC3", 0xFF43);
+	weak_label(context, "TM0", 0xFF50);
+	weak_label(context, "TM1", 0xFF52);
+	weak_label(context, "TM2", 0xFF54);
+	weak_label(context, "TM3", 0xFF56);
+	weak_label(context, "PRM0", 0xFF5C);
+	weak_label(context, "TMC0", 0xFF5D);
+	weak_label(context, "PRM1", 0xFF5E);
+	weak_label(context, "TMC1", 0xFF5F);
+	weak_label(context, "DACS0", 0xFF60);
+	weak_label(context, "DACS1", 0xFF61);
+	weak_label(context, "ADM", 0xFF68);
+	weak_label(context, "ADCR", 0xFF6A);
+	weak_label(context, "PWMC", 0xFF70);
+	weak_label(context, "PWM0", 0xFF72);
+	weak_label(context, "PWM1", 0xFF74);
+	weak_label(context, "OSPC", 0xFF7D);
+	weak_label(context, "CSIM", 0xFF80);
+	weak_label(context, "SBIC", 0xFF82);
+	weak_label(context, "SIO", 0xFF86);
+	weak_label(context, "ASIM", 0xFF88);
+	weak_label(context, "ASIS", 0xFF8A);
+	weak_label(context, "RxB", 0xFF8C);
+	weak_label(context, "TxS", 0xFF8E);
+	weak_label(context, "BRGC", 0xFF90);
+	weak_label(context, "STBC", 0xFFC0);
+	weak_label(context, "MM", 0xFFC4);
+	weak_label(context, "PW", 0xFFC5);
+	weak_label(context, "RFM", 0xFFC6);
+	weak_label(context, "IMS", 0xFFCF);
+	weak_label(context, "IF0L", 0xFFE0);
+	weak_label(context, "IF0H", 0xFFE1);
+	weak_label(context, "MK0L", 0xFFE4);
+	weak_label(context, "MK0H", 0xFFE5);
+	weak_label(context, "PR0L", 0xFFE8);
+	weak_label(context, "PR0H", 0xFFE9);
+	weak_label(context, "ISM0L", 0xFFEC);
+	weak_label(context, "ISM0H", 0xFFED);
+	weak_label(context, "INTM0", 0xFFF4);
+	weak_label(context, "INTM1", 0xFFF5);
+	weak_label(context, "IST", 0xFFF8);
+}
+
 disasm_context *create_68000_disasm(void)
 {
 	disasm_context *context = calloc(1, sizeof(disasm_context));
@@ -314,6 +389,15 @@ disasm_context *create_68000_disasm(void)
 }
 
 disasm_context *create_z80_disasm(void)
+{
+	disasm_context *context = calloc(1, sizeof(disasm_context));
+	context->address_mask = 0xFFFF;
+	context->invalid_inst_addr_mask = 0;
+	context->visit_preshift = 0;
+	return context;
+}
+
+disasm_context *create_upd78k2_disasm(void)
 {
 	disasm_context *context = calloc(1, sizeof(disasm_context));
 	context->address_mask = 0xFFFF;

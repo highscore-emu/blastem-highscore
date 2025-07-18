@@ -40,8 +40,10 @@ class Block:
 			if len(parts) == 4 and parts[2] in compareOps:
 				self.addOp(NormalOp(['cmp', parts[3], parts[1]]))
 				cond = parts[2]
-			else:
+			elif len(parts) == 2:
 				cond = parts[1]
+			else:
+				raise Exception('Invalid if: ' + ' '.join(parts))
 			o = If(self, cond)
 			self.addOp(o)
 			return o
@@ -1251,7 +1253,12 @@ def _rrcCImpl(prog, params, rawParams, flagUpdates):
 	return ret
 	
 def _updateSyncCImpl(prog, params):
-	return '\n\t{sync}(context, target_cycle);'.format(sync=prog.sync_cycle)
+	ret = ''
+	if prog.needFlagDisperse:
+		ret += prog.flags.disperseFlags(prog, 'c')
+		prog.needFlagDispserse = False
+	ret += f'\n\t{prog.sync_cycle}(context, target_cycle);'
+	return ret
 
 _opMap = {
 	'mov': Op(lambda val: val).cUnaryOperator(''),
@@ -2238,69 +2245,49 @@ class Program:
 			if self.body in self.subroutines:
 				pieces.append('\nvoid {pre}execute({type} *context, uint32_t target_cycle)'.format(pre = self.prefix, type = self.context_type))
 				pieces.append('\n{')
+				bodyPieces = []
+				self.temp = {}
+				self.declaredLocals.clear()
 				if self.sync_cycle:
-					pieces.append('\n\t{sync}(context, target_cycle);'.format(sync=self.sync_cycle))
+					bodyPieces.append('\n\t{sync}(context, target_cycle);'.format(sync=self.sync_cycle))
 				if self.pc_reg:
-					pieces.append('\n\tif (context->breakpoints) {')
-					pieces.append('\n\t\twhile (context->cycles < target_cycle)')
-					pieces.append('\n\t\t{')
+					bodyPieces.append('\n\tif (context->breakpoints) {')
+					bodyPieces.append('\n\t\twhile (context->cycles < target_cycle)')
+					bodyPieces.append('\n\t\t{')
 					if self.interrupt in self.subroutines:
-						pieces.append('\n\t\t\tif (context->cycles >= context->sync_cycle) {')
-						pieces.append(f'\n\t\t\t\t{self.sync_cycle}(context, target_cycle);')
-						pieces.append('\n\t\t\t}')
+						bodyPieces.append('\n\t\t\tif (context->cycles >= context->sync_cycle) {')
+						bodyPieces.append(f'\n\t\t\t\t{self.sync_cycle}(context, target_cycle);')
+						bodyPieces.append('\n\t\t\t}')
 						self.meta = {}
-						self.temp = {}
-						intpieces = []
-						self.declaredLocals.clear()
-						self.subroutines[self.interrupt].inline(self, [], intpieces, otype, None)
-						for size in self.temp:
-							pieces.append('\n\t\t\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
-						for name in self.declaredLocals:
-							pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
-						pieces += intpieces
+						self.subroutines[self.interrupt].inline(self, [], bodyPieces, otype, None)
 					if self.pc_offset:
-						pieces.append(f'\n\t\t\tuint32_t debug_pc = context->{self.pc_reg} - {self.pc_offset};')
+						bodyPieces.append(f'\n\t\t\tuint32_t debug_pc = context->{self.pc_reg} - {self.pc_offset};')
 						pc_reg = 'debug_pc'
 					else:
 						pc_reg = 'context->' + self.pc_reg
-					pieces.append('\n\t\t\tchar key_buf[6];')
-					pieces.append(f'\n\t\t\tdebug_handler handler = tern_find_ptr(context->breakpoints, tern_int_key({pc_reg}, key_buf));')
-					pieces.append('\n\t\t\tif (handler) {')
-					pieces.append(f'\n\t\t\t\thandler(context, {pc_reg});')
-					pieces.append('\n\t\t\t}')
+					bodyPieces.append('\n\t\t\tchar key_buf[6];')
+					bodyPieces.append(f'\n\t\t\tdebug_handler handler = tern_find_ptr(context->breakpoints, tern_int_key({pc_reg}, key_buf));')
+					bodyPieces.append('\n\t\t\tif (handler) {')
+					bodyPieces.append(f'\n\t\t\t\thandler(context, {pc_reg});')
+					bodyPieces.append('\n\t\t\t}')
 					self.meta = {}
-					self.temp = {}
-					self.declaredLocals.clear()
-					bodyPieces = []
 					self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
-					for name in self.declaredLocals:
-						pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
-					pieces += bodyPieces
-					pieces.append('\n\t}')
-					pieces.append('\n\t} else {')
-				pieces.append('\n\twhile (context->cycles < target_cycle)')
-				pieces.append('\n\t{')
+					bodyPieces.append('\n\t}')
+					bodyPieces.append('\n\t} else {')
+				bodyPieces.append('\n\twhile (context->cycles < target_cycle)')
+				bodyPieces.append('\n\t{')
 				if self.interrupt in self.subroutines:
-					pieces.append('\n\t\tif (context->cycles >= context->sync_cycle) {')
-					pieces.append(f'\n\t\t\t{self.sync_cycle}(context, target_cycle);')
-					pieces.append('\n\t\t}')
+					bodyPieces.append('\n\t\tif (context->cycles >= context->sync_cycle) {')
+					bodyPieces.append(f'\n\t\t\t{self.sync_cycle}(context, target_cycle);')
+					bodyPieces.append('\n\t\t}')
 					self.meta = {}
-					self.temp = {}
-					intpieces = []
-					self.declaredLocals.clear()
-					self.subroutines[self.interrupt].inline(self, [], intpieces, otype, None)
-					for size in self.temp:
-						pieces.append('\n\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
-					for name in self.declaredLocals:
-						pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
-					pieces += intpieces
+					self.subroutines[self.interrupt].inline(self, [], bodyPieces, otype, None)
 				self.meta = {}
-				self.temp = {}
-				self.declaredLocals.clear()
-				bodyPieces = []
 				self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
 				for name in self.declaredLocals:
 					pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
+				for size in self.temp:
+					pieces.append('\n\t\t\tuint{sz}_t gen_tmp{sz}__;'.format(sz=size))
 				pieces += bodyPieces
 				pieces.append('\n\t}')
 				if self.pc_reg:
@@ -2470,6 +2457,8 @@ def parse(args):
 	info = {}
 	line_num = 0
 	cur_object = None
+	usedInstNames = set()
+	usedBitPatterns = set()
 	for line in f:
 		line_num += 1
 		line,_,comment = line.partition('#')
@@ -2538,7 +2527,15 @@ def parse(args):
 						else:
 							fields[char] = (curbit, 1)
 					curbit -= 1
-				cur_object = Instruction(value, fields, name.strip())
+				name = name.strip()
+				if name in usedInstNames:
+					raise Exception(f'Instruction name {name} was already used!')
+				usedInstNames.add(name)
+				pattern = (table, bitpattern)
+				if pattern in usedBitPatterns:
+					raise Exception(f'Pattern {pattern} was already defined')
+				usedBitPatterns.add(pattern)
+				cur_object = Instruction(value, fields, name)
 				instructions.setdefault(table, []).append(cur_object)
 			elif line.strip() == 'regs':
 				if registers is None:

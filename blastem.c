@@ -477,6 +477,8 @@ int main(int argc, char ** argv)
 					stype = force_stype = SYSTEM_JAGUAR;
 				} else if (!strcmp("media", argv[i])) {
 					stype = force_stype = SYSTEM_MEDIA_PLAYER;
+				} else if (!strcmp("laser", argv[i])) {
+					stype = force_stype = SYSTEM_LASERACTIVE;
 				} else {
 					fatal_error("Unrecognized machine type %s\n", argv[i]);
 				}
@@ -520,6 +522,7 @@ int main(int argc, char ** argv)
 					"                   pico   - Sega Pico\n"
 					"                   copera - Yamaha Copera\n"
 					"                   media  - Media Player\n"
+					"                   laser  - Pioneer LaserActive (no PAC)\n"
 					"	-f          Toggles fullscreen mode\n"
 					"	-g          Disable OpenGL rendering\n"
 					"	-s FILE     Load a GST format savestate from FILE\n"

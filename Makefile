@@ -283,7 +283,8 @@ endif
 COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o nor.o $(M68KOBJS) \
 	sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
 	$(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o gen_player.o coleco.o pico_pcm.o ymz263b.o \
-	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o
+	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o \
+	laseractive.o upd78k2_dis.o upd78k2.o
 
 ifdef NOZ80
 CFLAGS+=-DNO_Z80
@@ -327,6 +328,7 @@ MTESTOBJS:=trans.o serialize.o $(M68KOBJS) $(TRANSOBJS) util.o
 ZTESTOBJS:=ztestrun.o serialize.o $(Z80OBJS) $(TRANSOBJS) util.o
 CPMOBJS:=blastcpm.o util.o serialize.o $(Z80OBJS) $(TRANSOBJS)
 UPD78K2RUNOBJS:=upd78k2.o upd78k2run.o util.o backend.o tern.o
+UPDDISOBJS:=upddis.o upd78k2_dis.o disasm.o tern.o util.o backend.o
 
 LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB -DDISABLE_ZLIB
 
@@ -343,13 +345,21 @@ LIBORDERONLY+= m68k.c z80.c
 endif
 endif
 
+ifeq ($(wildcard $(OBJDIR)/*.d),)
+ORDERONLY+= upd78k2.c
+endif
+ifeq ($(wildcard $(LIBOBJDIR)/*.d),)
+LIBORDERONLY+= upd78k2.c
+endif
+
 -include $(MAINOBJS:%.o=$(OBJDIR)/%.d)
 -include $(LIBOBJS:%.o=$(LIBOBJDIR)/%.d)
--include $(DISOBJS:.o=$(OBJDIR)/%.d)
+-include $(DISOBJS:%.o=$(OBJDIR)/%.d)
+-include $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.d)
+-include $(UPDDISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(OBJDIR)/trans.d
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
--include $(OBJDIR)/upd78k2run.d
 
 $(OBJDIR) :
 	mkdir -p $(OBJDIR)/nuklear_ui
@@ -393,6 +403,9 @@ vos_prog_info : $(OBJDIR)/vos_prog_info.o $(OBJDIR)/vos_program_module.o
 	$(CC) -o $@ $^ $(OPT)
 
 upd78k2run : $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.o)
+	$(CC) -o $@ $^ $(OPT)
+
+upddis$(EXE) : $(UPDDISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c

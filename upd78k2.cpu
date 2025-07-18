@@ -8,7 +8,8 @@ info
 	header upd78k2.h
 	body upd78k2_run_op
 	sync_cycle upd78k2_sync_cycle
-	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg
+	interrupt upd78k2_interrupt
+	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg xch_reg shr shl
 	include upd78k2_util.c
 regs
 	main 8 x a c b e d l h
@@ -27,14 +28,32 @@ regs
 	mem_pointers ptr8 4
 	port_data 8 8
 	port_mode 8 8
-	mm 8
-	if0 16
-	mk0 16
-	pr0 16
-	ism0 16
-	intm0 8
-	intm1 8
-	ist 8
+	port_input 8 8
+	puo 8 #pull-up option register
+	pmc3 8 #port 3 pin configuration
+	cr00 16 #16-bit timer comapre register 0
+	cr01 16 #16-bit timer compare register 1
+	crc0 8 #Capture/compare control register 0
+	tm0 16 #16-bit timer register 0
+	tm0_cycle 32
+	tmc0 8 #Timer control register 0
+	cr10 8 #8-bit timer 1 compare register 0
+	cr11 8 #8-bit timer 1 compare register 1
+	tm1 8 #8-bit timer register 1
+	tm1_cycle 32
+	prm1 8 #Timer pre-scaler mode register 1
+	tmc1 8 #Timer control register 1
+	crc1 8 #Capture/compare control regiser 1
+	mm 8 #Memory expansion mode register
+	if0 16 #Interrupt request flag register
+	mk0 16 #interrupt mask flag register
+	pr0 16 #Priority specification flag register
+	ism0 16 #Interrupt service mode specification flag register
+	intm0 8 #External interrupt mode register 0
+	intm1 8 #External interrupt mode register 1
+	ist 8 #Interrupt status register
+	io_read ptrupd_io_fun
+	io_write ptrupd_io_fun
 	iram 8 256
 flags
 	register psw
@@ -51,6 +70,8 @@ declare
 	void init_upd78k2_opts(upd78k2_options *opts, memmap_chunk const *chunks, uint32_t num_chunks);
 	upd78k2_context *init_upd78k2_context(upd78k2_options *opts);
 	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
+	typedef void (upd_io_fun)(upd78k2_context *upd, uint8_t offset);
+	void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction);
 
 #Prefix bytes
 # 0000 0001 -> saddr becomes sfr, mem becomes &mem
@@ -61,6 +82,8 @@ declare
 # 0000 1001 -> mov !addr16/stbc
 # 0000 1010 -> indexed mode
 # 0001 0110 -> register indirect
+# 0011 0000 -> shift/rotate right
+# 0011 0001 -> shift/rotate left
 
 sfr_read
 	arg offset 8
@@ -112,6 +135,8 @@ iram_read
 		scratch1 = offset & 7
 		scratch1 = main.scratch1
 	end
+	#FIXME cycle count
+	cycles 2
 
 iram_write
 	arg offset 8
@@ -153,6 +178,8 @@ iram_write
 		regnum = offset & 8
 		main.regnum = value
 	end
+	#FIXME: cycle count
+	cycles 2
 
 mem_read_no_exp
 	arg addr 32
@@ -206,27 +233,19 @@ upd78k2_run_op
 
 saddr_read
 	arg offset 8
-	local tmp 8
-	if offset >=U 0xE0
-		#sfr area
-		tmp = offset - 0xE0
-		sfr_read tmp
+	if offset >=U 0x20
+		iram_read offset
 	else
-		tmp = offset + 0x20
-		iram_read tmp
+		sfr_read offset
 	end
 
 saddr_write
 	arg offset 8
 	arg value 8
-	local tmp 8
-	if offset >=U 0xE0
-		#sfr area
-		tmp = offset - 0xE0
-		sfr_write tmp value
+	if offset >=U 0x20
+		iram_write offset value
 	else
-		tmp = offset + 0x20
-		iram_write tmp value
+		sfr_write offset value
 	end
 
 mem_read
@@ -268,24 +287,28 @@ mem_write
 	end
 	mem_write_no_exp full_address value
 
+push_byte
+	arg value 8
+	sp -= 1
+	mem_write_no_exp sp value
+
 push_word
 	arg value 16
 	local tmp 8
 	tmp = value >> 8
-	sp -= 1
-	mem_write_no_exp sp tmp
-	tmp = value
-	sp -= 1
-	mem_write_no_exp sp tmp
+	push_byte tmp
+	push_byte value
+
+pop_byte
+	mem_read_no_exp sp
+	sp += 1
 
 pop_word
-	mem_read_no_exp sp
+	pop_byte
 	dst = scratch1
-	sp += 1
-	mem_read_no_exp sp
+	pop_byte
 	scratch1 <<= 8
 	dst |= scratch1
-	sp += 1
 
 00000000 nop
 	cycles 2 #minimum cycle time appears to be 4 (ignoring internal divider)
@@ -330,6 +353,18 @@ pop_word
 	upd78k2_op_fetch
 	dispatch scratch1 mov_reg
 
+00100101 xch_reg_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 xch_reg
+
+00110000 shr_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 shr
+
+00110001 shl_prefix
+	upd78k2_op_fetch
+	dispatch scratch1 shl
+
 sfr 00000110 alt_base_prefix
 	upd78k2_op_fetch
 	dispatch scratch1 alt_base
@@ -350,13 +385,13 @@ aluop
 		dst += src
 		update_flags ZAC
 	case 1
-		adc dst src dst
+		adc src dst dst
 		update_flags ZAC
 	case 2
 		dst -= src
 		update_flags ZAC
 	case 3
-		sbc dst src dst
+		sbc src dst dst
 		update_flags ZAC
 	case 4
 		dst &= src
@@ -368,7 +403,7 @@ aluop
 		dst |= src
 		update_flags Z
 	case 7
-		cmp dst src
+		cmp src dst
 		update_flags ZAC
 	end
 
@@ -388,6 +423,26 @@ aluop16
 	default
 		#TODO: what happens in these invalid cases
 	end
+
+aluop16_ax
+	local tmp 16
+	arg op 8
+	arg src 16
+	tmp = a << 8
+	tmp |= x
+	switch op
+	case 1
+		tmp += src
+		update_flags ZAC
+	case 2
+		tmp -= src
+		update_flags ZAC
+	case 3
+		tmp -= src
+		update_flags ZAC
+	end
+	x = tmp
+	a = tmp >> 8
 
 10001PPP alu_r_r
 	local tmp_src 16
@@ -444,26 +499,81 @@ aluop16
 	saddr_read offset
 	meta dst scratch1
 	aluop P immed
-	saddr_write offset scratch1
+	if P != 7
+		saddr_write offset scratch1
+	end
+
+10011PPP alu_a_saddr
+	upd78k2_op_fetch
+	saddr_read scratch1
+	meta dst a
+	aluop P scratch1
+
+01111PPP alu_saddr_saddr
+	local dst_offset 8
+	local dst_tmp 8
+	upd78k2_op_fetch
+	dst_offset = scratch1
+	saddr_read dst_offset
+	dst_tmp = scratch1
+	upd78k2_op_fetch
+	saddr_read scratch1
+	meta dst dst_tmp
+	aluop P scratch1
+	saddr_write dst_offset dst_tmp
+
+001011PP alu_ax_immed
+	invalid P 0
+	upd78k2_op_fetch_word
+	aluop16_ax P scratch1
+
+000111PP alu_ax_saddr
+	invalid P 0
+	local offset 8
+	local tmp 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	tmp = scratch1
+	offset += 1
+	saddr_read offset
+	scratch1 <<= 16
+	scratch1 |= tmp
+	aluop16_ax P scratch1
+
+sfr 000111PP alu_ax_sfr
+	invalid P 0
+	local offset 8
+	local tmp 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_read offset
+	tmp = scratch1
+	offset += 1
+	sfr_read offset
+	scratch1 <<= 16
+	scratch1 |= tmp
+	aluop16_ax P scratch1
 	
 calc_addr_base
 	arg regpair 8
 	local tmp 16
 	upd78k2_op_fetch
+	adst = scratch1 & 0xFF
 	switch regpair
 	case 0
 		#[de+byte]
 		tmp = d << 8
 		tmp |= e
-		adst += tmp
+		add tmp adst adst 1
 	case 1
 		#[sp+byte]
-		adst += sp
+		add sp adst adst 1
 	case 2
 		#[hl+byte]
 		tmp = h << 8
 		tmp |= l
-		adst += tmp
+		add tmp adst adst 1
 	end
 
 read_base_mode
@@ -695,6 +805,32 @@ mov_reg 0DDD0SSS mov_r_r
 	upd78k2_op_fetch
 	main.dst = scratch1
 
+muldiv 1110001R movw_ax_mem
+	local address 16
+	local reg 8
+	reg = R << 2
+	reg |= 5
+	address = main.reg << 8
+	reg -= 1
+	address |= main.reg
+	mem_read address 0
+	x = scratch1
+	address += 1
+	mem_read address 0
+	a = scratch1
+
+muldiv 1110011R movw_mem_ax
+	local address 16
+	local reg 8
+	reg = R << 2
+	reg |= 5
+	address = main.reg << 8
+	reg -= 1
+	address |= main.reg
+	mem_write address x 0
+	address += 1
+	mem_write address a 0
+
 10111RRR mov_r_immed
 	local dst 8
 	dst = R << 1
@@ -721,6 +857,68 @@ spmov 11110001 mov_abs_a
 	scratch2 = scratch1
 	mem_write_no_exp scratch2 a
 
+00100000 mov_a_saddr
+	upd78k2_op_fetch
+	saddr_read scratch1
+	a = scratch1
+
+00100010 mov_saddr_a
+	upd78k2_op_fetch
+	scratch2 = scratch1
+	saddr_write scratch2 a
+
+00010000 mov_a_sfr
+	upd78k2_op_fetch
+	sfr_read scratch1
+	a = scratch1
+
+00010010 mov_sfr_a
+	upd78k2_op_fetch
+	scratch2 = scratch1
+	sfr_write scratch2 a
+
+00011100 movw_ax_saddr
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	x = scratch1
+	offset += 1
+	saddr_read offset
+	a = scratch1
+
+00011010 movw_saddr_ax
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_write offset x
+	offset += 1
+	saddr_write offset a
+
+00010001 movw_ax_sfr
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_read offset
+	x = scratch1
+	offset += 1
+	sfr_read offset
+	a = scratch1
+
+00010011 movw_sfr_ax
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_write offset x
+	offset += 1
+	sfr_write offset a
+	
+xch_reg 0DDD0SSS xch_r_r
+	xchg main.D main.S
+
+11011RRR xch_a_r
+	xchg a main.R
+
 11000RRR inc_r
 	cycles 2
 	main.R += 1
@@ -730,6 +928,24 @@ spmov 11110001 mov_abs_a
 	cycles 2
 	main.R -= 1
 	update_flags ZA
+
+00100110 inc_saddr
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	add scratch1 1 scratch1 0
+	update_flags ZA
+	saddr_write offset scratch1
+
+00100111 dec_saddr
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	sub 1 scratch1 scratch1 0
+	update_flags ZA
+	saddr_write offset scratch1
 
 11010RRR mov_a_r
 	a = main.R
@@ -761,6 +977,16 @@ muldiv 01001PP0 br_rp
 		flag = zflag
 	end
 	if flag = S
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+0011001R dbnz_r
+	local reg 8
+	reg = R + 2
+	upd78k2_op_fetch
+	main.reg -= 1
+	if !=
 		sext 16 scratch1 scratch1
 		pc += scratch1
 	end
@@ -892,12 +1118,12 @@ muldiv 01011PP0 call_rp
 	local offset 8
 	offset = T << 1
 	offset += 0x40
-	mem_read_no_exp T
+	mem_read_no_exp offset
 	address = scratch1
-	scratch1 = T + 1
-	mem_read_no_exp scratch1
+	offset += 1
+	mem_read_no_exp offset
 	scratch1 <<= 8
-	address |= 8
+	address |= scratch1
 	push_word pc
 	pc = address
 
@@ -983,6 +1209,34 @@ muldiv 11001000 incw_sp
 muldiv 11001001 decw_sp
 	sp -= 1
 
+010001PP incw_rp
+	local rp 16
+	local reg 8
+	reg = P << 1
+	reg += 1
+	rp = main.reg << 8
+	reg -= 1
+	rp |= main.reg
+	rp += 1
+	update_flags ZA
+	main.reg = rp
+	reg += 1
+	main.reg = rp >> 8
+
+010011PP decw_rp
+	local rp 16
+	local reg 8
+	reg = P << 1
+	reg += 1
+	rp = main.reg << 8
+	reg -= 1
+	rp |= main.reg
+	rp -= 1
+	update_flags ZA
+	main.reg = rp
+	reg += 1
+	main.reg = rp >> 8
+
 00001011 movw_sfrp_immed
 	local offset 8
 	upd78k2_op_fetch
@@ -1022,6 +1276,7 @@ muldiv 11001001 decw_sp
 	upd78k2_op_fetch
 	if offset = 0xFE
 		psw = scratch1
+		update_sync
 	else
 		sfr_write offset scratch1
 	end
@@ -1208,7 +1463,7 @@ sfrbit 10011BBB clr1_sfr
 	scratch1 &= mask
 	sfr_write offset scratch1
 
-10110BBB set1_saddr_cy
+10110BBB set1_saddr
 	local mask 8
 	local offset 8
 	upd78k2_op_fetch
@@ -1218,7 +1473,7 @@ sfrbit 10011BBB clr1_sfr
 	scratch1 |= mask
 	saddr_write offset scratch1
 
-10100BBB clr1_saddr_cy
+10100BBB clr1_saddr
 	local mask 8
 	local offset 8
 	upd78k2_op_fetch
@@ -1228,3 +1483,83 @@ sfrbit 10011BBB clr1_sfr
 	mask = ~mask
 	scratch1 &= mask
 	saddr_write offset scratch1
+
+01010111 reti
+	meta dst pc
+	pop_word
+	pop_byte
+	psw = scratch1
+	update_sync
+
+shr 10NNNRRR shr_r
+	local cyc 32
+	main.R >>= N
+	update_flags ZA0C
+	cyc = 4 * N
+	cyc += 2
+	cycles cyc
+
+shl 10NNNRRR shl_r
+	local cyc 32
+	main.R <<= N
+	update_flags ZA0C
+	cyc = 4 * N
+	cyc += 2
+	cycles cyc
+
+shr 11NNNRRR shrw_rp
+	local cyc 32
+	local reg 8
+	local tmp 16
+	reg = R + 1
+	tmp = main.reg << 8
+	reg -= 1
+	tmp |= main.reg
+	tmp >>= N
+	update_flags ZA0C
+	main.reg = tmp
+	reg += 1
+	main.reg = tmp >> 8
+	cyc = 6 * N
+	cyc += 2
+	cycles cyc
+
+shl 11NNNRRR shlw_rp
+	local cyc 32
+	local reg 8
+	local tmp 16
+	reg = R + 1
+	tmp = main.reg << 8
+	reg -= 1
+	tmp |= main.reg
+	tmp <<= N
+	update_flags ZA0C
+	main.reg = tmp
+	reg += 1
+	main.reg = tmp >> 8
+	cyc = 6 * N
+	cyc += 2
+	cycles cyc
+
+upd78k2_interrupt
+	local vector_addr 16
+	if cycles >=U int_cycle
+		update_sync
+		if int_enable
+			scratch1 = ~mk0
+			scratch1 &= if0
+			if !=
+				push_byte psw
+				push_word pc
+				ocall calc_vector
+				vector_addr = scratch1
+				mem_read_no_exp vector_addr
+				pc = scratch1
+				vector_addr += 1
+				mem_read_no_exp vector_addr
+				scratch1 <<= 8
+				pc |= scratch1
+				int_enable = 0
+			end
+		end
+	end

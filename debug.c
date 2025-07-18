@@ -4,6 +4,7 @@
 #include "segacd.h"
 #include "blastem.h"
 #include "bindings.h"
+#include "upd78k2_dis.h"
 #include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
@@ -1560,7 +1561,7 @@ static uint8_t read_m68k(debug_root *root, uint32_t *out, char size)
 		*out = m68k_read_long(*out, context);
 	} else {
 		if (*out & 1) {
-			fprintf(stderr, "Wword access to odd addresses ($%X) is not allowed\n", *out);
+			fprintf(stderr, "Word access to odd addresses ($%X) is not allowed\n", *out);
 			return 0;
 		}
 		*out = m68k_read_word(*out, context);
@@ -2301,9 +2302,11 @@ static void read_wait_progress(void)
 	process_events();
 #ifndef IS_LIB
 	render_update_display();
-	vdp_context *vdp = current_system->get_vdp(current_system);
-	if (vdp) {
-		vdp_update_per_frame_debug(vdp);
+	if (current_system->get_vdp) {
+		vdp_context *vdp = current_system->get_vdp(current_system);
+		if (vdp) {
+			vdp_update_per_frame_debug(vdp);
+		}
 	}
 #endif
 }
@@ -5033,6 +5036,138 @@ debug_root *find_m68k_root(m68k_context *context)
 	return root;
 }
 
+static uint8_t read_upd_byte(upd78k2_context *upd, uint32_t address)
+{
+	if (address > 0xFE00 && address < 0xFF00) {
+		return upd->iram[address & 0xFF];
+	}
+	return read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+}
+
+static uint8_t read_upd(debug_root *root, uint32_t *out, char size)
+{
+	upd78k2_context *upd = root->cpu_context;
+	uint32_t address = *out;
+	*out = read_upd_byte(upd, address);
+	if (size != 'b') {
+		*out |= read_upd_byte(upd, address + 1) << 8;
+		if (size == 'l') {
+			*out |= read_upd_byte(upd, address + 2) << 16;
+			*out |= read_upd_byte(upd, address + 3) << 24;
+		}
+	}
+	return 1;
+}
+
+static void write_upd_byte(upd78k2_context *upd, uint32_t address, uint8_t value)
+{
+	if (address > 0xFE00 && address < 0xFF00) {
+		upd->iram[address & 0xFF] = value;
+	} else {
+		write_byte(address, value, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+	}
+}
+
+static uint8_t write_upd(debug_root *root, uint32_t address, uint32_t value, char size)
+{
+	upd78k2_context *upd = root->cpu_context;
+	write_upd_byte(upd, address, value);
+	if (size != 'b') {
+		write_upd_byte(upd, address + 1, value >> 8);
+		if (size == 'l') {
+			write_upd_byte(upd, address + 2, value >> 16);
+			write_upd_byte(upd, address + 3, value >> 24);
+		}
+	}
+	return 1;
+}
+
+static uint32_t upd_chunk_end(debug_root *root, uint32_t start_address)
+{
+	upd78k2_context *upd = root->cpu_context;
+	memmap_chunk const *chunk = find_map_chunk(start_address, &upd->opts->gen, 0, NULL);
+	if (!chunk) {
+		return start_address;
+	}
+	if (chunk->mask == upd->opts->gen.address_mask) {
+		return chunk->end;
+	}
+	return (start_address & ~chunk->mask) + chunk->mask + 1;
+}
+
+static debug_val upd_reg_get(debug_var *var)
+{
+	upd78k2_context *upd = var->ptr;
+	return debug_int(upd->main[var->val.v.u32]);
+}
+
+static void upd_reg_set(debug_var *var, debug_val val)
+{
+	upd78k2_context *upd = var->ptr;
+	uint32_t ival;
+	if (!debug_cast_int(val, &ival)) {
+		static const char regs[] = "xacbedlh";
+		fprintf(stderr, "uPD78K/II register %c can only be set to an integer\n", regs[var->val.v.u32]);
+		return;
+	}
+	upd->main[var->val.v.u32] = ival;
+}
+
+static debug_val upd_regpair_get(debug_var *var)
+{
+	upd78k2_context *upd = var->ptr;
+	uint16_t val = upd->main[var->val.v.u32 * 2];
+	val |= upd->main[var->val.v.u32 * 2 + 1] << 8;
+	return debug_int(val);
+}
+
+static void upd_regpair_set(debug_var *var, debug_val val)
+{
+	upd78k2_context *upd = var->ptr;
+	uint32_t ival;
+	if (!debug_cast_int(val, &ival)) {
+		static const char regs[] = "xacbedlh";
+		fprintf(stderr, "uPD78K/II register %c can only be set to an integer\n", regs[var->val.v.u32]);
+		return;
+	}
+	upd->main[var->val.v.u32 * 2] = ival;
+	upd->main[var->val.v.u32 * 2 + 1] = ival >> 8;
+}
+
+debug_root *find_upd_root(upd78k2_context *upd)
+{
+	debug_root *root = find_root(upd);
+	if (root && !root->commands) {
+		add_commands(root, common_commands, NUM_COMMON);
+		root->read_mem = read_upd;
+		root->write_mem = write_upd;
+		root->chunk_end = upd_chunk_end;
+		root->disasm = create_upd78k2_disasm();
+		static const char *regs[] = {"x","a","c","b","e","d","l","h"};
+		static const char *regpairs[] = {"ax", "bc", "de", "hl"};
+		debug_var *var;
+		for (int i = 0; i < sizeof(regs)/sizeof(*regs); i++)
+		{
+			var = calloc(1, sizeof(debug_var));
+			var->get = upd_reg_get;
+			var->set = upd_reg_set;
+			var->ptr = root->cpu_context;
+			var->val.v.u32 = i;
+			root->variables = tern_insert_ptr(root->variables, regs[i], var);
+		}
+		for (int i = 0; i < sizeof(regpairs)/sizeof(*regpairs); i++)
+		{
+			var = calloc(1, sizeof(debug_var));
+			var->get = upd_regpair_get;
+			var->set = upd_regpair_set;
+			var->ptr = root->cpu_context;
+			var->val.v.u32 = i;
+			root->variables = tern_insert_ptr(root->variables, regpairs[i], var);
+		}
+	}
+	return root;
+}
+
 #ifndef NO_Z80
 #ifdef NEW_CORE
 #define Z80_OPTS opts
@@ -5661,6 +5796,87 @@ void debugger(void *vcontext, uint32_t address)
 	}
 	m68k_disasm_labels(&inst, input_buf, root->disasm);
 	printf("%X: %s\n", address, input_buf);
+	debugger_repl(root);
+	return;
+}
+
+static uint8_t upd_debug_fetch(uint16_t address, void *data)
+{
+	upd78k2_context *upd = data;
+	return read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+}
+
+void upd_debugger(upd78k2_context *upd)
+{
+	static char last_cmd[1024];
+	char input_buf[1024];
+
+	init_terminal();
+
+	debug_root *root = find_upd_root(upd);
+	if (!root) {
+		return;
+	}
+	/*
+	if (upd->pc == root->branch_t) {
+		bp_def ** f_bp = find_breakpoint(&root->breakpoints, root->branch_f, BP_TYPE_CPU);
+		if (!*f_bp) {
+			remove_breakpoint(context, root->branch_f);
+		}
+		root->branch_t = root->branch_f = 0;
+	} else if(upd->pc == root->branch_f) {
+		bp_def ** t_bp = find_breakpoint(&root->breakpoints, root->branch_t, BP_TYPE_CPU);
+		if (!*t_bp) {
+			remove_breakpoint(context, root->branch_t);
+		}
+		root->branch_t = root->branch_f = 0;
+	}
+	*/
+
+	root->address = upd->pc;
+	int debugging = 1;
+	//Check if this is a user set breakpoint, or just a temporary one
+	bp_def ** this_bp = find_breakpoint(&root->breakpoints, upd->pc, BP_TYPE_CPU);
+	if (*this_bp) {
+		if ((*this_bp)->condition) {
+			debug_val condres;
+			if (eval_expr(root, (*this_bp)->condition, &condres)) {
+				if (!condres.v.u32) {
+					return;
+				}
+			} else {
+				fprintf(stderr, "Failed to eval condition for uPD78K/II breakpoint %u\n", (*this_bp)->index);
+				free_expr((*this_bp)->condition);
+				(*this_bp)->condition = NULL;
+			}
+		}
+		for (uint32_t i = 0; debugging && i < (*this_bp)->num_commands; i++)
+		{
+			debugging = run_command(root, (*this_bp)->commands + i);
+		}
+		if (debugging) {
+			printf("uPD78K/II Breakpoint %d hit\n", (*this_bp)->index);
+		} else {
+			fflush(stdout);
+			return;
+		}
+	} else {
+		//remove_breakpoint(context, address);
+	}
+	upd_address_ref ref;
+	uint16_t after = upd78k2_disasm(input_buf, &ref, upd->pc, upd_debug_fetch, upd, root->disasm);
+	root->after = after;
+	root->inst = &ref;
+	for (disp_def * cur = root->displays; cur; cur = cur->next) {
+		char format_str[8];
+		make_format_str(format_str, cur->format);
+		for (int i = 0; i < cur->num_args; i++)
+		{
+			eval_expr(root, cur->args[i].parsed, &cur->args[i].value);
+			do_print(root, format_str, cur->args[i].raw, cur->args[i].value);
+		}
+	}
+	printf("%X: %s\n", root->address, input_buf);
 	debugger_repl(root);
 	return;
 }

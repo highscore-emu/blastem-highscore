@@ -555,9 +555,8 @@ void gen_update_refresh_no_wait(m68k_context *context)
 	gen->refresh_counter = gen->refresh_counter % interval;
 }
 
-#include <limits.h>
 #define ADJUST_BUFFER (8*MCLKS_LINE*313)
-#define MAX_NO_ADJUST (UINT_MAX-ADJUST_BUFFER)
+#define MAX_NO_ADJUST (UINT32_MAX-ADJUST_BUFFER)
 
 static m68k_context *sync_components(m68k_context * context, uint32_t address)
 {
