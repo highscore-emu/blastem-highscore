@@ -794,10 +794,10 @@ uint16_t upd78k2_disasm(char *dst, upd_address_ref *ref, uint16_t address, upd_f
 		sprintf(dst, table[opcode].v.str, addr_buf, word);
 		break;
 	case T_SADDR_SADDR:
-		ref_addr = fetch(address++, data);
-		ref_addr |= ref_addr < 0x20 ? 0xFF00 : 0xFE00;
 		ref_addr2 = fetch(address++, data);
 		ref_addr2 |= ref_addr2 < 0x20 ? 0xFF00 : 0xFE00;
+		ref_addr = fetch(address++, data);
+		ref_addr |= ref_addr < 0x20 ? 0xFF00 : 0xFE00;
 		ref_type = UPD_REF_2OP;
 		format_address(context, addr_buf, ref_addr);
 		format_address(context, addr_buf2, ref_addr2);
