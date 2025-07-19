@@ -5397,6 +5397,34 @@ static void upd_regpair_set(debug_var *var, debug_val val)
 	upd->main[var->val.v.u32 * 2 + 1] = ival >> 8;
 }
 
+static debug_val word_ptr_get(debug_var *var)
+{
+	uint16_t *word = var->ptr;
+	return debug_int(*word);
+}
+
+static void word_ptr_set(debug_var *var, debug_val val)
+{
+	static const char *names[] = {
+		"uPD78K/II register pc",
+		"uPD78K/II register sp",
+		"uPD78K/II register cr00",
+		"uPD78K/II register cr01",
+		"uPD78K/II register if0",
+		"uPD78K/II register mk0",
+		"uPD78K/II register pr0",
+		"uPD78K/II register ism0",
+	};
+	uint16_t *word = var->ptr;
+	uint32_t ival;
+	if (!debug_cast_int(val, &ival)) {
+		static const char regs[] = "xacbedlh";
+		fprintf(stderr, "%s can only be set to an integer\n", names[var->val.v.u32]);
+		return;
+	}
+	*word = ival;
+}
+
 debug_root *find_upd_root(upd78k2_context *upd)
 {
 	debug_root *root = find_root(upd);
@@ -5427,6 +5455,23 @@ debug_root *find_upd_root(upd78k2_context *upd)
 			var->ptr = root->cpu_context;
 			var->val.v.u32 = i;
 			root->variables = tern_insert_ptr(root->variables, regpairs[i], var);
+		}
+		static const char *word_names[] = {
+			"pc", "sp", "cr00", "cr01",
+			"if0", "mk0", "pr0", "ism0"
+		};
+		uint16_t *word_ptrs[] = {
+			&upd->pc, &upd->sp, &upd->cr00, &upd->cr01,
+			&upd->if0, &upd->mk0, &upd->pr0, &upd->ism0
+		};
+		for (int i = 0; i < sizeof(word_names)/sizeof(*word_names); i++)
+		{
+			var = calloc(1, sizeof(debug_var));
+			var->get = word_ptr_get;
+			var->set = word_ptr_set;
+			var->ptr = word_ptrs[i];
+			var->val.v.u32 = i;
+			root->variables = tern_insert_ptr(root->variables, word_names[i], var);
 		}
 	}
 	return root;
