@@ -147,6 +147,9 @@ static void start_laseractive(system_header *system, char *statefile)
 	la->upd->port_input[3] = 0x20;
 	la->upd->port_input[7] = 0xF7;
 	la->upd->pc = la->upd_rom[0] | la->upd_rom[1] << 8;
+	if (la->header.enter_debugger) {
+		upd78k2_insert_breakpoint(la->upd, la->upd->pc, upd_debugger);
+	}
 	resume_laseractive(system);
 }
 

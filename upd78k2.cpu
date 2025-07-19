@@ -11,6 +11,8 @@ info
 	interrupt upd78k2_interrupt
 	extra_tables sfr bit1 bit2 muldiv base sfrbit spmov indexed regind alt_base alt_indexed alt_regind mov_reg xch_reg shr shl
 	include upd78k2_util.c
+	pc_reg pc
+	pc_offset 0
 regs
 	main 8 x a c b e d l h
 	psw 8
@@ -72,6 +74,9 @@ declare
 	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
 	typedef void (upd_io_fun)(upd78k2_context *upd, uint8_t offset);
 	void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction);
+	typedef void (*upd_debug_handler)(upd78k2_context *upd);
+	void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_debug_handler handler);
+	void upd78k2_remove_breakpoint(upd78k2_context *upd, uint32_t address);
 
 #Prefix bytes
 # 0000 0001 -> saddr becomes sfr, mem becomes &mem

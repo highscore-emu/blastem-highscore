@@ -520,3 +520,17 @@ void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction)
 		upd->tm1_cycle -= deduction;
 	}
 }
+
+void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_debug_handler handler)
+{
+	char buf[6];
+	address &= upd->opts->gen.address_mask & 0xFFFF;
+	upd->breakpoints = tern_insert_ptr(upd->breakpoints, tern_int_key(address, buf), handler);
+}
+
+void upd78k2_remove_breakpoint(upd78k2_context *upd, uint32_t address)
+{
+	char buf[6];
+	address &= upd->opts->gen.address_mask & 0xFFFF;
+	tern_delete(&upd->breakpoints, tern_int_key(address, buf), NULL);
+}

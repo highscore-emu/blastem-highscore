@@ -5036,6 +5036,11 @@ debug_root *find_m68k_root(m68k_context *context)
 	return root;
 }
 
+typedef struct {
+	upd_address_ref ref;
+	char            mnemonic[6];
+} upd_inst;
+
 static uint8_t read_upd_byte(upd78k2_context *upd, uint32_t address)
 {
 	if (address > 0xFE00 && address < 0xFF00) {
@@ -5043,6 +5048,265 @@ static uint8_t read_upd_byte(upd78k2_context *upd, uint32_t address)
 	}
 	return read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
 }
+
+static uint16_t read_upd_word(upd78k2_context *upd, uint32_t address)
+{
+	return read_upd_byte(upd, address) | read_upd_byte(upd, address + 1) << 8;
+}
+
+static uint8_t upd_debug_fetch(uint16_t address, void *data)
+{
+	upd78k2_context *upd = data;
+	return read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+}
+
+static uint8_t cmd_breakpoint_upd(debug_root *root, parsed_command *cmd)
+{
+	uint32_t address;
+	if (!debug_cast_int(cmd->args[0].value, &address)) {
+		fprintf(stderr, "Argument to breakpoint must be an integer\n");
+		return 1;
+	}
+	upd78k2_insert_breakpoint(root->cpu_context, address, upd_debugger);
+	bp_def *new_bp = calloc(1, sizeof(bp_def));
+	new_bp->next = root->breakpoints;
+	new_bp->address = address;
+	new_bp->mask = 0xFFFF;
+	new_bp->index = root->bp_index++;
+	new_bp->type = BP_TYPE_CPU;
+	root->breakpoints = new_bp;
+	printf("uPD78K/II Breakpoint %d set at $%X\n", new_bp->index, address);
+	return 1;
+}
+
+static uint8_t cmd_advance_upd(debug_root *root, parsed_command *cmd)
+{
+	uint32_t address;
+	if (!debug_cast_int(cmd->args[0].value, &address)) {
+		fprintf(stderr, "Argument to advance must be an integer\n");
+		return 1;
+	}
+	upd78k2_insert_breakpoint(root->cpu_context, address, upd_debugger);
+	return 0;
+}
+
+static uint8_t cmd_step_upd(debug_root *root, parsed_command *cmd)
+{
+	upd_inst *inst = root->inst;
+	upd78k2_context *upd = root->cpu_context;
+	uint32_t after = root->after;
+	if (startswith(inst->mnemonic, "ret")) {
+		after = read_upd_word(upd, upd->sp);
+	} else if(inst->ref.ref_type == UPD_REF_COND_BRANCH || inst->ref.ref_type == UPD_REF_OP_BRANCH) {
+		root->branch_f = after;
+		root->branch_t = inst->ref.ref_type == UPD_REF_COND_BRANCH ? inst->ref.address : inst->ref.address2;
+		upd78k2_insert_breakpoint(upd, root->branch_t, upd_debugger);
+	} else if (inst->ref.ref_type == UPD_REF_CALL_TABLE) {
+		after = read_upd_word(upd, inst->ref.address);
+	} else if (inst->ref.ref_type >= UPD_REF_BRANCH) {
+		after = inst->ref.address;
+	}
+	upd78k2_insert_breakpoint(upd, after, upd_debugger);
+	return 0;
+}
+
+static uint8_t cmd_over_upd(debug_root *root, parsed_command *cmd)
+{
+	upd_inst *inst = root->inst;
+	upd78k2_context *upd = root->cpu_context;
+	uint32_t after = root->after;
+	if (startswith(inst->mnemonic, "ret")) {
+		after = read_upd_word(upd, upd->sp);
+	} else if(inst->ref.ref_type == UPD_REF_COND_BRANCH || inst->ref.ref_type == UPD_REF_OP_BRANCH) {
+		root->branch_t = inst->ref.ref_type == UPD_REF_COND_BRANCH ? inst->ref.address : inst->ref.address2;
+		if (root->branch_t < after) {
+			//backwards branch, ignore
+			root->branch_t = 0;
+		} else {
+			root->branch_f = after;
+			upd78k2_insert_breakpoint(upd, root->branch_t, upd_debugger);
+		}
+	} else if (inst->ref.ref_type == UPD_REF_CALL_TABLE || inst->ref.ref_type == UPD_REF_CALL) {
+		//don't step into subroutines
+	} else if (inst->ref.ref_type >= UPD_REF_BRANCH) {
+		after = inst->ref.address;
+	}
+	upd78k2_insert_breakpoint(upd, after, upd_debugger);
+	return 0;
+}
+
+static uint8_t cmd_next_upd(debug_root *root, parsed_command *cmd)
+{
+	upd_inst *inst = root->inst;
+	upd78k2_context *upd = root->cpu_context;
+	uint32_t after = root->after;
+	if (startswith(inst->mnemonic, "ret")) {
+		after = read_upd_word(upd, upd->sp);
+	} else if(inst->ref.ref_type == UPD_REF_COND_BRANCH || inst->ref.ref_type == UPD_REF_OP_BRANCH) {
+		root->branch_f = after;
+		root->branch_t = inst->ref.ref_type == UPD_REF_COND_BRANCH ? inst->ref.address : inst->ref.address2;
+		upd78k2_insert_breakpoint(upd, root->branch_t, upd_debugger);
+	} else if (inst->ref.ref_type == UPD_REF_CALL_TABLE || inst->ref.ref_type == UPD_REF_CALL) {
+		//don't step into subroutines
+	} else if (inst->ref.ref_type >= UPD_REF_BRANCH) {
+		after = inst->ref.address;
+	}
+	upd78k2_insert_breakpoint(upd, after, upd_debugger);
+	return 0;
+}
+
+static uint8_t cmd_delete_upd(debug_root *root, parsed_command *cmd)
+{
+	uint32_t index;
+	if (!debug_cast_int(cmd->args[0].value, &index)) {
+		fprintf(stderr, "Argument to delete must be an integer\n");
+		return 1;
+	}
+	bp_def **this_bp = find_breakpoint_idx(&root->breakpoints, index);
+	if (!*this_bp) {
+		fprintf(stderr, "Breakpoint %d does not exist\n", index);
+		return 1;
+	}
+	bp_def *tmp = *this_bp;
+	if (tmp->type == BP_TYPE_CPU) {
+		upd78k2_remove_breakpoint(root->cpu_context, tmp->address);
+	} else if (tmp->type == BP_TYPE_CPU_WATCH) {
+		//TODO: implement watchpoints for uPD78K/II
+		//upd_remove_watchpoint(root->cpu_context, tmp->address, tmp->mask);
+	}
+	*this_bp = (*this_bp)->next;
+	if (tmp->commands) {
+		for (uint32_t i = 0; i < tmp->num_commands; i++)
+		{
+			free_parsed_command(tmp->commands + i);
+		}
+		free(tmp->commands);
+	}
+	free(tmp);
+	return 1;
+}
+
+static uint8_t cmd_disassemble_upd(debug_root *root, parsed_command *cmd)
+{
+	upd78k2_context *upd = root->cpu_context;
+	uint32_t address = root->address;
+	if (cmd->num_args) {
+		if (!debug_cast_int(cmd->args[0].value, &address)) {
+			fprintf(stderr, "Argument to disassemble must be an integer if provided\n");
+			return 1;
+		}
+	}
+	char disasm_buf[1024];
+	upd_address_ref ref;
+	do {
+		label_def *def = find_label(root->disasm, address);
+		if (def) {
+			for (uint32_t i = 0; i < def->num_labels; i++)
+			{
+				printf("%s:\n", def->labels[i]);
+			}
+		}
+		uint16_t after = upd78k2_disasm(disasm_buf, &ref, address, upd_debug_fetch, upd, root->disasm);
+		printf("\t%s\n", disasm_buf);
+		address = after;
+	} while(!startswith(disasm_buf, "ret") && strcmp(disasm_buf, "invalid"));
+	return 1;
+}
+
+command_def upd_commands[] = {
+	{
+		.names = (const char *[]){
+			"breakpoint", "b", NULL
+		},
+		.usage = "breakpoint ADDRESSS",
+		.desc = "Set a breakpoint at ADDRESS",
+		.impl = cmd_breakpoint_upd,
+		.min_args = 1,
+		.max_args = 1
+	},
+	/*{
+		.names = (const char *[]){
+			"watchpoint", NULL
+		},
+		.usage = "watchpoint ADDRESS [SIZE]",
+		.desc = "Set a watchpoint at ADDRESS with an optional SIZE in bytes. SIZE defaults to 2 for even address and 1 for odd",
+		.impl = cmd_watchpoint_upd,
+		.min_args = 1,
+		.max_args = 2
+	},*/
+	{
+		.names = (const char *[]){
+			"advance", NULL
+		},
+		.usage = "advance ADDRESS",
+		.desc = "Advance to ADDRESS",
+		.impl = cmd_advance_upd,
+		.min_args = 1,
+		.max_args = 1
+	},
+	{
+		.names = (const char *[]){
+			"step", "s", NULL
+		},
+		.usage = "step",
+		.desc = "Advance to the next instruction, stepping into subroutines",
+		.impl = cmd_step_upd,
+		.min_args = 0,
+		.max_args = 0
+	},
+	{
+		.names = (const char *[]){
+			"over", NULL
+		},
+		.usage = "over",
+		.desc = "Advance to the next instruction, ignoring branches to lower addresses",
+		.impl = cmd_over_upd,
+		.min_args = 0,
+		.max_args = 0
+	},
+	{
+		.names = (const char *[]){
+			"next", NULL
+		},
+		.usage = "next",
+		.desc = "Advance to the next instruction",
+		.impl = cmd_next_upd,
+		.min_args = 0,
+		.max_args = 0
+	},
+	/*{
+		.names = (const char *[]){
+			"backtrace", "bt", NULL
+		},
+		.usage = "backtrace",
+		.desc = "Print a backtrace",
+		.impl = cmd_backtrace_upd,
+		.min_args = 0,
+		.max_args = 0
+	},*/
+	{
+		.names = (const char *[]){
+			"delete", "d", NULL
+		},
+		.usage = "delete BREAKPOINT",
+		.desc = "Remove breakpoint identified by BREAKPOINT",
+		.impl = cmd_delete_upd,
+		.min_args = 1,
+		.max_args = 1
+	},
+	{
+		.names = (const char *[]){
+			"disassemble", "disasm", NULL
+		},
+		.usage = "disassemble [ADDRESS]",
+		.desc = "Disassemble code starting at ADDRESS if provided or the current address if not",
+		.impl = cmd_disassemble_upd,
+		.min_args = 0,
+		.max_args = 1
+	}
+};
+
+#define NUM_UPD (sizeof(upd_commands)/sizeof(*upd_commands))
 
 static uint8_t read_upd(debug_root *root, uint32_t *out, char size)
 {
@@ -5052,8 +5316,7 @@ static uint8_t read_upd(debug_root *root, uint32_t *out, char size)
 	if (size != 'b') {
 		*out |= read_upd_byte(upd, address + 1) << 8;
 		if (size == 'l') {
-			*out |= read_upd_byte(upd, address + 2) << 16;
-			*out |= read_upd_byte(upd, address + 3) << 24;
+			*out |= read_upd_word(upd, address + 2) << 16;
 		}
 	}
 	return 1;
@@ -5139,6 +5402,7 @@ debug_root *find_upd_root(upd78k2_context *upd)
 	debug_root *root = find_root(upd);
 	if (root && !root->commands) {
 		add_commands(root, common_commands, NUM_COMMON);
+		add_commands(root, upd_commands, NUM_UPD);
 		root->read_mem = read_upd;
 		root->write_mem = write_upd;
 		root->chunk_end = upd_chunk_end;
@@ -5800,12 +6064,6 @@ void debugger(void *vcontext, uint32_t address)
 	return;
 }
 
-static uint8_t upd_debug_fetch(uint16_t address, void *data)
-{
-	upd78k2_context *upd = data;
-	return read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
-}
-
 void upd_debugger(upd78k2_context *upd)
 {
 	static char last_cmd[1024];
@@ -5817,21 +6075,19 @@ void upd_debugger(upd78k2_context *upd)
 	if (!root) {
 		return;
 	}
-	/*
 	if (upd->pc == root->branch_t) {
 		bp_def ** f_bp = find_breakpoint(&root->breakpoints, root->branch_f, BP_TYPE_CPU);
 		if (!*f_bp) {
-			remove_breakpoint(context, root->branch_f);
+			upd78k2_remove_breakpoint(upd, root->branch_f);
 		}
 		root->branch_t = root->branch_f = 0;
 	} else if(upd->pc == root->branch_f) {
 		bp_def ** t_bp = find_breakpoint(&root->breakpoints, root->branch_t, BP_TYPE_CPU);
 		if (!*t_bp) {
-			remove_breakpoint(context, root->branch_t);
+			upd78k2_remove_breakpoint(upd, root->branch_t);
 		}
 		root->branch_t = root->branch_f = 0;
 	}
-	*/
 
 	root->address = upd->pc;
 	int debugging = 1;
@@ -5861,12 +6117,18 @@ void upd_debugger(upd78k2_context *upd)
 			return;
 		}
 	} else {
-		//remove_breakpoint(context, address);
+		upd78k2_remove_breakpoint(upd, root->address);
 	}
-	upd_address_ref ref;
-	uint16_t after = upd78k2_disasm(input_buf, &ref, upd->pc, upd_debug_fetch, upd, root->disasm);
+	upd_inst inst;
+	uint16_t after = upd78k2_disasm(input_buf, &inst.ref, upd->pc, upd_debug_fetch, upd, root->disasm);
+	int ic;
+	for (ic = 0; input_buf[ic] && input_buf[ic] != ' ' && ic < sizeof(inst.mnemonic) - 1; ic++)
+	{
+		inst.mnemonic[ic] = input_buf[ic];
+	}
+	inst.mnemonic[ic] = 0;
 	root->after = after;
-	root->inst = &ref;
+	root->inst = &inst;
 	for (disp_def * cur = root->displays; cur; cur = cur->next) {
 		char format_str[8];
 		make_format_str(format_str, cur->format);
