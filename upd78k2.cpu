@@ -519,15 +519,17 @@ aluop16_ax
 
 01111PPP alu_saddr_saddr
 	local dst_offset 8
+	local src_tmp 8
 	local dst_tmp 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	src_tmp = scratch1
 	upd78k2_op_fetch
 	dst_offset = scratch1
 	saddr_read dst_offset
 	dst_tmp = scratch1
-	upd78k2_op_fetch
-	saddr_read scratch1
 	meta dst dst_tmp
-	aluop P scratch1
+	aluop P src_tmp
 	saddr_write dst_offset dst_tmp
 
 001011PP alu_ax_immed
@@ -1441,23 +1443,23 @@ muldiv 11001001 decw_sp
 	end
 
 00111000 mov_saddr_saddr
+	local src 8
 	local dstoff 8
-	local srcoff 8
+	upd78k2_op_fetch
+	saddr_read scratch1
+	src = scratch1
 	upd78k2_op_fetch
 	dstoff = scratch1
-	upd78k2_op_fetch
-	srcoff = scratch1
-	saddr_read srcoff
-	saddr_write dstoff scratch1
+	saddr_write dstoff src
 
 00111001 xch_saddr_saddr
 	local dstoff 8
 	local srcoff 8
 	local tmp 8
 	upd78k2_op_fetch
-	dstoff = scratch1
-	upd78k2_op_fetch
 	srcoff = scratch1
+	upd78k2_op_fetch
+	dstoff = scratch1
 	saddr_read dstoff
 	tmp = scratch1
 	saddr_read srcoff
