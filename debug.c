@@ -1,3 +1,5 @@
+//avoid SDL_main macro grossness since it conflicts with uPD78K/II core
+#define SDL_MAIN_HANDLED
 #include "debug.h"
 #include "genesis.h"
 #include "68kinst.h"

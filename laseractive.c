@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <string.h>
 #include "laseractive.h"
 #include "io.h"
 #include "render.h"
