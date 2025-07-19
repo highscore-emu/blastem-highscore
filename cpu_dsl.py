@@ -17,6 +17,7 @@ binaryOps = {
 	'>>': 'lsr',
 	'*': 'mulu',
 	'*S': 'muls',
+    '/': 'divu',
 	'&': 'and',
 	'|': 'or',
 	'^': 'xor'
@@ -901,6 +902,30 @@ def _muluCImpl(prog, params, rawParams, flagUpdates):
 	p0Mask = (1 << p0Size) - 1
 	p1Mask = (1 << p1Size) - 1
 	return f'\n\t{params[2]} = ((uint{size}_t)({params[0]} & {p0Mask})) * ((uint{size}_t)({params[1]} & {p1Mask}));'
+
+def _divuCImpl(prog, params, rawParams, flagUpdates):
+	p0Size = prog.paramSize(rawParams[0])
+	p1Size = prog.paramSize(rawParams[1])
+	destSize = prog.paramSize(rawParams[2])
+	if len(params) > 3:
+		size = params[3]
+		if size == 0:
+			size = 8
+		elif size == 1:
+			size = 16
+		else:
+			size = 32
+	else:
+		size = destSize
+	prog.lastSize = size
+	if p0Size >= size:
+		p0Size = size // 2
+	if p1Size >= size:
+		p1Size = size // 2
+	#TODO: Handle case in which destSize > size
+	p0Mask = (1 << p0Size) - 1
+	p1Mask = (1 << p1Size) - 1
+	return f'\n\t{params[2]} = ((uint{size}_t)({params[0]} & {p0Mask})) / ((uint{size}_t)({params[1]} & {p1Mask}));'
 	
 def _getCarryCheck(prog):
 	carryFlag = None
@@ -1278,6 +1303,7 @@ _opMap = {
 	'rrc': Op().addImplementation('c', 2, _rrcCImpl),
 	'mulu': Op(lambda a, b: a * b).addImplementation('c', 2, _muluCImpl),
 	'muls': Op().addImplementation('c', 2, _mulsCImpl),
+    'divu': Op(lambda a, b: a * b).addImplementation('c', 2, _divuCImpl),
 	'and': Op(lambda a, b: a & b).cBinaryOperator('&'),
 	'or':  Op(lambda a, b: a | b).cBinaryOperator('|'),
 	'xor': Op(lambda a, b: a ^ b).cBinaryOperator('^'),

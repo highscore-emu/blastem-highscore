@@ -559,6 +559,72 @@ sfr 000111PP alu_ax_sfr
 	scratch1 <<= 16
 	scratch1 |= tmp
 	aluop16_ax P scratch1
+
+00001110 adjba
+	#based on Z80 DAA implementation
+	#edge case behavior may not be correct
+	local diff 8
+	local tmp 8
+	local low 8
+	low = a & 0xF
+	tmp = chflags & 8
+	if tmp
+		diff = 6
+	else
+		if low >=U 0xA
+			diff = 6
+		else
+			diff = 0
+		end
+	end
+	
+	tmp = chflags & 0x80
+	if tmp
+		diff |= 0x60
+		update_flags C1
+	else	
+		if a >=U 0x9A
+			diff |= 0x60
+			update_flags C1
+		else
+			update_flags C0
+		end
+	end
+	a += diff
+	update_flags ZAC
+
+00001111 adjbs
+	#based on Z80 DAA implementation
+	#edge case behavior may not be correct
+	local diff 8
+	local tmp 8
+	local low 8
+	low = a & 0xF
+	tmp = chflags & 8
+	if tmp
+		diff = 6
+	else
+		if low >=U 0xA
+			diff = 6
+		else
+			diff = 0
+		end
+	end
+	
+	tmp = chflags & 0x80
+	if tmp
+		diff |= 0x60
+		update_flags C1
+	else	
+		if a >=U 0x9A
+			diff |= 0x60
+			update_flags C1
+		else
+			update_flags C0
+		end
+	end
+	a -= diff
+	update_flags ZAC
 	
 calc_addr_base
 	arg regpair 8
@@ -809,6 +875,26 @@ mov_reg 0DDD0SSS mov_r_r
 	dst += 1
 	upd78k2_op_fetch
 	main.dst = scratch1
+	
+muldiv 00001RRR mulu
+	local res 16
+	res = a * main.R
+	x = res
+	a = res >> 8
+	cycles 40
+
+muldiv 00011RRR divuw
+	local dividend 16
+	local quotient 16
+	local tmp 16
+	dividend = a << 8
+	dividend |= x
+	quotient = dividend / main.R
+	tmp = quotient * main.R
+	x = dividend
+	a = dividend >> 8
+	main.R = quotient - tmp
+	cycles 144
 
 muldiv 1110001R movw_ax_mem
 	local address 16
@@ -1015,6 +1101,19 @@ bit1 10110BBB bt_psw
 		pc += scratch1
 	end
 
+bit1 11010BBB btclr_psw
+	local mask 8
+	local tmp 8
+	upd78k2_op_fetch
+	mask = 1 << B
+	tmp = mask & psw
+	if !=
+		mask = ~mask
+		psw &= mask
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
 bit2 1010RBBB bf_r
 	local mask 8
 	upd78k2_op_fetch
@@ -1031,6 +1130,19 @@ bit2 1011RBBB bt_r
 	mask = 1 << B
 	mask &= main.R
 	if !=
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+bit2 1101RBBB btclr_r
+	local mask 8
+	local tmp 8
+	upd78k2_op_fetch
+	mask = 1 << B
+	tmp = mask & main.R
+	if !=
+		mask = ~mask
+		main.R &= mask
 		sext 16 scratch1 scratch1
 		pc += scratch1
 	end
@@ -1063,6 +1175,26 @@ sfrbit 10100BBB bf_saddr
 		pc += scratch1
 	end
 
+sfrbit 11010BBB btclr_saddr
+	local mask 8
+	local offset 8
+	local value 8
+	local tmp 8
+	upd78k2_op_fetch
+	offset = scratch1
+	saddr_read offset
+	value = scratch1
+	upd78k2_op_fetch
+	mask = 1 << B
+	tmp = mask & value
+	if !=
+		mask = ~mask
+		value &= mask
+		saddr_write offset value
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
 sfrbit 10101BBB bf_sfr
 	local mask 8
 	local tmp 8
@@ -1087,6 +1219,26 @@ sfrbit 10111BBB bt_sfr
 	upd78k2_op_fetch
 	mask &= tmp
 	if !=
+		sext 16 scratch1 scratch1
+		pc += scratch1
+	end
+
+sfrbit 11011BBB btclr_sfr
+	local mask 8
+	local offset 8
+	local value 8
+	local tmp 8
+	upd78k2_op_fetch
+	offset = scratch1
+	sfr_read offset
+	value = scratch1
+	upd78k2_op_fetch
+	mask = 1 << B
+	tmp = mask & value
+	if !=
+		mask = ~mask
+		value &= mask
+		sfr_write offset value
 		sext 16 scratch1 scratch1
 		pc += scratch1
 	end
@@ -1284,6 +1436,30 @@ muldiv 11001001 decw_sp
 	else
 		sfr_write offset scratch1
 	end
+
+00111000 mov_saddr_saddr
+	local dstoff 8
+	local srcoff 8
+	upd78k2_op_fetch
+	dstoff = scratch1
+	upd78k2_op_fetch
+	srcoff = scratch1
+	saddr_read srcoff
+	saddr_write dstoff scratch1
+
+00111001 xch_saddr_saddr
+	local dstoff 8
+	local srcoff 8
+	local tmp 8
+	upd78k2_op_fetch
+	dstoff = scratch1
+	upd78k2_op_fetch
+	srcoff = scratch1
+	saddr_read dstoff
+	tmp = scratch1
+	saddr_read srcoff
+	saddr_write dstoff scratch1
+	saddr_write srcoff tmp
 
 00111010 mov_saddr_immed
 	local offset 8
