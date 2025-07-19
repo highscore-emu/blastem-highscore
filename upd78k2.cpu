@@ -838,9 +838,8 @@ muldiv 1110011R movw_mem_ax
 
 10111RRR mov_r_immed
 	local dst 8
-	dst = R << 1
 	upd78k2_op_fetch
-	main.dst = scratch1
+	main.R = scratch1
 
 spmov 11000000 mov_stbc_immed
 	local tmp 8
