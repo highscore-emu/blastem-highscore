@@ -1310,6 +1310,7 @@ muldiv 01011PP0 call_rp
 	local word 16
 	meta dst word
 	pop_word
+	rp = P << 1
 	main.rp = word
 	rp += 1
 	main.rp = word >> 8
