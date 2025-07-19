@@ -46,6 +46,8 @@ regs
 	prm1 8 #Timer pre-scaler mode register 1
 	tmc1 8 #Timer control register 1
 	crc1 8 #Capture/compare control regiser 1
+	csim 8 #Clocked serial interface mode register
+	sio 8 #Clocked serial interface shift register
 	mm 8 #Memory expansion mode register
 	if0 16 #Interrupt request flag register
 	mk0 16 #interrupt mask flag register
@@ -56,6 +58,7 @@ regs
 	ist 8 #Interrupt status register
 	io_read ptrupd_io_fun
 	io_write ptrupd_io_fun
+	sio_handler ptrupd_io_fun
 	iram 8 256
 flags
 	register psw
