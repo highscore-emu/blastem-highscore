@@ -38,11 +38,13 @@ void upd78k2_update_timer0(upd78k2_context *upd)
 	diff >>= 3;
 	if (upd->tmc0 & CE0) {
 		uint32_t tmp = upd->tm0 + diff;
+		uint32_t cr00 = upd->cr00 | (tmp > 0xFFFF ? 0x10000 : 0);
+		uint32_t cr01 = upd->cr01 | (tmp > 0xFFFF ? 0x10000 : 0);
 		//TODO: the rest of the CR00/CR01 stuff
-		if (upd->tm0 < upd->cr00 && tmp >= upd->cr00) {
+		if (upd->tm0 < cr00 && tmp >= cr00) {
 			upd->if0 |= CIF00;
 		}
-		if (upd->tm0 < upd->cr01 && tmp >= upd->cr01) {
+		if (upd->tm0 < cr01 && tmp >= cr01) {
 			upd->if0 |= CIF01;
 			if (upd->crc0 & 8) {
 				//CR01 clear is enabled
