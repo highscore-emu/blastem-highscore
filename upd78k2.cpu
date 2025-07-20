@@ -48,6 +48,9 @@ regs
 	crc1 8 #Capture/compare control regiser 1
 	csim 8 #Clocked serial interface mode register
 	sio 8 #Clocked serial interface shift register
+	sio_counter 8
+	sio_cycle 32
+	sio_divider 32
 	mm 8 #Memory expansion mode register
 	if0 16 #Interrupt request flag register
 	mk0 16 #interrupt mask flag register
@@ -58,7 +61,9 @@ regs
 	ist 8 #Interrupt status register
 	io_read ptrupd_io_fun
 	io_write ptrupd_io_fun
-	sio_handler ptrupd_io_fun
+	sio_handler ptrupd_fun
+	sio_extclock ptrupd_fun
+	system ptrvoid
 	iram 8 256
 flags
 	register psw
@@ -77,8 +82,8 @@ declare
 	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
 	typedef void (upd_io_fun)(upd78k2_context *upd, uint8_t offset);
 	void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction);
-	typedef void (*upd_debug_handler)(upd78k2_context *upd);
-	void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_debug_handler handler);
+	typedef void (upd_fun)(upd78k2_context *upd);
+	void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_fun *handler);
 	void upd78k2_remove_breakpoint(upd78k2_context *upd, uint32_t address);
 
 #Prefix bytes
@@ -1053,15 +1058,18 @@ muldiv 01001PP0 br_rp
 	reg += 1
 	tmp = main.reg << 8
 	pc |= tmp
+	cycles 8 #only correct for external ROM
 
 00010100 br_rel
 	upd78k2_op_fetch
 	sext 16 scratch1 scratch1
 	pc += scratch1
+	cycles 6 #only correct for external ROM
 
 00101100 br_abs
 	upd78k2_op_fetch_word
 	pc = scratch1
+	cycles 4 #only correct for external ROM
 
 100000FS bcc
 	local flag 8
@@ -1074,6 +1082,7 @@ muldiv 01001PP0 br_rp
 	if flag = S
 		sext 16 scratch1 scratch1
 		pc += scratch1
+		cycles 6 #only correct for external ROM
 	end
 
 0011001R dbnz_r
@@ -1257,6 +1266,7 @@ muldiv 01011PP0 call_rp
 	reg += 1
 	tmp = main.reg << 8
 	pc |= tmp
+	cycles 14 #exact penalty beyond raw fetches/stack push is a bit unclear
 
 00101000 call_long
 	local address 16
@@ -1264,6 +1274,7 @@ muldiv 01011PP0 call_rp
 	address = scratch1
 	push_word pc
 	pc = address
+	cycles 12 #exact penalty beyond raw fetches/stack push is a bit unclear
 
 10010AAA call_short
 	local address 16
@@ -1273,6 +1284,7 @@ muldiv 01011PP0 call_rp
 	address |= scratch1
 	push_word pc
 	pc = address
+	cycles 12 #exact penalty beyond raw fetches/stack push is a bit unclear
 
 111TTTTT call_table
 	local address 16
@@ -1287,6 +1299,7 @@ muldiv 01011PP0 call_rp
 	address |= scratch1
 	push_word pc
 	pc = address
+	cycles 18 #exact penalty beyond raw fetches/stack push is a bit unclear
 
 01001010 di
 	int_enable = 0
@@ -1304,6 +1317,7 @@ muldiv 01011PP0 call_rp
 01010110 ret
 	meta dst pc
 	pop_word
+	cycles 12 #exact penalty beyond raw fetches/stack push is a bit unclear
 
 001101PP pop_rp
 	local rp 8
@@ -1676,6 +1690,7 @@ sfrbit 10011BBB clr1_sfr
 	pop_byte
 	psw = scratch1
 	update_sync
+	cycles 18 #exact penalty beyond raw fetches/stack push is a bit unclear
 
 shr 10NNNRRR shr_r
 	local cyc 32

@@ -5048,7 +5048,10 @@ static uint8_t read_upd_byte(upd78k2_context *upd, uint32_t address)
 	if (address > 0xFE00 && address < 0xFF00) {
 		return upd->iram[address & 0xFF];
 	}
-	return read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+	uint32_t tmp = upd->cycles;
+	uint8_t ret = read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+	upd->cycles = tmp;
+	return ret;
 }
 
 static uint16_t read_upd_word(upd78k2_context *upd, uint32_t address)
@@ -5059,7 +5062,10 @@ static uint16_t read_upd_word(upd78k2_context *upd, uint32_t address)
 static uint8_t upd_debug_fetch(uint16_t address, void *data)
 {
 	upd78k2_context *upd = data;
-	return read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+	uint32_t tmp = upd->cycles;
+	uint8_t ret = read_byte(address, (void **)upd->mem_pointers, &upd->opts->gen, upd);
+	upd->cycles = tmp;
+	return ret;
 }
 
 static uint8_t cmd_breakpoint_upd(debug_root *root, parsed_command *cmd)
@@ -5427,6 +5433,12 @@ static void word_ptr_set(debug_var *var, debug_val val)
 	*word = ival;
 }
 
+static debug_val upd_cycle_get(debug_var *var)
+{
+	upd78k2_context *upd = var->ptr;
+	return debug_int(upd->cycles);
+}
+
 debug_root *find_upd_root(upd78k2_context *upd)
 {
 	debug_root *root = find_root(upd);
@@ -5475,6 +5487,10 @@ debug_root *find_upd_root(upd78k2_context *upd)
 			var->val.v.u32 = i;
 			root->variables = tern_insert_ptr(root->variables, word_names[i], var);
 		}
+		var = calloc(1, sizeof(debug_var));
+		var->get = upd_cycle_get;
+		var->ptr = root->cpu_context;
+		root->variables = tern_insert_ptr(root->variables, "cycle", var);
 	}
 	return root;
 }

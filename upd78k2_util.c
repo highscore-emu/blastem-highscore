@@ -30,6 +30,7 @@ void upd78k2_write_8(upd78k2_context *upd)
 #define CIF01 0x0020
 #define CIF10 0x0040
 #define CIF11 0x0080
+#define CSIIF 0x8000
 
 void upd78k2_update_timer0(upd78k2_context *upd)
 {
@@ -129,10 +130,32 @@ void upd78k2_update_timer1(upd78k2_context *upd)
 	}
 }
 
+void upd78k2_update_sio(upd78k2_context *upd)
+{
+	if (!upd->sio_divider) {
+		upd->sio_cycle = upd->cycles;
+		return;
+	}
+	while (upd->sio_cycle < upd->cycles)
+	{
+		upd->sio_cycle += upd->sio_divider;
+		if (upd->sio_counter) {
+			upd->sio_counter--;
+			if (!upd->sio_counter) {
+				upd->if0 |= CSIIF;
+				if (upd->sio_handler) {
+					upd->sio_handler(upd);
+				}
+			}
+		}
+	}
+}
+
 #define CMK00 CIF00
 #define CMK01 CIF01
 #define CMK10 CIF10
 #define CMK11 CIF11
+#define CSIMK CSIIF
 
 void upd78k2_calc_next_int(upd78k2_context *upd)
 {
@@ -182,6 +205,12 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 		cycle = ((uint8_t)(upd->cr11 - upd->tm1)) << scale;
 		cycle *= upd->opts->gen.clock_divider;
 		cycle += upd->tm1_cycle;
+		if (cycle < next_int) {
+			next_int = cycle;
+		}
+	}
+	if (!(upd->mk0 & CSIMK) && upd->sio_counter && upd->sio_divider) {
+		cycle = upd->sio_cycle + upd->sio_counter * upd->sio_divider;
 		if (cycle < next_int) {
 			next_int = cycle;
 		}
@@ -284,6 +313,7 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 	case 0x04:
 	case 0x05:
 	case 0x06:
+		upd78k2_update_sio(upd);
 		printf("P%X: %02X\n", address & 7, value);
 		upd->port_data[address & 7] = value;
 		if (upd->io_write) {
@@ -380,12 +410,42 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 		upd78k2_calc_next_int(upd);
 		break;
 	case 0x80:
-		upd->csim = value;
+		upd78k2_update_sio(upd);
 		printf("CSIM CTXE: %X, CRXE: %X, WUP: %X, MOD1: %X, CLS: %X\n", value >> 7, value >> 6 & 1, value >> 5 & 1, value >> 3 & 1, value & 3);
+		switch (value & 3)
+		{
+		case 0:
+			if (upd->sio_extclock) {
+				upd->sio_extclock(upd);
+			}
+			break;
+		case 1:
+			fputs("Timer 3 mode for SIO not yet supported!", stderr);
+		case 2:
+			upd->sio_divider = 64 * upd->opts->gen.clock_divider;
+			break;
+		case 3:
+			upd->sio_divider = 16 * upd->opts->gen.clock_divider;
+			break;
+		}
+		if ((value & 0x40) && !(upd->csim & 0x40)) {
+			//reception enabled start reception (and maybe transmission)
+			upd->sio_counter = 8;
+		} else if ((upd->csim & 0xC0) && !(value & 0xC0)) {
+			//stop transmission/reception
+			upd->sio_counter = 0;
+		}
+		upd->csim = value;
+		upd78k2_calc_next_int(upd);
 		break;
 	case 0x86:
+		upd78k2_update_sio(upd);
 		upd->sio = value;
 		printf("SIO: %02X\n", value);
+		if (upd->csim & 0x80) {
+			upd->sio_counter = 8;
+		}
+		upd78k2_calc_next_int(upd);
 		break;
 	case 0xC4:
 		upd->mm = value;
@@ -478,6 +538,7 @@ void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle)
 {
 	upd78k2_update_timer0(upd);
 	upd78k2_update_timer1(upd);
+	upd78k2_update_sio(upd);
 	upd->sync_cycle = target_cycle;
 	upd78k2_calc_next_int(upd);
 }
@@ -529,7 +590,7 @@ void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction)
 	}
 }
 
-void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_debug_handler handler)
+void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_fun *handler)
 {
 	char buf[6];
 	address &= upd->opts->gen.address_mask & 0xFFFF;
