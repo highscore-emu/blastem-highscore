@@ -35,8 +35,8 @@ void upd78k2_write_8(upd78k2_context *upd)
 void upd78k2_update_timer0(upd78k2_context *upd)
 {
 	uint32_t diff = (upd->cycles - upd->tm0_cycle) / upd->opts->gen.clock_divider;
-	upd->tm0_cycle += (diff & ~7) * upd->opts->gen.clock_divider;
-	diff >>= 3;
+	upd->tm0_cycle += (diff & ~0xF) * upd->opts->gen.clock_divider;
+	diff >>= 4;
 	if (upd->tmc0 & CE0) {
 		uint32_t tmp = upd->tm0 + diff;
 		uint32_t cr00 = upd->cr00 | (tmp > 0xFFFF ? 0x10000 : 0);
@@ -67,11 +67,11 @@ void upd78k2_update_timer0(upd78k2_context *upd)
 
 uint8_t upd78k2_tm1_scale(upd78k2_context *upd)
 {
-	uint8_t scale = upd->prm1 & 3;
+	uint8_t scale = upd->prm1 & 7;
 	if (scale < 2) {
 		scale = 2;
 	}
-	scale++;
+	scale += 3;
 	return scale;
 }
 
@@ -174,7 +174,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 	uint32_t cycle;
 	if (!(upd->mk0 & CMK00) && (upd->tmc0 & CE0)) {
 		//TODO: account for clear function
-		cycle =  ((uint16_t)(upd->cr00 - upd->tm0)) << 3;
+		cycle =  ((uint16_t)(upd->cr00 - upd->tm0)) << 4;
 		cycle *= upd->opts->gen.clock_divider;
 		cycle += upd->tm0_cycle;
 		if (cycle < next_int) {
@@ -183,7 +183,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 	}
 	if (!(upd->mk0 & CMK01) && (upd->tmc0 & CE0)) {
 		//TODO: account for clear function
-		cycle = ((uint16_t)(upd->cr01 - upd->tm0)) << 3;
+		cycle = ((uint16_t)(upd->cr01 - upd->tm0)) << 4;
 		cycle *= upd->opts->gen.clock_divider;
 		cycle += upd->tm0_cycle;
 		if (cycle < next_int) {
@@ -315,10 +315,10 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 	case 0x06:
 		upd78k2_update_sio(upd);
 		printf("P%X: %02X\n", address & 7, value);
-		upd->port_data[address & 7] = value;
 		if (upd->io_write) {
-			upd->io_write(upd, address);
+			upd->io_write(upd, address, value);
 		}
+		upd->port_data[address & 7] = value;
 		break;
 	case 0x10:
 		upd78k2_update_timer0(upd);

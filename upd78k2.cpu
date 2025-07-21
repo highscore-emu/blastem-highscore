@@ -60,7 +60,7 @@ regs
 	intm1 8 #External interrupt mode register 1
 	ist 8 #Interrupt status register
 	io_read ptrupd_io_fun
-	io_write ptrupd_io_fun
+	io_write ptrupd_io_write_fun
 	sio_handler ptrupd_fun
 	sio_extclock ptrupd_fun
 	system ptrvoid
@@ -81,6 +81,7 @@ declare
 	upd78k2_context *init_upd78k2_context(upd78k2_options *opts);
 	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
 	typedef void (upd_io_fun)(upd78k2_context *upd, uint8_t offset);
+	typedef void (upd_io_write_fun)(upd78k2_context *upd, uint8_t offset, uint8_t value);
 	void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction);
 	typedef void (upd_fun)(upd78k2_context *upd);
 	void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_fun *handler);
