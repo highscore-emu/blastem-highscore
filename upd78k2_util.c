@@ -30,19 +30,22 @@ void upd78k2_write_8(upd78k2_context *upd)
 #define CIF01 0x0020
 #define CIF10 0x0040
 #define CIF11 0x0080
+#define CSIIF 0x8000
 
 void upd78k2_update_timer0(upd78k2_context *upd)
 {
 	uint32_t diff = (upd->cycles - upd->tm0_cycle) / upd->opts->gen.clock_divider;
-	upd->tm0_cycle += (diff & ~7) * upd->opts->gen.clock_divider;
-	diff >>= 3;
+	upd->tm0_cycle += (diff & ~0xF) * upd->opts->gen.clock_divider;
+	diff >>= 4;
 	if (upd->tmc0 & CE0) {
 		uint32_t tmp = upd->tm0 + diff;
+		uint32_t cr00 = upd->cr00 | (tmp > 0xFFFF ? 0x10000 : 0);
+		uint32_t cr01 = upd->cr01 | (tmp > 0xFFFF ? 0x10000 : 0);
 		//TODO: the rest of the CR00/CR01 stuff
-		if (upd->tm0 < upd->cr00 && tmp >= upd->cr00) {
+		if (upd->tm0 < cr00 && tmp >= cr00) {
 			upd->if0 |= CIF00;
 		}
-		if (upd->tm0 < upd->cr01 && tmp >= upd->cr01) {
+		if (upd->tm0 < cr01 && tmp >= cr01) {
 			upd->if0 |= CIF01;
 			if (upd->crc0 & 8) {
 				//CR01 clear is enabled
@@ -64,11 +67,11 @@ void upd78k2_update_timer0(upd78k2_context *upd)
 
 uint8_t upd78k2_tm1_scale(upd78k2_context *upd)
 {
-	uint8_t scale = upd->prm1 & 3;
+	uint8_t scale = upd->prm1 & 7;
 	if (scale < 2) {
 		scale = 2;
 	}
-	scale++;
+	scale += 3;
 	return scale;
 }
 
@@ -127,10 +130,32 @@ void upd78k2_update_timer1(upd78k2_context *upd)
 	}
 }
 
+void upd78k2_update_sio(upd78k2_context *upd)
+{
+	if (!upd->sio_divider) {
+		upd->sio_cycle = upd->cycles;
+		return;
+	}
+	while (upd->sio_cycle < upd->cycles)
+	{
+		upd->sio_cycle += upd->sio_divider;
+		if (upd->sio_counter) {
+			upd->sio_counter--;
+			if (!upd->sio_counter) {
+				upd->if0 |= CSIIF;
+				if (upd->sio_handler) {
+					upd->sio_handler(upd);
+				}
+			}
+		}
+	}
+}
+
 #define CMK00 CIF00
 #define CMK01 CIF01
 #define CMK10 CIF10
 #define CMK11 CIF11
+#define CSIMK CSIIF
 
 void upd78k2_calc_next_int(upd78k2_context *upd)
 {
@@ -149,7 +174,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 	uint32_t cycle;
 	if (!(upd->mk0 & CMK00) && (upd->tmc0 & CE0)) {
 		//TODO: account for clear function
-		cycle =  ((uint16_t)(upd->cr00 - upd->tm0)) << 3;
+		cycle =  ((uint16_t)(upd->cr00 - upd->tm0)) << 4;
 		cycle *= upd->opts->gen.clock_divider;
 		cycle += upd->tm0_cycle;
 		if (cycle < next_int) {
@@ -158,7 +183,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 	}
 	if (!(upd->mk0 & CMK01) && (upd->tmc0 & CE0)) {
 		//TODO: account for clear function
-		cycle = ((uint16_t)(upd->cr01 - upd->tm0)) << 3;
+		cycle = ((uint16_t)(upd->cr01 - upd->tm0)) << 4;
 		cycle *= upd->opts->gen.clock_divider;
 		cycle += upd->tm0_cycle;
 		if (cycle < next_int) {
@@ -180,6 +205,12 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 		cycle = ((uint8_t)(upd->cr11 - upd->tm1)) << scale;
 		cycle *= upd->opts->gen.clock_divider;
 		cycle += upd->tm1_cycle;
+		if (cycle < next_int) {
+			next_int = cycle;
+		}
+	}
+	if (!(upd->mk0 & CSIMK) && upd->sio_counter && upd->sio_divider) {
+		cycle = upd->sio_cycle + upd->sio_counter * upd->sio_divider;
 		if (cycle < next_int) {
 			next_int = cycle;
 		}
@@ -239,6 +270,8 @@ uint8_t upd78237_sfr_read(uint32_t address, void *context)
 		upd78k2_update_timer1(upd);
 		printf("TMC1 Read: %02X\n", upd->tmc1);
 		return upd->tmc1;
+	case 0x80:
+		return upd->csim;
 	case 0xC4:
 		return upd->mm;
 	case 0xE0:
@@ -272,174 +305,209 @@ uint8_t upd78237_sfr_read(uint32_t address, void *context)
 void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 {
 	upd78k2_context *upd = context;
-	if (address < 8 && address != 2 && address != 7) {
-		upd->port_data[address] = value;
-	} else {
-		switch (address)
+	switch (address)
+	{
+	case 0x00:
+	case 0x01:
+	case 0x03:
+	case 0x04:
+	case 0x05:
+	case 0x06:
+		upd78k2_update_sio(upd);
+		printf("P%X: %02X\n", address & 7, value);
+		if (upd->io_write) {
+			upd->io_write(upd, address, value);
+		}
+		upd->port_data[address & 7] = value;
+		break;
+	case 0x10:
+		upd78k2_update_timer0(upd);
+		upd->cr00 &= 0xFF00;
+		upd->cr00 |= value;
+		printf("CR00: %04X\n", upd->cr00);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x11:
+		upd78k2_update_timer0(upd);
+		upd->cr00 &= 0xFF;
+		upd->cr00 |= value << 8;
+		printf("CR00: %04X\n", upd->cr00);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x12:
+		upd78k2_update_timer0(upd);
+		upd->cr01 &= 0xFF00;
+		upd->cr01 |= value;
+		printf("CR01: %04X\n", upd->cr01);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x13:
+		upd78k2_update_timer0(upd);
+		upd->cr01 &= 0xFF;
+		upd->cr01 |= value << 8;
+		printf("CR01: %04X\n", upd->cr01);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x14:
+		upd78k2_update_timer1(upd);
+		upd->cr10 = value;
+		printf("CR10: %02X\n", value);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x1C:
+		upd78k2_update_timer1(upd);
+		upd->cr11 = value;
+		printf("CR11: %02X\n", value);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x20:
+	case 0x21:
+	case 0x23:
+	case 0x25:
+	case 0x26:
+		printf("PM%X: %02X\n", address & 0x7, value);
+		upd->port_mode[address & 7] = value;
+		break;
+	case 0x30:
+		upd78k2_update_timer0(upd);
+		upd->crc0 = value;
+		printf("CRC0 CLR01: %X, MOD: %X, Other: %X\n", value >> 3 & 1, value >> 6, value & 0x37);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x32:
+		upd78k2_update_timer1(upd);
+		upd->crc1 = value;
+		printf("CRC1 CLR11: %X, CM: %X, CLR10: %X\n", value >> 3 & 1, value >> 2 & 1, value >> 1 & 1);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x40:
+		upd->puo = value;
+		printf("PUO: %02X\n", value);
+		break;
+	case 0x43:
+		upd->pmc3 = value;
+		printf("PMC3 TO: %X, SO: %X, SCK: %X, TxD: %X, RxD: %X\n", value >> 4, value >> 3 & 1, value >> 2 & 1, value >> 1 & 1, value & 1);
+		break;
+	case 0x5D:
+		upd78k2_update_timer0(upd);
+		upd->tmc0 = value;
+		printf("TMC0 CE0: %X, OVF0: %X - TM3 CE3: %X\n", value >> 3 & 1, value >> 2 & 1, value >> 7 & 1);
+		if (!(value & 0x8)) {
+			upd->tm0 = 0;
+		}
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x5E:
+		upd78k2_update_timer1(upd);
+		upd->prm1 = value;
+		printf("PRM1: %02X\n", value);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x5F:
+		upd78k2_update_timer1(upd);
+		upd->tmc1 = value;
+		printf("TMC1 CE2: %X, OVF2: %X, CMD2: %X, CE1: %X, OVF1: %X\n", value >> 7, value >> 6 & 1, value >> 5 & 1, value >> 3 & 1, value >> 2 & 1);
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x80:
+		upd78k2_update_sio(upd);
+		printf("CSIM CTXE: %X, CRXE: %X, WUP: %X, MOD1: %X, CLS: %X\n", value >> 7, value >> 6 & 1, value >> 5 & 1, value >> 3 & 1, value & 3);
+		switch (value & 3)
 		{
-		case 0x00:
-		case 0x01:
-		case 0x03:
-		case 0x04:
-		case 0x05:
-		case 0x06:
-			printf("P%X: %02X\n", address & 7, value);
-			upd->port_data[address & 7] = value;
-			if (upd->io_write) {
-				upd->io_write(upd, address);
+		case 0:
+			if (upd->sio_extclock) {
+				upd->sio_extclock(upd);
 			}
 			break;
-		case 0x10:
-			upd78k2_update_timer0(upd);
-			upd->cr00 &= 0xFF00;
-			upd->cr00 |= value;
-			printf("CR00: %04X\n", upd->cr00);
-			upd78k2_calc_next_int(upd);
+		case 1:
+			fputs("Timer 3 mode for SIO not yet supported!", stderr);
+		case 2:
+			upd->sio_divider = 64 * upd->opts->gen.clock_divider;
 			break;
-		case 0x11:
-			upd78k2_update_timer0(upd);
-			upd->cr00 &= 0xFF;
-			upd->cr00 |= value << 8;
-			printf("CR00: %04X\n", upd->cr00);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x12:
-			upd78k2_update_timer0(upd);
-			upd->cr01 &= 0xFF00;
-			upd->cr01 |= value;
-			printf("CR01: %04X\n", upd->cr01);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x13:
-			upd78k2_update_timer0(upd);
-			upd->cr01 &= 0xFF;
-			upd->cr01 |= value << 8;
-			printf("CR01: %04X\n", upd->cr01);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x14:
-			upd78k2_update_timer1(upd);
-			upd->cr10 = value;
-			printf("CR10: %02X\n", value);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x1C:
-			upd78k2_update_timer1(upd);
-			upd->cr11 = value;
-			printf("CR11: %02X\n", value);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x20:
-		case 0x21:
-		case 0x23:
-		case 0x25:
-		case 0x26:
-			printf("PM%X: %02X\n", address & 0x7, value);
-			upd->port_mode[address & 7] = value;
-			break;
-		case 0x30:
-			upd78k2_update_timer0(upd);
-			upd->crc0 = value;
-			printf("CRC0 CLR01: %X, MOD: %X, Other: %X\n", value >> 3 & 1, value >> 6, value & 0x37);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x32:
-			upd78k2_update_timer1(upd);
-			upd->crc1 = value;
-			printf("CRC1 CLR11: %X, CM: %X, CLR10: %X\n", value >> 3 & 1, value >> 2 & 1, value >> 1 & 1);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x40:
-			upd->puo = value;
-			printf("PUO: %02X\n", value);
-			break;
-		case 0x43:
-			upd->pmc3 = value;
-			printf("PMC3 TO: %X, SO: %X, SCK: %X, TxD: %X, RxD: %X\n", value >> 4, value >> 3 & 1, value >> 2 & 1, value >> 1 & 1, value & 1);
-			break;
-		case 0x5D:
-			upd78k2_update_timer0(upd);
-			upd->tmc0 = value;
-			printf("TMC0 CE0: %X, OVF0: %X - TM3 CE3: %X\n", value >> 3 & 1, value >> 2 & 1, value >> 7 & 1);
-			if (!(value & 0x8)) {
-				upd->tm0 = 0;
-			}
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x5E:
-			upd78k2_update_timer1(upd);
-			upd->prm1 = value;
-			printf("PRM1: %02X\n", value);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0x5F:
-			upd78k2_update_timer1(upd);
-			upd->tmc1 = value;
-			printf("TMC1 CE2: %X, OVF2: %X, CMD2: %X, CE1: %X, OVF1: %X\n", value >> 7, value >> 6 & 1, value >> 5 & 1, value >> 3 & 1, value >> 2 & 1);
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0xC4:
-			upd->mm = value;
-			break;
-		case 0xE0:
-			upd->if0 &= 0xFF00;
-			upd->if0 |= value;
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0xE1:
-			upd->if0 &= 0xFF;
-			upd->if0 |= value << 8;
-			upd78k2_calc_next_int(upd);
-			break;
-		case 0xE4:
-			upd->mk0 &= 0xFF00;
-			upd->mk0 |= value;
-			printf("MK0: %04X (low: %02X)\n", upd->mk0, value);
-			upd78k2_sync_cycle(upd, upd->sync_cycle);
-			break;
-		case 0xE5:
-			upd->mk0 &= 0xFF;
-			upd->mk0 |= value << 8;
-			printf("MK0: %04X (hi: %02X)\n", upd->mk0, value);
-			upd78k2_sync_cycle(upd, upd->sync_cycle);
-			break;
-		case 0xE8:
-			upd->pr0 &= 0xFF00;
-			upd->pr0 |= value;
-			printf("PR0: %04X\n", upd->pr0);
-			upd78k2_sync_cycle(upd, upd->sync_cycle);
-			break;
-		case 0xE9:
-			upd->pr0 &= 0xFF;
-			upd->pr0 |= value << 8;
-			printf("PR0: %04X\n", upd->pr0);
-			upd78k2_sync_cycle(upd, upd->sync_cycle);
-			break;
-		case 0xEC:
-			upd->ism0 &= 0xFF00;
-			upd->ism0 |= value;
-			printf("ISM0: %04X\n", upd->ism0);
-			break;
-		case 0xED:
-			upd->ism0 &= 0xFF;
-			upd->ism0 |= value << 8;
-			printf("ISM0: %04X\n", upd->ism0);
-			break;
-		case 0xF4:
-			printf("INTM0: %02X\n", value);
-			upd->intm0 = value;
-			break;
-		case 0xF5:
-			printf("INTM1: %02X\n", value);
-			upd->intm1 = value;
-			break;
-		case 0xF8:
-			upd->ist = value;
-			break;
-		default:
-			fprintf(stderr, "Unhandled uPD78237 SFR write %02X: %02X\n", address, value);
+		case 3:
+			upd->sio_divider = 16 * upd->opts->gen.clock_divider;
 			break;
 		}
+		if ((value & 0x40) && !(upd->csim & 0x40)) {
+			//reception enabled start reception (and maybe transmission)
+			upd->sio_counter = 8;
+		} else if ((upd->csim & 0xC0) && !(value & 0xC0)) {
+			//stop transmission/reception
+			upd->sio_counter = 0;
+		}
+		upd->csim = value;
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0x86:
+		upd78k2_update_sio(upd);
+		upd->sio = value;
+		printf("SIO: %02X\n", value);
+		if (upd->csim & 0x80) {
+			upd->sio_counter = 8;
+		}
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0xC4:
+		upd->mm = value;
+		break;
+	case 0xE0:
+		upd->if0 &= 0xFF00;
+		upd->if0 |= value;
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0xE1:
+		upd->if0 &= 0xFF;
+		upd->if0 |= value << 8;
+		upd78k2_calc_next_int(upd);
+		break;
+	case 0xE4:
+		upd->mk0 &= 0xFF00;
+		upd->mk0 |= value;
+		printf("MK0: %04X (low: %02X)\n", upd->mk0, value);
+		upd78k2_sync_cycle(upd, upd->sync_cycle);
+		break;
+	case 0xE5:
+		upd->mk0 &= 0xFF;
+		upd->mk0 |= value << 8;
+		printf("MK0: %04X (hi: %02X)\n", upd->mk0, value);
+		upd78k2_sync_cycle(upd, upd->sync_cycle);
+		break;
+	case 0xE8:
+		upd->pr0 &= 0xFF00;
+		upd->pr0 |= value;
+		printf("PR0: %04X\n", upd->pr0);
+		upd78k2_sync_cycle(upd, upd->sync_cycle);
+		break;
+	case 0xE9:
+		upd->pr0 &= 0xFF;
+		upd->pr0 |= value << 8;
+		printf("PR0: %04X\n", upd->pr0);
+		upd78k2_sync_cycle(upd, upd->sync_cycle);
+		break;
+	case 0xEC:
+		upd->ism0 &= 0xFF00;
+		upd->ism0 |= value;
+		printf("ISM0: %04X\n", upd->ism0);
+		break;
+	case 0xED:
+		upd->ism0 &= 0xFF;
+		upd->ism0 |= value << 8;
+		printf("ISM0: %04X\n", upd->ism0);
+		break;
+	case 0xF4:
+		printf("INTM0: %02X\n", value);
+		upd->intm0 = value;
+		break;
+	case 0xF5:
+		printf("INTM1: %02X\n", value);
+		upd->intm1 = value;
+		break;
+	case 0xF8:
+		upd->ist = value;
+		break;
+	default:
+		fprintf(stderr, "Unhandled uPD78237 SFR write %02X: %02X\n", address, value);
+		break;
 	}
 	return context;
 }
@@ -470,6 +538,7 @@ void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle)
 {
 	upd78k2_update_timer0(upd);
 	upd78k2_update_timer1(upd);
+	upd78k2_update_sio(upd);
 	upd->sync_cycle = target_cycle;
 	upd78k2_calc_next_int(upd);
 }
@@ -519,4 +588,18 @@ void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction)
 	} else {
 		upd->tm1_cycle -= deduction;
 	}
+}
+
+void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_fun *handler)
+{
+	char buf[6];
+	address &= upd->opts->gen.address_mask & 0xFFFF;
+	upd->breakpoints = tern_insert_ptr(upd->breakpoints, tern_int_key(address, buf), handler);
+}
+
+void upd78k2_remove_breakpoint(upd78k2_context *upd, uint32_t address)
+{
+	char buf[6];
+	address &= upd->opts->gen.address_mask & 0xFFFF;
+	tern_delete(&upd->breakpoints, tern_int_key(address, buf), NULL);
 }

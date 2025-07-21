@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <string.h>
 #include "laseractive.h"
 #include "io.h"
 #include "render.h"
@@ -6,6 +7,77 @@
 #include "blastem.h"
 #include "util.h"
 #include "debug.h"
+
+uint8_t flip_bits(uint8_t byte)
+{
+	uint8_t out = 0;
+	for (int i = 0; i < 8; i++)
+	{
+		out <<= 1;
+		out |= byte & 1;
+		byte >>= 1;
+	}
+	return out;
+}
+
+void laseractive_io_write(upd78k2_context *upd, uint8_t offset, uint8_t value)
+{
+	laseractive *la = upd->system;
+	if (offset == 0 && ((value ^ upd->port_data[0]) & 0x2)) {
+		//XCS changed
+		if (value & 0x2) {
+			//XCS high
+			fputs("PD0093A write: ", stdout);
+			for (uint32_t i = 0; i < la->pd0093a_buffer_pos; i++)
+			{
+				uint8_t c = la->pd0093a_buffer[i];
+				if (!i || c < 0x21 || c > 0x7F) {
+					printf("(%02X)", c);
+				} else {
+					if (c == '`') {
+						c = ':';
+					} else if (c == 0x7F) {
+						c = ' ';
+					}
+					putchar(c);
+				}
+			}
+			puts("<|");
+		} else {
+			//XCS low
+			la->pd0093a_expect_offset = 1;
+		}
+	}
+}
+
+void laseractive_sio(upd78k2_context *upd)
+{
+	laseractive *la = upd->system;
+	if (upd->csim & 0x80) {
+		//transmission enabled
+		if (upd->port_data[0] & 0x2) {
+			if (upd->port_data[6] & 0x80) {
+				printf("Unknown SIO write: %02X\n", upd->sio);
+			} else {
+				printf("Mecha Con write: %02X\n", upd->sio);
+			}
+		} else {
+			uint8_t b = flip_bits(upd->sio);
+			if (la->pd0093a_expect_offset) {
+				la->pd0093a_expect_offset = 0;
+				la->pd0093a_buffer_pos = b;
+			} else if (la->pd0093a_buffer_pos < sizeof(la->pd0093a_buffer)) {
+				la->pd0093a_buffer[la->pd0093a_buffer_pos++] = b;
+			}
+		}
+	}
+}
+
+void laseractive_sio_extclock(upd78k2_context *upd)
+{
+	//service manual says approximately 2us cycle time which corresponds to 500 kHz
+	upd->sio_divider = 24;
+}
 
 static void gamepad_down(system_header *system, uint8_t pad, uint8_t button)
 {
@@ -57,13 +129,15 @@ static void gamepad_up(system_header *system, uint8_t pad, uint8_t button)
 #define ADJUST_BUFFER 12000000 // one second of cycles
 #define MAX_NO_ADJUST (UINT32_MAX-ADJUST_BUFFER)
 
+extern unsigned short osd_font[];
 static void resume_laseractive(system_header *system)
 {
 	
-	pixel_t bg_color = render_map_color(0, 0, 255);
+	pixel_t bg_color = render_map_color(0, 0, 0);
+	pixel_t osd_color = render_map_color(224, 224, 244);
 	pixel_t led_on = render_map_color(0, 255, 0);
 	pixel_t led_standby = render_map_color(255, 0, 0);
-	pixel_t led_off = render_map_color(0, 0, 0);
+	pixel_t led_off = render_map_color(32, 32, 32);
 	laseractive *la = (laseractive *)system;
 	audio_source *audio = render_audio_source("laseractive_tmp", 12000000, 250, 2);
 	static const uint32_t cycles_per_frame = 12000000 / 60;
@@ -126,6 +200,36 @@ static void resume_laseractive(system_header *system)
 				
 				line += pitch / sizeof(pixel_t);
 			}
+			for (int cy = 0; cy < 10; cy++)
+			{
+				for (int cx = 0; cx < 24; cx++)
+				{
+					uint8_t c = la->pd0093a_buffer[cy * 24 + cx];
+					if (c > 0x21 && c < 0x7F) {
+						switch (c)
+						{
+						case '0': c = 'O'; break;
+						case '`': c = ':'; break;
+						}
+						c -= 0x21;
+						pixel_t *cur_line = fb + ((cy * 21 + 27) * pitch / sizeof(pixel_t)) + cx * 12;
+						for (int i = c * 17, end = c * 17 + 17; i < end; i++)
+						{
+							pixel_t *cur = cur_line;
+							uint16_t font_bits = osd_font[i];
+							for (int j = 0; j < 12; j++)
+							{
+								if (font_bits & 1) {
+									*cur = osd_color;
+								}
+								font_bits >>= 1;
+								cur++;
+							}
+							cur_line += pitch / sizeof(pixel_t);
+						}
+					}
+				}
+			}
 			render_framebuffer_updated(FRAMEBUFFER_ODD, 320);
 			next_video += cycles_per_frame;
 		}
@@ -147,6 +251,10 @@ static void start_laseractive(system_header *system, char *statefile)
 	la->upd->port_input[3] = 0x20;
 	la->upd->port_input[7] = 0xF7;
 	la->upd->pc = la->upd_rom[0] | la->upd_rom[1] << 8;
+	memset(la->pd0093a_buffer, 0x7F, sizeof(la->pd0093a_buffer));
+	if (la->header.enter_debugger) {
+		upd78k2_insert_breakpoint(la->upd, la->upd->pc, upd_debugger);
+	}
 	resume_laseractive(system);
 }
 
@@ -182,6 +290,14 @@ static void soft_reset(system_header * system)
 static void set_speed_percent(system_header * system, uint32_t percent)
 {
 	//TODO: implement me
+}
+
+uint8_t upd_rom_read(uint32_t address, void *context)
+{
+	upd78k2_context *upd = context;
+	laseractive *la = upd->system;
+	upd->cycles += 4 * upd->opts->gen.clock_divider;
+	return la->upd_rom[address];
 }
 
 laseractive *alloc_laseractive(system_media *media, uint32_t opts)
@@ -229,7 +345,7 @@ laseractive *alloc_laseractive(system_media *media, uint32_t opts)
 		}
 	}
 	static const memmap_chunk base_upd_map[] = {
-		{ 0x0000, 0xE000, 0xFFFF, .flags = MMAP_READ,},
+		{ 0x0000, 0xE000, 0xFFFF, .read_8 = upd_rom_read,},
 		{ 0xFB00, 0xFD00, 0x1FF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
 		{ 0xFD00, 0xFE00, 0xFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
 		{ 0xFF00, 0xFFFF, 0xFF, .read_8 = upd78237_sfr_read, .write_8 = upd78237_sfr_write}
@@ -243,5 +359,9 @@ laseractive *alloc_laseractive(system_media *media, uint32_t opts)
 	init_upd78k2_opts(options, upd_map, 4);
 	options->gen.address_mask = options->gen.max_address = 0xFFFF; //expanded memory space is not used
 	la->upd = init_upd78k2_context(options);
+	la->upd->sio_handler = laseractive_sio;
+	la->upd->sio_extclock = laseractive_sio_extclock;
+	la->upd->io_write = laseractive_io_write;
+	la->upd->system = la;
 	return la;
 }
