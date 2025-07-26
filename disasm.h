@@ -10,7 +10,10 @@ typedef struct {
 	uint32_t num_labels;
 	uint32_t storage;
 	uint32_t full_address;
+	uint32_t data_count;
 	uint8_t  referenced;
+	uint8_t  data_size;
+	uint8_t  is_pointer;
 } label_def;
 
 typedef struct {
@@ -26,11 +29,12 @@ typedef int (*format_label_fun)(char * dst, uint32_t address, disasm_context * c
 
 label_def *find_label(disasm_context *context, uint32_t address);
 int format_label(char *dst, uint32_t address, disasm_context *context);
-void weak_label(disasm_context *context, const char *name, uint32_t address);
-void reference(disasm_context *context, uint32_t address);
-void add_label(disasm_context *context, const char *name, uint32_t address);
+label_def *weak_label(disasm_context *context, const char *name, uint32_t address);
+label_def *reference(disasm_context *context, uint32_t address);
+label_def *add_label(disasm_context *context, const char *name, uint32_t address);
 void visit(disasm_context *context, uint32_t address);
 uint8_t is_visited(disasm_context *context, uint32_t address);
+void defer_disasm_label(disasm_context *context, uint32_t address, label_def *label);
 void defer_disasm(disasm_context *context, uint32_t address);
 void process_m68k_vectors(disasm_context *context, uint16_t *table, uint8_t labels_only);
 void add_segacd_maincpu_labels(disasm_context *context);

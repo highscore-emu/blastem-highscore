@@ -33,9 +33,8 @@ label_def *add_find_label(disasm_context *context, uint32_t address)
 	return def;
 }
 
-void weak_label(disasm_context *context, const char *name, uint32_t address)
+static void name_label(label_def *def, const char *name)
 {
-	label_def *def = add_find_label(context, address);
 	if (def->num_labels == def->storage) {
 		def->storage = def->storage ? def->storage * 2 : 4;
 		def->labels = realloc(def->labels, def->storage * sizeof(char*));;
@@ -43,16 +42,25 @@ void weak_label(disasm_context *context, const char *name, uint32_t address)
 	def->labels[def->num_labels++] = strdup(name);
 }
 
-void reference(disasm_context *context, uint32_t address)
+label_def *weak_label(disasm_context *context, const char *name, uint32_t address)
+{
+	label_def *def = add_find_label(context, address);
+	name_label(def, name);
+	return def;
+}
+
+label_def *reference(disasm_context *context, uint32_t address)
 {
 	label_def *def = add_find_label(context, address);
 	def->referenced = 1;
+	return def;
 }
 
-void add_label(disasm_context *context, const char *name, uint32_t address)
+label_def *add_label(disasm_context *context, const char *name, uint32_t address)
 {
-	reference(context, address);
-	weak_label(context, name, address);
+	label_def *def = reference(context, address);
+	name_label(def, name);
+	return def;
 }
 
 void visit(disasm_context *context, uint32_t address)
@@ -78,12 +86,17 @@ uint8_t is_visited(disasm_context *context, uint32_t address)
 	return (context->visited[address >> 3] & (1 << (address & 7))) != 0;
 }
 
-void defer_disasm(disasm_context *context, uint32_t address)
+void defer_disasm_label(disasm_context *context, uint32_t address, label_def *label)
 {
 	if (is_visited(context, address) || address & context->invalid_inst_addr_mask) {
 		return;
 	}
-	context->deferred = defer_address(context->deferred, address, NULL);
+	context->deferred = defer_address(context->deferred, address, (uint8_t *)label);
+}
+
+void defer_disasm(disasm_context *context, uint32_t address)
+{
+	defer_disasm_label(context, address, NULL);
 }
 
 void process_m68k_vectors(disasm_context *context, uint16_t *table, uint8_t labels_only)
