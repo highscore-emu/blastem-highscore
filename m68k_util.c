@@ -378,7 +378,11 @@ void insert_breakpoint(m68k_context *context, uint32_t address, debug_handler ha
 {
 	char buf[6];
 	address &= context->opts->gen.address_mask;
-	context->breakpoints = tern_insert_ptr(context->breakpoints, tern_int_key(address, buf), handler);
+	tern_int_key(address, buf);
+	//tern_insert_ptr assumes that any existing value is heap allocated and that it's
+	//safe to call free on it to avoid leaking. That isn't the case here, so delete explicitly
+	tern_delete(&context->breakpoints, buf, NULL);
+	context->breakpoints = tern_insert_ptr(context->breakpoints, buf, handler);
 }
 
 void remove_breakpoint(m68k_context *context, uint32_t address)
