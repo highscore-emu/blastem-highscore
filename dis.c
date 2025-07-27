@@ -21,15 +21,24 @@ void render_infobox(char *title, char *message) {}
 
 void check_reference(disasm_context *context, m68kinst * inst, m68k_op_info * op)
 {
+	label_def *def = NULL;
 	switch(op->addr_mode)
 	{
 	case MODE_PC_DISPLACE:
-		reference(context, inst->address + 2 + op->params.regs.displacement);
+		def = reference(context, inst->address + 2 + op->params.regs.displacement);
 		break;
 	case MODE_ABSOLUTE:
 	case MODE_ABSOLUTE_SHORT:
-		reference(context, op->params.immed);
+		def = reference(context, op->params.immed);
 		break;
+	}
+	if (
+		def && !def->data_size && inst->op != M68K_JMP && 
+		inst->op != M68K_JSR && inst->op != M68K_LEA && inst->op != M68K_PEA
+	) {
+		def->data_count = 1;
+		def->data_size = inst->extra.size == OPSIZE_WORD ? 2 : inst->extra.size == OPSIZE_BYTE ? 1 : 4;
+		visit(context, def->full_address);
 	}
 }
 
@@ -67,6 +76,56 @@ void print_label_def(char *key, tern_val val, uint8_t valtype, void *data)
 		}
 	} else {
 		printf("ADR_%X equ $%X\n", label->full_address, label->full_address);
+	}
+}
+
+void process_address_def(disasm_context *context, char *def)
+{
+	char *end;
+	uint32_t address = strtol(def, &end, 16);
+	if (*end == '=') {
+		defer_disasm(context, address);
+		add_label(context, strip_ws(end+1), address);
+	} else if (*end && !isspace(*end)) {
+		uint8_t is_table = 0;
+		if (*end == 't') {
+			is_table = 1;
+			end++;
+		}
+		uint8_t el_size, is_pointer = 0;;
+		switch (*end)
+		{
+		case 'y':
+		case 'b': el_size = 1; break;
+		case 'w': el_size = 2; break;
+		case 'f':
+		case 'p': is_pointer = 1;
+		case 'l': el_size = 4; break;
+		default:
+			fprintf(stderr, "Invalid character %c in address definition %s\n", *end, def);
+			exit(1);
+		}
+		uint32_t count = 1;
+		char *count_end = end + 1;
+		if (is_table) {
+			count = strtol(end + 1, &count_end, 10);
+			if (count_end == end + 2) {
+				fprintf(stderr, "Table address definition %s missing count\n", def);
+				exit(1);
+			}
+		}
+		label_def *def = *count_end == '=' ? add_label(context, strip_ws(count_end+1), address) : reference(context, address);
+		def->data_count = count;
+		def->data_size = el_size;
+		def->is_pointer = is_pointer;
+		if (*end == 'f') {
+			defer_disasm_label(context, address, def);
+		} else {
+			visit(context, address);
+		}
+	} else {
+		defer_disasm(context, address);
+		reference(context, address);
 	}
 }
 
@@ -131,29 +190,13 @@ int main(int argc, char ** argv)
 				}
 				while (fgets(disbuf, sizeof(disbuf), address_log)) {
 				 	if (disbuf[0]) {
-						char *end;
-						uint32_t address = strtol(disbuf, &end, 16);
-						if (address) {
-							defer_disasm(context, address);
-							if (*end == '=') {
-								add_label(context, strip_ws(end+1), address);
-							} else {
-								reference(context, address);
-							}
-						}
+						process_address_def(context, disbuf);
 					}
 				}
 				fclose(address_log);
 			}
 		} else {
-			char *end;
-			uint32_t address = strtol(argv[opt], &end, 16);
-			defer_disasm(context, address);
-			if (*end == '=') {
-				add_label(context, end+1, address);
-			} else {
-				reference(context, address);
-			}
+			process_address_def(context, argv[opt]);
 		}
 	}
 	FILE * f = fopen(argv[1], "rb");
@@ -342,16 +385,32 @@ int main(int argc, char ** argv)
 		do {
 			valid_address = 0;
 			address = context->deferred->address;
-			if (!is_visited(context, address)) {
-				address &= context->address_mask;
-				if (address < address_end && address >= address_off) {
-					valid_address = 1;
-					address = context->deferred->address;
-				}
-			}
+			label_def *def = (label_def *)context->deferred->dest;
 			deferred_addr *tmpd = context->deferred;
 			context->deferred = context->deferred->next;
 			free(tmpd);
+			
+			if (def) {
+				visit(context, address);
+				if (def->is_pointer) {
+					for (uint32_t i = 0; i < def->data_count; i++, address += 4)
+					{
+						uint32_t masked = address & context->address_mask;
+						if (masked < address_end - 2 && masked >= address_off) {
+							uint32_t target = rom.buffer[(masked - rom.address_off) >> 1] << 16;
+							masked += 2;
+							target |= rom.buffer[(masked - rom.address_off) >> 1];
+							defer_disasm(context, target);
+							reference(context, target);
+						}
+					}
+				}
+			}else if (!is_visited(context, address)) {
+				uint32_t masked = address & context->address_mask;
+				if (masked < address_end && masked >= address_off) {
+					valid_address = 1;
+				}
+			}
 		} while(context->deferred && !valid_address);
 		if (!valid_address) {
 			break;
@@ -407,12 +466,18 @@ int main(int argc, char ** argv)
 		tern_foreach(context->labels, print_label_def, &rom);
 		puts("");
 	}
-	for (address = address_off; address < address_end; address+=2) {
+	for (address = address_off; address < address_end;) {
 		if (is_visited(context, address)) {
-			m68k_decode(fetch, &rom, &instbuf, address);
 			if (labels) {
-				m68k_disasm_labels(&instbuf, disbuf, context);
 				label_def *label = find_label(context, address);
+				if (!label && !(address & 1)) {
+					label = find_label(context, address + 1);
+					if (label) {
+						uint8_t val = fetch(address, &rom) >> 8;
+						printf("\tdc.b %02X\n", val);
+						address++;
+					}
+				}
 				if (label) {
 					if (label->num_labels) {
 						for (int i = 0; i < label->num_labels; i++)
@@ -422,16 +487,65 @@ int main(int argc, char ** argv)
 					} else {
 						printf("ADR_%X:\n", label->full_address);
 					}
+					if (label->data_size) {
+						uint32_t els_per_line = 16 / label->data_size;
+						for (uint32_t i = 0; i < label->data_count;)
+						{
+							printf("\tdc.%c ", label->data_size < 2 ? 'b' : label->data_size < 4 ? 'w' : 'l');
+							for (uint32_t j = 0; j < els_per_line && i < label->data_count; i++,j++)
+							{
+								uint32_t val = fetch(address & ~1, &rom);
+								const char *fmt = "$%04X";
+								if (label->data_size == 1) {
+									val = address & 1 ? val & 0xFF : val >> 8;
+									fmt = "$%02X";
+								} else if (label->data_size == 4) {
+									val <<= 16;
+									val |= fetch(address + 2, &rom);
+									if (label->is_pointer) {
+										format_label(disbuf, val, context);
+										fmt = NULL;
+										fputs(disbuf, stdout);
+									} else {
+										fmt = "$%08X";
+									}
+								}
+								if (fmt) {
+									printf(fmt, val);
+								}
+								if (j == els_per_line - 1 || i == label->data_count - 1) {
+									puts("");
+								} else {
+									fputs(", ", stdout);
+								}
+								address += label->data_size;
+							}
+						}
+					}
 				}
-				if (addr) {
-					printf("\t%s\t;%X\n", disbuf, instbuf.address);
-				} else {
-					printf("\t%s\n", disbuf);
+				if (!label || !label->data_size) {
+					if (address & 1) {
+						uint8_t val = fetch(address & ~1, &rom);
+						printf("\tdc.b %02X\n", val);
+						address++;
+					}
+					uint32_t after = m68k_decode(fetch, &rom, &instbuf, address);
+					m68k_disasm_labels(&instbuf, disbuf, context);
+					if (addr) {
+						printf("\t%s\t;%X\n", disbuf, instbuf.address);
+					} else {
+						printf("\t%s\n", disbuf);
+					}
+					address = after;
 				}
 			} else {
+				uint32_t after = m68k_decode(fetch, &rom, &instbuf, address);
 				m68k_disasm(&instbuf, disbuf);
 				printf("%X: %s\n", instbuf.address, disbuf);
+				address = after;
 			}
+		} else {
+			address += 2;
 		}
 	}
 	return 0;
