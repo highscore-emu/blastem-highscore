@@ -277,6 +277,8 @@ static void resume_laseractive(system_header *system)
 				
 				line += pitch / sizeof(pixel_t);
 			}
+			static const int hoff = (320 + 13 + 14 - 12 * 24) / 2;
+			static const int voff = (224 + 11 + 8 - 10 * 21) / 2;
 			for (int cy = 0; cy < 10; cy++)
 			{
 				for (int cx = 0; cx < 24; cx++)
@@ -289,7 +291,7 @@ static void resume_laseractive(system_header *system)
 						case '`': c = ':'; break;
 						}
 						c -= 0x21;
-						pixel_t *cur_line = fb + ((cy * 21 + 27) * pitch / sizeof(pixel_t)) + cx * 12;
+						pixel_t *cur_line = fb + ((cy * 21 + voff) * pitch / sizeof(pixel_t)) + cx * 12 + hoff;
 						for (int i = c * 17, end = c * 17 + 17; i < end; i++)
 						{
 							pixel_t *cur = cur_line;
