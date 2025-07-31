@@ -319,7 +319,7 @@ static void resume_laseractive(system_header *system)
 						switch (c)
 						{
 						case '0': c = 'O'; break;
-						case '`': c = ':'; break;
+						case '>': c = ':'; break;
 						}
 						c -= 0x21;
 						pixel_t *cur_line = fb + ((cy * 21 + voff) * pitch / sizeof(pixel_t)) + cx * 12 + hoff;
