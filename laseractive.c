@@ -79,68 +79,80 @@ void laseractive_sio_extclock(upd78k2_context *upd)
 	upd->sio_divider = 24;
 }
 
-static uint16_t disp_ir[] = {
-	0x157, 0xAB, 0x16, 0x15, 0x16, 0x15, 0x15, 0x15, 0x16, 0x40, 0x15, 0x15, 0x16, 0x40, 0x15, 0x15,
-	0x16, 0x40, 0x15, 0x40, 0x16, 0x40, 0x16, 0x40, 0x15, 0x15, 0x16, 0x40, 0x15, 0x15, 0x16, 0x40,
-	0x15, 0x15, 0x16, 0x40, 0x15, 0x40, 0x16, 0x15, 0x15, 0x15, 0x16, 0x15, 0x16, 0x15, 0x15, 0x40,
-	0x16, 0x15, 0x15, 0x15, 0x16, 0x15, 0x16, 0x40, 0x16, 0x40, 0x15, 0x40, 0x16, 0x40, 0x16, 0x15,
-	0x16, 0x40, 0x16 //, 0x5F0
-};
-
-static uint16_t esc_ir[] = {
-	0x156, 0xac, 0x15, 0x15, 0x16, 0x15, 0x16, 0x15, 0x15, 0x40, 0x16, 0x15, 0x15, 0x40, 0x16, 0x15,
-	0x15, 0x40, 0x16, 0x40, 0x16, 0x40, 0x15, 0x40, 0x16, 0x15, 0x15, 0x40, 0x16, 0x15, 0x15, 0x40,
-	0x16, 0x15, 0x15, 0x40, 0x16, 0x40, 0x16, 0x40, 0x15, 0x40, 0x16, 0x40, 0x16, 0x15, 0x16, 0x40,
-	0x16, 0x15, 0x16, 0x15, 0x15, 0x15, 0x16, 0x15, 0x16, 0x15, 0x15, 0x15, 0x16, 0x40, 0x15, 0x15,
-	0x16, 0x40, 0x15 //, 0x5F1
-};
-
-static uint16_t test_ir[] = {
-	0x157, 0xab, 0x16, 0x15, 0x16, 0x15, 0x15, 0x15, 0x16, 0x40, 0x15, 0x15, 0x16, 0x40, 0x15, 0x15,
-	0x16, 0x40, 0x15, 0x40, 0x16, 0x40, 0x16, 0x40, 0x15, 0x15, 0x16, 0x40, 0x15, 0x15, 0x16, 0x40,
-	0x15, 0x15, 0x16, 0x15, 0x16, 0x40, 0x16, 0x40, 0x15, 0x40, 0x16, 0x40, 0x16, 0x15, 0x16, 0x40,
-	0x16, 0x15, 0x16, 0x40, 0x16, 0x15, 0x16, 0x15, 0x15, 0x15, 0x16, 0x15, 0x16, 0x40, 0x16, 0x15,
-	0x16, 0x40, 0x16 //, 0x5F0
-};
-
-static uint16_t power_ir[] = {
-	0x155, 0xaa, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x3f, 0x16, 0x16, 0x16, 0x3f, 0x16, 0x16,
-	0x16, 0x3f, 0x16, 0x3f, 0x16, 0x3f, 0x16, 0x3f, 0x16, 0x16, 0x16, 0x3f, 0x16, 0x16, 0x16, 0x3f,
-	0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x3f, 0x16, 0x3f, 0x16, 0x3f, 0x16, 0x16, 0x16, 0x16,
-	0x16, 0x16, 0x16, 0x3f, 0x16, 0x3f, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x16, 0x3f, 0x16, 0x3f,
-	0x16, 0x3f, 0x16 //, 03fa
-};
-
+#define KEY_DISP 0x43A8
+#define KEY_ESC 0x5FA8
+#define KEY_TEST 0x5EA8
+#define KEY_DIGI 0x0CA8
+#define IR_INIT_LO 0x156
+#define IR_INIT_HI 0xAB
+#define IR_SHORT 0x15
+#define IR_LONG 0x40
+#define IR_REPEAT_DELAY 0x5F0
 #define CYCLES_PER_IR (12000000 / 40000)
 
-void laseractive_next_ir(upd78k2_context *upd, uint8_t bit)
+void laseractive_next_ir(upd78k2_context *upd, uint8_t port_bit)
 {
 	laseractive *la = upd->system;
-	if (!la->ir_seq) {
-		return;
+	uint32_t delay;
+	uint8_t next_val;
+	switch (la->ir_counter)
+	{
+	case 0:
+		delay = IR_INIT_LO;
+		break;
+	case 1:
+		delay = IR_INIT_HI;
+		break;
+	case 66:
+		delay = IR_SHORT;
+		break;
+	case 67:
+		if (!la->ir_hold) {
+			la->ir_code = 0;
+			return;
+		}
+		delay = IR_REPEAT_DELAY;
+		la->ir_code = la->ir_hold;
+		break;
+	default:
+		if (la->ir_counter & 1) {
+			uint32_t bit = (la->ir_counter - 2) >> 1;
+			if (bit < 8 || (bit >= 16 && bit < 24)) {
+				if (bit >= 16) {
+					bit -= 8;
+				}
+				delay = (la->ir_code & (1 << bit)) ? IR_LONG : IR_SHORT;
+			} else {
+				bit -= (bit >= 24) ? 16 : 8;
+				delay = (la->ir_code & (1 << bit)) ? IR_SHORT : IR_LONG;
+			}
+		} else {
+			delay = IR_SHORT;
+		}
+		break;
 	}
-	uint32_t cycle = upd->cycles + CYCLES_PER_IR * *la->ir_seq;
-	uint8_t value = la->next_ir;
-	printf("next_ir seq %X, value: %d, count: %d\n", *la->ir_seq, value, la->ir_count);
-	la->ir_count--;
-	if (la->ir_count) {
-		la->next_ir = !la->next_ir;
-		la->ir_seq = la->ir_seq + 1;
-	} else {
-		la->ir_seq = NULL;
+	uint32_t cycle = upd->cycles + CYCLES_PER_IR * delay;
+	uint8_t value = !(la->ir_counter & 1);
+	printf("next_ir seq %X, value: %d, count: %d\n", delay, value, la->ir_counter);
+	la->ir_counter++;
+	if (la->ir_counter == 68) {
+		la->ir_counter = 0;
 	}
 	upd78k2_schedule_port2_transition(upd, cycle, 1, value, laseractive_next_ir);
 }
 
-void laseractive_start_ir(laseractive *la, uint16_t *ir_seq, uint32_t ir_count)
+void laseractive_start_ir(laseractive *la, uint16_t key)
 {
+	if (la->ir_code) {
+		la->ir_hold = key;
+		return;
+	}
 	if (!(la->upd->port_input[2] & 2)) {
 		//ensure we're starting from a high state
 		upd78k2_schedule_port2_transition(la->upd, la->upd->cycles, 1, 1, NULL);
 	}
-	la->ir_seq = ir_seq;
-	la->ir_count = ir_count;
-	la->next_ir = 1;
+	la->ir_code = la->ir_hold = key;
+	la->ir_counter = 0;
 	upd78k2_schedule_port2_transition(la->upd, la->upd->cycles, 1, 0, laseractive_next_ir);
 }
 
@@ -162,22 +174,29 @@ static void gamepad_down(system_header *system, uint8_t pad, uint8_t button)
 		la->upd->port_input[7] &= ~0x10; //Digital memory
 		break;
 	case BUTTON_X:
-		laseractive_start_ir(la, disp_ir, sizeof(disp_ir)/sizeof(*disp_ir));
+		laseractive_start_ir(la, KEY_DISP);
 		break;
 	case BUTTON_Y:
-		laseractive_start_ir(la, esc_ir, sizeof(esc_ir)/sizeof(*esc_ir));
+		laseractive_start_ir(la, KEY_ESC);
 		break;
 	case BUTTON_Z:
-		laseractive_start_ir(la, test_ir, sizeof(test_ir)/sizeof(*test_ir));
+		laseractive_start_ir(la, KEY_TEST);
 		break;
 	case BUTTON_START:
 		la->upd->port_input[7] &= ~0x20; //play
 		break;
 	case BUTTON_MODE:
-		laseractive_start_ir(la, test_ir, sizeof(power_ir)/sizeof(*power_ir));
+		laseractive_start_ir(la, KEY_DIGI);
 		break;
 	}
 	
+}
+
+static void laseractive_stop_ir(laseractive *la, uint16_t key)
+{
+	if (la->ir_hold == key) {
+		la->ir_hold = 0;
+	}
 }
 
 static void gamepad_up(system_header *system, uint8_t pad, uint8_t button)
@@ -199,6 +218,18 @@ static void gamepad_up(system_header *system, uint8_t pad, uint8_t button)
 		break;
 	case BUTTON_START:
 		la->upd->port_input[7] |= 0x20; //play
+		break;
+	case BUTTON_X:
+		laseractive_stop_ir(la, KEY_DISP);
+		break;
+	case BUTTON_Y:
+		laseractive_stop_ir(la, KEY_ESC);
+		break;
+	case BUTTON_Z:
+		laseractive_stop_ir(la, KEY_TEST);
+		break;
+	case BUTTON_MODE:
+		laseractive_stop_ir(la, KEY_DIGI);
 		break;
 	}
 }

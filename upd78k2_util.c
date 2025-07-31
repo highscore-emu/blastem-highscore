@@ -522,7 +522,6 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 	case 0x86:
 		upd78k2_update_sio(upd);
 		upd->sio = value;
-		printf("SIO: %02X\n", value);
 		if (upd->csim & 0x80) {
 			upd->sio_counter = 8;
 		}
