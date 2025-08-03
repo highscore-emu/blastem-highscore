@@ -142,7 +142,9 @@ int main(int argc, char ** argv)
 						char *end;
 						uint32_t address = strtol(disbuf, &end, 16);
 						if (address) {
-							defer_disasm(context, address);
+							if (address >= 0x80) {
+								defer_disasm(context, address);
+							}
 							if (*end == '=') {
 								add_label(context, strip_ws(end+1), address);
 							} else {
