@@ -1005,20 +1005,30 @@ spmov 11110001 mov_abs_a
 00010001 movw_ax_sfr
 	local offset 8
 	upd78k2_op_fetch
-	offset = scratch1
-	sfr_read offset
-	x = scratch1
-	offset += 1
-	sfr_read offset
-	a = scratch1
+	if scratch1 = 0xFC
+		x = sp
+		a = sp >> 8
+	else
+		offset = scratch1
+		sfr_read offset
+		x = scratch1
+		offset += 1
+		sfr_read offset
+		a = scratch1
+	end
 
 00010011 movw_sfr_ax
 	local offset 8
 	upd78k2_op_fetch
 	offset = scratch1
-	sfr_write offset x
-	offset += 1
-	sfr_write offset a
+	if scratch1 = 0xFC
+		sp = a << 8
+		sp |= x
+	else
+		sfr_write offset x
+		offset += 1
+		sfr_write offset a
+	end
 	
 xch_reg 0DDD0SSS xch_r_r
 	xchg main.D main.S
