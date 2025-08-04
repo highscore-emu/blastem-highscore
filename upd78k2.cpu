@@ -916,7 +916,7 @@ muldiv 00011RRR divuw
 muldiv 1110001R movw_ax_mem
 	local address 16
 	local reg 8
-	reg = R << 2
+	reg = R << 1
 	reg |= 5
 	address = main.reg << 8
 	reg -= 1
@@ -930,7 +930,7 @@ muldiv 1110001R movw_ax_mem
 muldiv 1110011R movw_mem_ax
 	local address 16
 	local reg 8
-	reg = R << 2
+	reg = R << 1
 	reg |= 5
 	address = main.reg << 8
 	reg -= 1
