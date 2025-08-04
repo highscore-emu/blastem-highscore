@@ -82,7 +82,7 @@ void laseractive_sio_extclock(upd78k2_context *upd)
 #define KEY_DISP 0x43A8
 #define KEY_ESC 0x5FA8
 #define KEY_TEST 0x5EA8
-#define KEY_DIGI 0x0CA8
+#define KEY_POWER 0x1CA8
 #define IR_INIT_LO 0x156
 #define IR_INIT_HI 0xAB
 #define IR_SHORT 0x15
@@ -186,7 +186,7 @@ static void gamepad_down(system_header *system, uint8_t pad, uint8_t button)
 		la->upd->port_input[7] &= ~0x20; //play
 		break;
 	case BUTTON_MODE:
-		laseractive_start_ir(la, KEY_DIGI);
+		laseractive_start_ir(la, KEY_POWER);
 		break;
 	}
 	
@@ -229,7 +229,7 @@ static void gamepad_up(system_header *system, uint8_t pad, uint8_t button)
 		laseractive_stop_ir(la, KEY_TEST);
 		break;
 	case BUTTON_MODE:
-		laseractive_stop_ir(la, KEY_DIGI);
+		laseractive_stop_ir(la, KEY_POWER);
 		break;
 	}
 }
