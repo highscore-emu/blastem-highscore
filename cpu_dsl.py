@@ -2017,7 +2017,7 @@ class Flags:
 					dstbit = int(dstbit)
 					multi.setdefault(dst, []).append((dstbit, bit))
 				else:
-					output.append('\n\t{dst} = {src} & {mask};'.format(dst=dst, src=src, mask=(1 << bit)))
+					output.append('\n\t{dst} = ({src} & {mask}) != 0;'.format(dst=dst, src=src, mask=(1 << bit)))
 		for dst in multi:
 			didClear = False
 			direct = []
