@@ -120,7 +120,7 @@ void laseractive_sio(upd78k2_context *upd)
 	}
 	uint8_t recv = 0xFF;
 	if (upd->port_data[0] & 0x2) {
-		if (upd->port_data[6] & 0x80) {
+		if ((upd->port_data[6] | upd->port_mode[6]) & 0x80) {
 			printf("Unknown SIO write: %02X\n", upd->sio);
 		} else {
 			pd0178_run(&la->mecha, upd->sio_cycle);
