@@ -59,12 +59,17 @@ static void next_shake(pd0178 *mecha, uint8_t from_transition)
 		} else {
 			lba = LEADIN_SECTORS - mecha->head_pba;
 		}
-		mecha->status[6] = 3;//CD Present hopefully
-		mecha->status[5] = to_bcd(lba % 75);
+		mecha->status[0] = mecha->cmd[0] == 5 ? 5 : 4;//disc loaded?
+		mecha->status[7] = 3;//CD Present hopefully
+		mecha->status[6] = to_bcd(lba % 75);
 		lba /= 75;
-		mecha->status[4] = to_bcd(lba % 60);
-		mecha->status[3] = to_bcd(lba / 60);
+		mecha->status[5] = to_bcd(lba % 60);
+		mecha->status[4] = to_bcd(lba / 60);
+		mecha->status[3] = 0x40;
 		mecha->status[11] = pd0178_calc_checksum(mecha->status);
+		if (mecha->cmd[0] == 5) {
+			mecha->head_pba++;
+		}
 	} else if (from_transition){
 		mecha->next_shake = mecha->cycle + 36; //~3 us
 	} else {
