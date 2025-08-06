@@ -8,6 +8,20 @@
 #include "util.h"
 #include "debug.h"
 
+static void laseractive_next_shake(upd78k2_context *upd, uint8_t port_bit, uint32_t cycle)
+{
+	laseractive *la = upd->system;
+	pd0178_run(&la->mecha, cycle);
+	if (upd->port_input[2] & 4) {
+		//SHAKE currently high, schedule low transition based on when mecha is next ready
+		printf("SHAKE high @ %u, next_transition @ %u\n", cycle, la->mecha.next_shake);
+		upd78k2_schedule_port2_transition(upd, la->mecha.next_shake, 2, 0, laseractive_next_shake);
+	} else {
+		printf("SHAKE low @ %u, next_transition @ %u\n", cycle, la->mecha.shake_high);
+		upd78k2_schedule_port2_transition(upd, la->mecha.shake_high, 2, 1, laseractive_next_shake);
+	}
+}
+
 uint8_t flip_bits(uint8_t byte)
 {
 	uint8_t out = 0;
@@ -20,7 +34,23 @@ uint8_t flip_bits(uint8_t byte)
 	return out;
 }
 
-void laseractive_io_write(upd78k2_context *upd, uint8_t offset, uint8_t value)
+static uint32_t sio_extclock_internal(laseractive *la, uint8_t shake_from_upd)
+{
+	if (!la->mecha.shake || shake_from_upd) {
+		// either PD0178 is driving shake or shake is high so extclock won't tick
+		puts("sio_extclock stopped");
+		return 0;
+	}
+	puts("sio_extclock running");
+	return 24;
+}
+
+void laseractive_sio_extclock(upd78k2_context *upd)
+{
+	upd->sio_divider = sio_extclock_internal(upd->system, (upd->port_data[6] | upd->port_mode[6]) & 0x80);
+}
+
+void laseractive_io_write(upd78k2_context *upd, uint8_t offset, uint8_t value, uint8_t mode)
 {
 	laseractive *la = upd->system;
 	if (offset == 0 && ((value ^ upd->port_data[0]) & 0x2)) {
@@ -47,36 +77,69 @@ void laseractive_io_write(upd78k2_context *upd, uint8_t offset, uint8_t value)
 			//XCS low
 			la->pd0093a_expect_offset = 1;
 		}
+	} else if (offset == 6) {
+		uint8_t old = upd->port_data[6] | (upd->port_mode[6] & 0xF0);
+		pd0178_run(&la->mecha, upd->cycles);
+		if (!(la->mecha.shake) && (upd->port_mode[6] & 0x80)) {
+			//SHAKE low and port 6.7 in input mode
+			old &= 0x7F;
+		}
+		uint8_t new = value | (mode & 0xF0);
+		if (!(la->mecha.shake) && (mode & 0x80)) {
+			//SHAKE low and port 6.7 in input mode
+			new &= 0x7F;
+		}
+		printf("Port 6: old %02X, new %02X, value: %02X, mode: %02X\n", old, new, value, mode);
+		if ((old ^ new) & 0x80) {
+			printf("Mode controller changed SHAKE %d\n", (new & 0x80) ? 1 : 0);
+			//SHAKE changed
+			if (upd->sio_counter && (upd->csim & 3) == 0) {
+				//PD0178 only drives the clock when SHAKE is pulled low externally
+				upd->sio_divider = sio_extclock_internal(la, new & 0x80);
+				upd78k2_calc_next_int(upd);
+			}
+			
+			if (new & 0x80) {
+				pd0178_shake_high(&la->mecha);
+				upd78k2_schedule_port2_transition(upd, la->upd->cycles, 2, 1, laseractive_next_shake);
+			} else {
+				upd78k2_schedule_port2_transition(upd, la->upd->cycles, 2, 0, NULL);
+			}
+		}
 	}
 }
 
 void laseractive_sio(upd78k2_context *upd)
 {
 	laseractive *la = upd->system;
+	uint8_t tmit = 0xFF;
 	if (upd->csim & 0x80) {
 		//transmission enabled
-		if (upd->port_data[0] & 0x2) {
-			if (upd->port_data[6] & 0x80) {
-				printf("Unknown SIO write: %02X\n", upd->sio);
-			} else {
-				printf("Mecha Con write: %02X\n", upd->sio);
-			}
+		tmit = upd->sio;
+		
+	}
+	uint8_t recv = 0xFF;
+	if (upd->port_data[0] & 0x2) {
+		if (upd->port_data[6] & 0x80) {
+			printf("Unknown SIO write: %02X\n", upd->sio);
 		} else {
-			uint8_t b = flip_bits(upd->sio);
-			if (la->pd0093a_expect_offset) {
-				la->pd0093a_expect_offset = 0;
-				la->pd0093a_buffer_pos = b;
-			} else if (la->pd0093a_buffer_pos < sizeof(la->pd0093a_buffer)) {
-				la->pd0093a_buffer[la->pd0093a_buffer_pos++] = b;
-			}
+			pd0178_run(&la->mecha, upd->sio_cycle);
+			recv = pd0178_transfer_byte(&la->mecha, tmit);
+			printf("Mecha Con write: %02X - read: %02X, index: %d\n", tmit, recv, la->mecha.comm_index);
+		}
+	} else {
+		uint8_t b = flip_bits(upd->sio);
+		if (la->pd0093a_expect_offset) {
+			la->pd0093a_expect_offset = 0;
+			la->pd0093a_buffer_pos = b;
+		} else if (la->pd0093a_buffer_pos < sizeof(la->pd0093a_buffer)) {
+			la->pd0093a_buffer[la->pd0093a_buffer_pos++] = b;
 		}
 	}
-}
-
-void laseractive_sio_extclock(upd78k2_context *upd)
-{
-	//service manual says approximately 2us cycle time which corresponds to 500 kHz
-	upd->sio_divider = 24;
+	if (upd->csim & 0x40) {
+		//reception enabled
+		upd->sio = recv;
+	}
 }
 
 #define KEY_DISP 0x43A8
@@ -90,7 +153,7 @@ void laseractive_sio_extclock(upd78k2_context *upd)
 #define IR_REPEAT_DELAY 0x5F0
 #define CYCLES_PER_IR (12000000 / 40000)
 
-void laseractive_next_ir(upd78k2_context *upd, uint8_t port_bit)
+void laseractive_next_ir(upd78k2_context *upd, uint8_t port_bit, uint32_t cycle)
 {
 	laseractive *la = upd->system;
 	uint32_t delay;
@@ -131,14 +194,14 @@ void laseractive_next_ir(upd78k2_context *upd, uint8_t port_bit)
 		}
 		break;
 	}
-	uint32_t cycle = upd->cycles + CYCLES_PER_IR * delay;
+	uint32_t next_cycle = cycle + CYCLES_PER_IR * delay;
 	uint8_t value = !(la->ir_counter & 1);
 	printf("next_ir seq %X, value: %d, count: %d\n", delay, value, la->ir_counter);
 	la->ir_counter++;
 	if (la->ir_counter == 68) {
 		la->ir_counter = 0;
 	}
-	upd78k2_schedule_port2_transition(upd, cycle, 1, value, laseractive_next_ir);
+	upd78k2_schedule_port2_transition(upd, next_cycle, 1, value, laseractive_next_ir);
 }
 
 void laseractive_start_ir(laseractive *la, uint16_t key)
@@ -365,6 +428,7 @@ static void start_laseractive(system_header *system, char *statefile)
 	if (la->header.enter_debugger) {
 		upd78k2_insert_breakpoint(la->upd, la->upd->pc, upd_debugger);
 	}
+	upd78k2_schedule_port2_transition(la->upd, la->mecha.next_shake, 2, 0, laseractive_next_shake);
 	resume_laseractive(system);
 }
 
@@ -473,5 +537,6 @@ laseractive *alloc_laseractive(system_media *media, uint32_t opts)
 	la->upd->sio_extclock = laseractive_sio_extclock;
 	la->upd->io_write = laseractive_io_write;
 	la->upd->system = la;
+	pd0178_init(&la->mecha, media);
 	return la;
 }

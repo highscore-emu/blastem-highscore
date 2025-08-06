@@ -158,7 +158,7 @@ void upd78k2_update_edge(upd78k2_context *upd)
 {
 	for (int i = 0; i < 7; i++)
 	{
-		if (upd->cycles >= upd->edge_cycles[i]) {
+		while (upd->cycles >= upd->edge_cycles[i]) {
 			if (upd->edge_value[i]) {
 				upd->port_input[2] |= 1 << i;
 			} else {
@@ -188,10 +188,11 @@ void upd78k2_update_edge(upd78k2_context *upd)
 				upd78k2_update_timer0(upd);
 				upd->cr02 = upd->tm0;
 			}
+			uint32_t edge_cycle = upd->edge_cycles[i];
 			upd->edge_cycles[i] = 0xFFFFFFFF;
 			upd->edge_int[i] = 0;
 			if (upd->edge_next[i]) {
-				upd->edge_next[i](upd, i);
+				upd->edge_next[i](upd, i, edge_cycle);
 			}
 		}
 	}
@@ -220,13 +221,18 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 		upd->int_cycle = next_int;
 		return;
 	}
-	if (upd->if0 & (~upd->mk0)) {
+	uint16_t mask = ~upd->mk0;
+	if (!upd->int_priority_flag) {
+		//only high priority interrupts are enabled
+		mask &= ~upd->pr0;
+	}
+	if (upd->if0 & mask) {
 		//unmasked interrupt is pending
 		upd->int_cycle = upd->cycles;
 		return;
 	}
 	uint32_t cycle;
-	if (!(upd->mk0 & CMK00) && (upd->tmc0 & CE0)) {
+	if ((mask & CMK00) && (upd->tmc0 & CE0)) {
 		//TODO: account for clear function
 		cycle =  ((uint16_t)(upd->cr00 - upd->tm0)) << 4;
 		cycle *= upd->opts->gen.clock_divider;
@@ -235,7 +241,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 			next_int = cycle;
 		}
 	}
-	if (!(upd->mk0 & CMK01) && (upd->tmc0 & CE0)) {
+	if ((mask & CMK01) && (upd->tmc0 & CE0)) {
 		//TODO: account for clear function
 		cycle = ((uint16_t)(upd->cr01 - upd->tm0)) << 4;
 		cycle *= upd->opts->gen.clock_divider;
@@ -245,7 +251,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 		}
 	}
 	uint8_t scale = upd78k2_tm1_scale(upd);
-	if (!(upd->mk0 & CMK10) && (upd->tmc1 & CE1)) {
+	if ((mask & CMK10) && (upd->tmc1 & CE1)) {
 		//TODO: account for clear function
 		cycle = ((uint8_t)(upd->cr10 - upd->tm1)) << scale;
 		cycle *= upd->opts->gen.clock_divider;
@@ -254,7 +260,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 			next_int = cycle;
 		}
 	}
-	if (!(upd->mk0 & CMK11) && (upd->tmc1 & CE1)) {
+	if ((mask & CMK11) && (upd->tmc1 & CE1)) {
 		//TODO: account for clear function
 		cycle = ((uint8_t)(upd->cr11 - upd->tm1)) << scale;
 		cycle *= upd->opts->gen.clock_divider;
@@ -263,7 +269,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 			next_int = cycle;
 		}
 	}
-	if (!(upd->mk0 & CSIMK) && upd->sio_counter && upd->sio_divider) {
+	if ((mask & CSIMK) && upd->sio_counter && upd->sio_divider) {
 		cycle = upd->sio_cycle + upd->sio_counter * upd->sio_divider;
 		if (cycle < next_int) {
 			next_int = cycle;
@@ -272,7 +278,7 @@ void upd78k2_calc_next_int(upd78k2_context *upd)
 	//TODO: NMI
 	for (int i = 1; i < 7; i++)
 	{
-		if ((upd->mk0 & (1 << (i-1))) && upd->edge_int[i] && upd->edge_cycles[i] < next_int) {
+		if ((mask & (1 << (i-1))) && upd->edge_int[i] && upd->edge_cycles[i] < next_int) {
 			next_int = cycle;
 		}
 	}
@@ -336,6 +342,9 @@ uint8_t upd78237_sfr_read(uint32_t address, void *context)
 		return upd->tmc1;
 	case 0x80:
 		return upd->csim;
+	case 0x86:
+		upd78k2_update_sio(upd);
+		return upd->sio;
 	case 0xC4:
 		return upd->mm;
 	case 0xE0:
@@ -382,7 +391,7 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 		upd78k2_update_sio(upd);
 		printf("P%X: %02X\n", address & 7, value);
 		if (upd->io_write) {
-			upd->io_write(upd, address, value);
+			upd->io_write(upd, address, value, upd->port_mode[address & 7]);
 		}
 		upd->port_data[address & 7] = value;
 		break;
@@ -444,6 +453,9 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 	case 0x25:
 	case 0x26:
 		printf("PM%X: %02X\n", address & 0x7, value);
+		if (upd->io_write) {
+			upd->io_write(upd, address & 7, upd->port_data[address & 7], value);
+		}
 		upd->port_mode[address & 7] = value;
 		break;
 	case 0x30:
@@ -524,6 +536,9 @@ void *upd78237_sfr_write(uint32_t address, void *context, uint8_t value)
 		upd->sio = value;
 		if (upd->csim & 0x80) {
 			upd->sio_counter = 8;
+			if (!(upd->csim & 3)&& upd->sio_extclock) {
+				upd->sio_extclock(upd);
+			}
 		}
 		upd78k2_calc_next_int(upd);
 		break;
@@ -644,6 +659,7 @@ upd78k2_context *init_upd78k2_context(upd78k2_options *opts)
 	context->mm = 0x20;
 	context->mk0 = 0xFFFF;
 	context->pr0 = 0xFFFF;
+	context->int_priority_flag = 1;
 	for (int i = 0; i < 7; i++)
 	{
 		context->edge_cycles[i] = 0xFFFFFFFF;
@@ -661,17 +677,20 @@ void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle)
 void upd78k2_calc_vector(upd78k2_context *upd)
 {
 	uint32_t pending_enabled = upd->scratch1;
+	uint32_t new_priority = upd->pr0;
 	uint32_t vector = 0x6;
 	uint32_t bit = 1;
 	while (pending_enabled)
 	{
 		if (pending_enabled & 1) {
 			upd->if0 &= ~bit;
+			upd->int_priority_flag = new_priority & 1;
 			upd->scratch1 = vector;
 			return;
 		}
 		bit <<= 1;
 		pending_enabled >>= 1;
+		new_priority >>= 1;
 		vector += 2;
 		if (vector == 0xE) {
 			vector = 0x14;
@@ -720,14 +739,14 @@ void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction)
 	}
 }
 
-void upd78k2_schedule_port2_transition(upd78k2_context *upd, uint32_t cycle, uint8_t bit, uint8_t level, upd_io_fun *next_transition)
+void upd78k2_schedule_port2_transition(upd78k2_context *upd, uint32_t cycle, uint8_t bit, uint8_t level, upd_edge_fun *next_transition)
 {
 	uint8_t mask = 1 << bit;
 	uint8_t value = level ? mask : 0;
 	if ((upd->port_input[2] & mask) == value) {
 		//no change, call next transition immediately
 		if (next_transition) {
-			next_transition(upd, bit);
+			next_transition(upd, bit, upd->cycles);
 		}
 		return;
 	}

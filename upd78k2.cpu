@@ -62,7 +62,7 @@ regs
 	edge_cycles 32 7
 	edge_int 8 7
 	edge_value 8 7
-	edge_next ptrupd_io_fun 7
+	edge_next ptrupd_edge_fun 7
 	ist 8 #Interrupt status register
 	io_read ptrupd_io_fun
 	io_write ptrupd_io_write_fun
@@ -86,12 +86,14 @@ declare
 	upd78k2_context *init_upd78k2_context(upd78k2_options *opts);
 	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
 	typedef void (upd_io_fun)(upd78k2_context *upd, uint8_t offset);
-	typedef void (upd_io_write_fun)(upd78k2_context *upd, uint8_t offset, uint8_t value);
+	typedef void (upd_io_write_fun)(upd78k2_context *upd, uint8_t offset, uint8_t value, uint8_t mode);
+	typedef void (upd_edge_fun)(upd78k2_context *upd, uint8_t offset, uint32_t cycle);
 	void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction);
-	void upd78k2_schedule_port2_transition(upd78k2_context *upd, uint32_t cycle, uint8_t bit, uint8_t level, upd_io_fun *next_transition);
+	void upd78k2_schedule_port2_transition(upd78k2_context *upd, uint32_t cycle, uint8_t bit, uint8_t level, upd_edge_fun *next_transition);
 	typedef void (upd_fun)(upd78k2_context *upd);
 	void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_fun *handler);
 	void upd78k2_remove_breakpoint(upd78k2_context *upd, uint32_t address);
+	void upd78k2_calc_next_int(upd78k2_context *upd);
 
 #Prefix bytes
 # 0000 0001 -> saddr becomes sfr, mem becomes &mem
@@ -1141,6 +1143,12 @@ bit1 11010BBB btclr_psw
 	if !=
 		mask = ~mask
 		psw &= mask
+		if B = 7
+			update_sync
+		end
+		if B = 1
+			update_sync
+		end
 		sext 16 scratch1 scratch1
 		pc += scratch1
 	end
@@ -1814,16 +1822,22 @@ shl 11NNNRRR shlw_rp
 
 upd78k2_interrupt
 	local vector_addr 16
+	local pending 16
 	if cycles >=U int_cycle
 		update_sync
 		if int_enable
-			scratch1 = ~mk0
-			scratch1 &= if0
+			pending = ~mk0
+			if int_priority_flag = 0
+				scratch1 = ~pr0
+				pending &= scratch1
+			end
+			pending &= if0
 			if !=
-				ocall calc_vector
-				vector_addr = scratch1
 				push_byte psw
 				push_word pc
+				scratch1 = pending
+				ocall calc_vector
+				vector_addr = scratch1
 				mem_read_no_exp vector_addr
 				pc = scratch1
 				vector_addr += 1
