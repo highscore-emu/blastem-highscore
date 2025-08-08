@@ -152,8 +152,20 @@ static void update_video_params(vdp_context *context)
 	context->border_top = calc_crop(top_crop, border_top);
 	context->top_offset = border_top - context->border_top;
 	context->double_res = (context->regs[REG_MODE_4] & (BIT_INTERLACE | BIT_DOUBLE_RES)) == (BIT_INTERLACE | BIT_DOUBLE_RES);
-	if (!context->double_res) {
+	if (!(context->regs[REG_MODE_4] & BIT_INTERLACE)) {
 		context->flags2 &= ~FLAG2_EVEN_FIELD;
+	}
+}
+
+static void update_color_map(vdp_context *context, uint16_t index, uint16_t value)
+{
+	context->colors[index] = context->color_map[value & CRAM_BITS];
+	context->colors[index + SHADOW_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_SHADOW];
+	context->colors[index + HIGHLIGHT_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_HILIGHT];
+	if (context->type == VDP_GAMEGEAR) {
+		context->colors[index + MODE4_OFFSET] = context->color_map[value & 0xFFF];
+	} else {
+		context->colors[index + MODE4_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_MODE4];
 	}
 }
 
@@ -334,6 +346,10 @@ vdp_context *init_vdp_context_int(uint8_t region_pal, uint8_t has_max_vsram, uin
 	if (region_pal) {
 		context->flags2 |= FLAG2_REGION_PAL;
 	}
+	for (int i = 0; i < 64; i++)
+	{
+		update_color_map(context, i, context->cram[i]);
+	}
 	update_video_params(context);
 	
 	return context;
@@ -403,18 +419,6 @@ static void write_vram_byte(vdp_context *context, uint32_t address, uint8_t valu
 //rough estimate of slot number at which border display starts
 #define BG_START_SLOT 6
 
-static void update_color_map(vdp_context *context, uint16_t index, uint16_t value)
-{
-	context->colors[index] = context->color_map[value & CRAM_BITS];
-	context->colors[index + SHADOW_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_SHADOW];
-	context->colors[index + HIGHLIGHT_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_HILIGHT];
-	if (context->type == VDP_GAMEGEAR) {
-		context->colors[index + MODE4_OFFSET] = context->color_map[value & 0xFFF];
-	} else {
-		context->colors[index + MODE4_OFFSET] = context->color_map[(value & CRAM_BITS) | FBUF_MODE4];
-	}
-}
-
 void write_cram_internal(vdp_context * context, uint16_t addr, uint16_t value)
 {
 	context->cram[addr] = value;
@@ -468,7 +472,7 @@ static int vdp_render_thread_main(void *vcontext)
 			context->regs[event.address] = event.value;
 			if (event.address == REG_MODE_4) {
 				context->double_res = (event.value & (BIT_INTERLACE | BIT_DOUBLE_RES)) == (BIT_INTERLACE | BIT_DOUBLE_RES);
-				if (!context->double_res) {
+				if (!(event.value & BIT_INTERLACE)) {
 					context->flags2 &= ~FLAG2_EVEN_FIELD;
 				}
 			}
