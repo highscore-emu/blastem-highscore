@@ -1346,7 +1346,7 @@ void io_data_write(io_port * port, uint8_t value, uint32_t current_cycle)
 			port->device.mouse.ready_cycle = CYCLE_NEVER;
 		} else {
 			if ((output & TR) != (old_output & TR)) {
-				int delay_index = port->device.mouse.tr_counter >= sizeof(mouse_delays) ? sizeof(mouse_delays)-1 : port->device.mouse.tr_counter;
+				int delay_index = port->device.mouse.tr_counter >= sizeof(mouse_delays)/sizeof(*mouse_delays) ? sizeof(mouse_delays)/sizeof(*mouse_delays)-1 : port->device.mouse.tr_counter;
 				port->device.mouse.ready_cycle = current_cycle + mouse_delays[delay_index];
 			}
 		}
