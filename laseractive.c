@@ -308,6 +308,7 @@ static void resume_laseractive(system_header *system)
 	pixel_t osd_color = render_map_color(224, 224, 244);
 	pixel_t led_on = render_map_color(0, 255, 0);
 	pixel_t led_standby = render_map_color(255, 0, 0);
+	pixel_t led_standby_on = render_map_color(255, 192, 0);
 	pixel_t led_off = render_map_color(32, 32, 32);
 	laseractive *la = (laseractive *)system;
 	audio_source *audio = render_audio_source("laseractive_tmp", 12000000, 250, 2);
@@ -335,8 +336,16 @@ static void resume_laseractive(system_header *system)
 		while (la->upd->cycles >= next_video) {
 			int pitch;
 			pixel_t *fb = render_get_framebuffer(FRAMEBUFFER_ODD, &pitch);
+			pixel_t power_on, power_off;
+			if (la->upd->port_data[0] & 0x40) {
+				power_on = led_standby_on;
+				power_off = led_standby;
+			} else {
+				power_on = led_on;
+				power_off = led_off;
+			}
 			pixel_t led_state[5] = {
-				/*power*/la->upd->port_data[0] & 0x08 ? led_on : la->upd->port_data[0] & 0x40 ? led_standby : led_off,
+				/*power*/la->upd->port_data[0] & 0x08 ? power_on : power_off,
 				/*play*/la->upd->port_data[0] & 0x10 ? led_on : led_off,
 				/*memory*/la->upd->port_data[0] & 0x20 ? led_standby : led_off,
 				/*cd*/la->upd->port_data[6] & 0x02 ? led_on : led_off,
@@ -383,6 +392,7 @@ static void resume_laseractive(system_header *system)
 						{
 						case '0': c = 'O'; break;
 						case '>': c = ':'; break;
+						case '.': c = '-'; break;
 						}
 						c -= 0x21;
 						pixel_t *cur_line = fb + ((cy * 21 + voff) * pitch / sizeof(pixel_t)) + cx * 12 + hoff;
