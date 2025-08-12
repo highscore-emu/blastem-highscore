@@ -969,6 +969,16 @@ static uint8_t has_event_handler(SDL_Window *win)
 	return 0;
 }
 
+static uint8_t main_is_relative;
+static uint8_t main_has_focus;
+void render_relative_mouse(uint8_t enabled)
+{
+	main_is_relative = enabled;
+	if (main_has_focus) {
+		SDL_SetRelativeMouseMode(enabled);
+	}
+}
+
 static int32_t handle_event(SDL_Event *event)
 {
 	SDL_Window *event_win = NULL;
@@ -1096,6 +1106,18 @@ static int32_t handle_event(SDL_Event *event)
 			}
 			ui_scale_x = (float)main_width / (float)event->window.data1;
 			ui_scale_y = (float)main_height / (float)event->window.data2;
+			break;
+		case SDL_WINDOWEVENT_ENTER:
+			main_has_focus = main_window && SDL_GetWindowID(main_window) == event->window.windowID;
+			if (main_is_relative) {
+				SDL_SetRelativeMouseMode(main_has_focus);
+			}
+			break;
+		case SDL_WINDOWEVENT_LEAVE:
+			main_has_focus = !(main_window && SDL_GetWindowID(main_window) == event->window.windowID);
+			if (main_is_relative && main_has_focus) {
+				SDL_SetRelativeMouseMode(0);
+			}
 			break;
 		case SDL_WINDOWEVENT_CLOSE:
 			if (main_window && SDL_GetWindowID(main_window) == event->window.windowID) {

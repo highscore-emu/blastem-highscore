@@ -66,7 +66,7 @@
 #define RENDER_DPAD_DOWN   SDL_HAT_DOWN
 #define RENDER_DPAD_LEFT   SDL_HAT_LEFT
 #define RENDER_DPAD_RIGHT  SDL_HAT_RIGHT
-#define render_relative_mouse SDL_SetRelativeMouseMode
+void render_relative_mouse(uint8_t enabled);
 typedef SDL_Thread* render_thread;
 #endif
 #endif
