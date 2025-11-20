@@ -657,11 +657,13 @@ void view_key_bindings(struct nk_context *context)
 		"ui.next_speed", "ui.prev_speed",
 		"ui.set_speed.0", "ui.set_speed.1", "ui.set_speed.2" ,"ui.set_speed.3", "ui.set_speed.4",
 		"ui.set_speed.5", "ui.set_speed.6", "ui.set_speed.7" ,"ui.set_speed.8", "ui.set_speed.9",
+		"ui.pause", "ui.advance",
 	};
 	static const char *speed_names[] = {
 		"Next", "Previous",
 		"Default Speed", "Set Speed 1", "Set Speed 2", "Set Speed 3", "Set Speed 4",
-		"Set Speed 5", "Set Speed 6", "Set Speed 7", "Set Speed 8", "Set Speed 9"
+		"Set Speed 5", "Set Speed 6", "Set Speed 7", "Set Speed 8", "Set Speed 9",
+		"Pause", "Advance Frame"
 	};
 	static const char *debug_binds[] = {
 		"ui.enter_debugger", "ui.plane_debug", "ui.vram_debug", "ui.cram_debug",
@@ -820,6 +822,8 @@ const char *translate_binding_option(const char *option)
 		conf_names = tern_insert_ptr(conf_names, "ui.set_speed.9", "Set Speed 9");
 		conf_names = tern_insert_ptr(conf_names, "ui.next_speed", "Next Speed");
 		conf_names = tern_insert_ptr(conf_names, "ui.prev_speed", "Prev. Speed");
+		conf_names = tern_insert_ptr(conf_names, "ui.pause", "Pause");
+		conf_names = tern_insert_ptr(conf_names, "ui.advance", "Advance Frame");
 		conf_names = tern_insert_ptr(conf_names, "ui.toggle_fullscreen", "Toggle Fullscreen");
 		conf_names = tern_insert_ptr(conf_names, "ui.soft_reset", "Soft Reset");
 		conf_names = tern_insert_ptr(conf_names, "ui.reload", "Reload ROM");
@@ -908,7 +912,9 @@ static void view_button_binding(struct nk_context *context)
 		"ui.set_speed.6",
 		"ui.set_speed.7",
 		"ui.set_speed.8",
-		"ui.set_speed.9"
+		"ui.set_speed.9",
+		"ui.pause",
+		"ui.advance"
 	};
 
 	if (nk_begin(context, "Button Binding", nk_rect(0, 0, render_width(), render_height()), 0)) {

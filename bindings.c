@@ -48,7 +48,9 @@ typedef enum {
 	UI_COMPOSITE_DEBUG,
 	UI_OSCILLOSCOPE_DEBUG,
 	UI_CD_GRAPHICS_DEBUG,
-	UI_PASTE
+	UI_PASTE,
+	UI_PAUSE,
+	UI_ADVANCE
 } ui_action;
 
 typedef struct {
@@ -489,6 +491,20 @@ void handle_binding_up(keybinding * binding)
 				current_system->paste_cur_char = 0;
 			}
 			break;
+		case UI_PAUSE:
+			if (allow_content_binds) {
+				current_system->paused = !current_system->paused;
+				if (current_system->paused) {
+					system_request_exit(current_system, 1);
+				}
+			}
+			break;
+		case UI_ADVANCE:
+			if (allow_content_binds) {
+				current_system->frame_advance = 1;
+				current_system->paused = 0;
+			}
+			break;
 		}
 		break;
 	}
@@ -727,6 +743,10 @@ int parse_binding_target(int device_num, const char * target, tern_node * padbut
 			*subtype_a = UI_CD_GRAPHICS_DEBUG;
 		} else if (!strcmp(target + 3, "paste")) {
 			*subtype_a = UI_PASTE;
+		} else if (!strcmp(target + 3, "pause")) {
+			*subtype_a = UI_PAUSE;
+		} else if (!strcmp(target + 3, "advance")) {
+			*subtype_a = UI_ADVANCE;
 		} else {
 			warning("Unreconized UI binding type %s\n", target);
 			return 0;

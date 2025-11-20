@@ -687,6 +687,22 @@ int main(int argc, char ** argv)
 		if (current_system->should_exit) {
 			break;
 		}
+		uint8_t was_paused = current_system->paused;
+		while (current_system->paused) {
+			uint32_t start = render_elapsed_ms();
+			process_events();
+			render_update_display();
+			if (current_system->get_vdp) {
+				vdp_context *vdp = current_system->get_vdp(current_system);
+				if (vdp) {
+					vdp_update_per_frame_debug(vdp);
+				}
+			}
+			uint32_t duration = render_elapsed_ms() - start;
+			if (duration < 1000/60) {
+				render_sleep_ms(1000/60 - duration);
+			}
+		}
 		if (current_system->next_rom) {
 			char *next_rom = current_system->next_rom;
 			current_system->next_rom = NULL;
@@ -697,6 +713,8 @@ int main(int argc, char ** argv)
 			current_system->enter_debugger = start_in_debugger && menu == debug_target;
 			current_system->start_context(current_system, statefile);
 			render_video_loop();
+		} else if (was_paused) {
+			current_system->resume_context(current_system);
 		} else if (menu && game_system) {
 			current_system->arena = set_current_arena(game_system->arena);
 			current_system = game_system;

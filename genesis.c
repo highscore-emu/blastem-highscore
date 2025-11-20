@@ -637,6 +637,11 @@ static m68k_context *sync_components(m68k_context * context, uint32_t address)
 			gen->last_flush_cycle -= deduction;
 			gen->last_sync_cycle -= deduction;
 		}
+		if (gen->header.frame_advance) {
+			gen->header.frame_advance = 0;
+			gen->header.paused = 1;
+			system_request_exit(&gen->header, 1);
+		}
 	} else if (mclks - gen->last_flush_cycle > gen->soft_flush_cycles) {
 		event_soft_flush(mclks);
 		gen->last_flush_cycle = mclks;

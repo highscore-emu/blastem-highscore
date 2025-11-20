@@ -169,6 +169,8 @@ struct system_header {
 	uint8_t           has_keyboard;
 	uint8_t                 vgm_logging;
 	uint8_t                 force_release;
+	uint8_t                 paused;
+	uint8_t                 frame_advance;
 	debugger_type     debugger_type;
 	system_type       type;
 };

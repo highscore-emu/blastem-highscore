@@ -2541,6 +2541,17 @@ void render_set_frame_presented_fun(ui_render_fun fun)
 
 void render_update_display()
 {
+	static uint8_t last_was_paused;
+	if (current_system) {
+		if (current_system->paused && !last_was_paused) {
+			if (!fps_caption) {
+				fps_caption = malloc(strlen(caption) + strlen(" - 100000000.1 fps") + 1);
+			}
+			sprintf(fps_caption, "%s - PAUSED", caption);
+			SDL_SetWindowTitle(main_window, fps_caption);
+		}
+		last_was_paused = current_system->paused;
+	}
 #ifndef DISABLE_OPENGL
 	if (render_gl) {
 		SDL_GL_MakeCurrent(main_window, main_context);

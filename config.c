@@ -316,7 +316,7 @@ static void update_pad_menu_binding(char *key, tern_val val, uint8_t valtype, vo
 	*pads = tern_insert_node(*pads, key, val.ptrval);
 }
 
-#define CONFIG_VERSION 11
+#define CONFIG_VERSION 12
 static tern_node *migrate_config(tern_node *config, int from_version)
 {
 	tern_node *def_config = parse_bundled_config("default.cfg");
@@ -530,6 +530,18 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		bind = tern_find_path(config, "bindings\0keys\0f4\0", TVAL_PTR).ptrval;
 		if (!bind) {
 			config = tern_insert_path(config, "bindings\0keys\0f4\0", (tern_val){.ptrval = strdup("cassette.rewind")}, TVAL_PTR);
+		}
+		break;
+	}
+	case 11: {
+		//Add default bindings for pause and frame advance
+		char *bind = tern_find_path(config, "bindings\0keys\0f7\0", TVAL_PTR).ptrval;
+		if (!bind) {
+			config = tern_insert_path(config, "bindings\0keys\0f7\0", (tern_val){.ptrval = strdup("ui.pause")}, TVAL_PTR);
+		}
+		bind = tern_find_path(config, "bindings\0keys\0f8\0", TVAL_PTR).ptrval;
+		if (!bind) {
+			config = tern_insert_path(config, "bindings\0keys\0f8\0", (tern_val){.ptrval = strdup("ui.advance")}, TVAL_PTR);
 		}
 		break;
 	}
