@@ -1744,6 +1744,20 @@ MK-49037-18 {
 	#German version of this game has 8G in the region field
 	regions E
 }
+e8c66630b018ba5fd2ab245c152436934ab44391 {
+	name Level II BASIC v1.0b
+	map {
+		0 {
+			device ROM
+			last 7FFF
+		}
+		8000 {
+			device RAM
+			size 800
+			last BFFF
+		}
+	}
+}
 a43aef367857a681decea52377c2e7a992c2ac68 {
 	name Level III BASIC (Export)
 	map {
@@ -1760,6 +1774,20 @@ a43aef367857a681decea52377c2e7a992c2ac68 {
 }
 b1a8585a9afff962e8fd0e79b3305199da4e4562 {
 	name Level III BASIC
+	map {
+		0 {
+			device ROM
+			last 7FFF
+		}
+		8000 {
+			device RAM
+			size 8000
+			last FFFF
+		}
+	}
+}
+737a06b3ada62942514a2facfea3fb1b0ca9c346 {
+	name Level III BASIC v1.1
 	map {
 		0 {
 			device ROM
