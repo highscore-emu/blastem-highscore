@@ -15,6 +15,7 @@
 #include "jcart.h"
 #include "blastem.h"
 #include "sft_mapper.h"
+#include "korean_sms_multi.h"
 
 #define DOM_TITLE_START 0x120
 #define DOM_TITLE_END 0x150
@@ -1197,7 +1198,8 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 	uint32_t offset = strtol(tern_find_ptr_default(node, "offset", "0"), NULL, 16);
 	if (!strcmp(dtype, "Sega mapper")) {
 		state->info->mapper_type = MAPPER_SMS_SEGA;
-		state->info->mapper_start_index = state->ptr_index++;
+		state->info->mapper_start_index = state->ptr_index;
+		state->ptr_index += 3;
 		char *save_device = tern_find_path(node, "save\0device\0", TVAL_PTR).ptrval;
 		if (save_device && !strcmp(save_device, "EEPROM")) {
 			process_eeprom_def(key, state);
@@ -1205,8 +1207,10 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 		} else if (save_device && !strcmp(save_device, "SRAM")) {
 			process_sram_def(key, state);
 		}
+		uint32_t prev_chunks = state->info->map_chunks;
 		state->info->map_chunks += 4;
 		state->info->map = realloc(state->info->map, sizeof(memmap_chunk) * state->info->map_chunks);
+		memset(state->info->map + prev_chunks, 0, sizeof(memmap_chunk) * (state->info->map_chunks - prev_chunks));
 		map = state->info->map + state->index;
 		map[0].start = 0;
 		map[0].end = 0x400;
@@ -1216,17 +1220,17 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 		map[1].start = 0x400;
 		map[1].end = 0x4000;
 		map[1].mask = 0x3FFF;
-		map[1].ptr_index = 0;
+		map[1].ptr_index = state->info->mapper_start_index;
 		map[1].flags = MMAP_READ|MMAP_PTR_IDX|MMAP_CODE;
 		map[2].start = 0x4000;
 		map[2].end = 0x8000;
 		map[2].mask = 0x3FFF;
-		map[2].ptr_index = 1;
+		map[2].ptr_index = state->info->mapper_start_index + 1;
 		map[2].flags = MMAP_READ|MMAP_PTR_IDX|MMAP_CODE;
 		map[3].start = 0x8000;
 		map[3].end = 0xC000;
 		map[3].mask = 0x3FFF;
-		map[3].ptr_index = 2;
+		map[3].ptr_index = state->info->mapper_start_index + 2;
 		if (state->info->save_type == RAM_FLAG_ODD || state->info->save_type == RAM_FLAG_EVEN) {
 			map[3].write_8 = sms_cart_ram_write;
 		}
@@ -1236,6 +1240,30 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 		map[4].mask = 3;
 		map[4].flags = MMAP_READ;
 		map[4].write_8 = sms_sega_mapper_write;
+		state->index += 5;
+	} else if (!strcmp(dtype, "Super Game 30")) {
+		state->info->mapper_type = MAPPER_SMS_SUPER_GAME_30;
+		state->info->mapper_start_index = state->ptr_index;
+		state->ptr_index += 3;
+		uint32_t prev_chunks = state->info->map_chunks;
+		state->info->map_chunks += 3;
+		state->info->map = realloc(state->info->map, sizeof(memmap_chunk) * state->info->map_chunks);
+		memset(state->info->map + prev_chunks, 0, sizeof(memmap_chunk) * (state->info->map_chunks - prev_chunks));
+		map = state->info->map + state->index;
+		for (int i = 0; i < 3; i++)
+		{
+			map[i].start = i * 0x4000;
+			map[i].end = map[i].start + 0x4000;
+			map[i].mask = i ? 0x3FFF : 0xFFFF;
+			map[i].ptr_index = state->info->mapper_start_index + i;
+			map[i].flags = MMAP_READ|MMAP_PTR_IDX|MMAP_CODE;
+ 		}
+		map[3].start = 0xFFF0;
+		map[3].end = 0x10000;
+		map[3].mask = 0xF;
+		map[3].flags = MMAP_READ;
+		map[3].write_8 = super_game_30_write;
+		state->index += 4;
 	} else {
 		fatal_error("Invalid device type %s for ROM DB map entry %d with address %s\n", dtype, state->index, key);
 	}

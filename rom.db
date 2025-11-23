@@ -1841,3 +1841,12 @@ c808ee7f6f61c096ab73b68dd181e25fdcfde243 {
 	#has JUE in header, but only works in E mode
 	regions E
 }
+ab26d06160307eca7ea921407f1a11f767d739bc {
+	name Mega Mode Super Game 30
+	map {
+		0 {
+			device Super Game 30
+			last BFFF
+		}
+	}
+}
