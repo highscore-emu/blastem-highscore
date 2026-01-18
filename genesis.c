@@ -1512,17 +1512,20 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 				value = get_open_bus_value(&gen->header) >> 8;
 			}
 		} else {
-			uint32_t masked = location & 0xFFF00;
+			uint32_t masked = location & 0xFFF01;
 			if (masked == 0x11100) {
 				value = z80_enabled ? !z80_get_busack(gen->z80, context->cycles) : !gen->z80->busack;
 				value |= (get_open_bus_value(&gen->header) >> 8) & 0xFE;
 				dprintf("Byte read of BUSREQ returned %d @ %d (reset: %d)\n", value, context->cycles, gen->z80->reset);
 			} else if (masked == 0x11200) {
 				value = !gen->z80->reset;
+				value |= (get_open_bus_value(&gen->header) >> 8) & 0xFE;
 			} else if (masked == 0x11300 || masked == 0x11000) {
 				//A11300 is apparently completely unused
 				//A11000 is the memory control register which I am assuming is write only
 				value = get_open_bus_value(&gen->header) >> 8;
+			} else if (masked == 0x11001 || masked == 0x11101 || masked == 0x11201 || masked == 0x11301) {
+				return get_open_bus_value(&gen->header);
 			} else {
 				location |= 0xA00000;
 				fatal_error("Machine freeze due to read of unmapped IO location %X\n", location);
