@@ -19,6 +19,7 @@
 #include "saves.h"
 #include "bindings.h"
 #include "jcart.h"
+#include "radica.h"
 #include "config.h"
 #include "event_log.h"
 #include "paths.h"
@@ -2041,6 +2042,9 @@ static void handle_reset_requests(genesis_context *gen)
 			if (gen->header.type != SYSTEM_PICO && gen->header.type != SYSTEM_COPERA) {
 				ym_reset(gen->ym);
 			}
+			if (gen->mapper_type == MAPPER_RADICA) {
+				radica_reset(gen);
+			}
 			//Is there any sort of VDP reset?
 			m68k_reset(gen->m68k);
 		}
@@ -3137,6 +3141,8 @@ genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_o
 		{
 			gen->bank_regs[i] = i;
 		}
+	} else if (gen->mapper_type == MAPPER_RADICA) {
+		radica_reset(gen);
 	}
 	gen->reset_cycle = CYCLE_NEVER;
 
@@ -3388,6 +3394,8 @@ genesis_context* alloc_config_pico(void *rom, uint32_t rom_size, void *lock_on, 
 		{
 			gen->bank_regs[i] = i;
 		}
+	} else if (gen->mapper_type == MAPPER_RADICA) {
+		radica_reset(gen);
 	}
 	gen->reset_cycle = CYCLE_NEVER;
 

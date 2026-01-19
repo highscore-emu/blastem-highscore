@@ -308,6 +308,10 @@ system_type detect_system_type(system_media *media)
 				}
 			}
 			if (i == 0x400) {
+				if (safe_cmp("SEGA ", 0x80100, media->buffer, media->size)) {
+					//probably a Radica multi-game with the menu at address 0
+					return SYSTEM_GENESIS;
+				}
 				return SYSTEM_COPERA;
 			}
 		}

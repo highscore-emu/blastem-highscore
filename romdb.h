@@ -41,6 +41,7 @@ typedef struct {
 	uint8_t     bus_flags;
 } nor_state;
 
+// these get serialized in save states, so it is important they aren't reordered
 enum {
 	MAPPER_NONE,
 	MAPPER_SEGA,
@@ -54,6 +55,7 @@ enum {
 	MAPPER_SMS_SEGA,
 	MAPPER_SMS_CODEMASTERS,
 	MAPPER_SMS_SUPER_GAME_30,
+	MAPPER_RADICA,
 };
 
 

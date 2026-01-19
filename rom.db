@@ -1850,3 +1850,122 @@ ab26d06160307eca7ea921407f1a11f767d739bc {
 		}
 	}
 }
+eb19fb4ba1cb61785ee990a620ddd1812999cf0d {
+	name Sega Genesis Arcade Legends Volume 1
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+0d33c6827dbaf6c47b4b40687d512a3d663299ff {
+	name Sega Mega Drive Arcade Legends Volume 1
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+7e3d515509c2c142e03596a762e2bef72353a1a0 {
+	#UK version
+	name Sega Mega Drive Arcade Legends Volume 1
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+70db6635b147671739dde2fc77dff8cade68bb5b {
+	name Sega Genesis Arcade Legends Volume 2
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+83ad0c2101ca2d76b122a8f261055f014fbab54e {
+	#UK version
+	name Sega Mega Drive Arcade Legends Volume 2
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+7f5e5018fa60518d318b571cbd3c63cb64b1bbd1 {
+	name Sega Genesis Super Sonic Gold
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+c5cf589ddd0a7f353c90dd5a3636eb3f1822e33d {
+	#UK version
+	name Sega Genesis Super Sonic Gold
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}

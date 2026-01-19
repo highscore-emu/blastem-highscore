@@ -16,6 +16,7 @@
 #include "blastem.h"
 #include "sft_mapper.h"
 #include "korean_sms_multi.h"
+#include "radica.h"
 
 #define DOM_TITLE_START 0x120
 #define DOM_TITLE_END 0x150
@@ -92,6 +93,8 @@ void cart_serialize(system_header *sys, serialize_buffer *buf)
 		break;
 	case MAPPER_MULTI_GAME:
 		multi_game_serialize(gen, buf);
+	case MAPPER_RADICA:
+		radica_serialize(gen, buf);
 		break;
 	}
 	end_section(buf);
@@ -119,6 +122,9 @@ void cart_deserialize(deserialize_buffer *buf, void *vcontext)
 		break;
 	case MAPPER_MULTI_GAME:
 		multi_game_deserialize(buf, gen);
+		break;
+	case MAPPER_RADICA:
+		radica_deserialize(buf, gen);
 		break;
 	}
 }
@@ -1034,6 +1040,42 @@ void map_iter_fun(char *key, tern_val val, uint8_t valtype, void *data)
 		} else {
 			map->flags = MMAP_READ;
 		}
+	} else if (!strcmp(dtype, "radica")) {
+		state->info->mapper_type = MAPPER_RADICA;
+		state->info->mapper_start_index = state->ptr_index++;
+		//make a mirror copy of the ROM so we can efficiently support arbitrary start offsets
+		//make room for 12 extra entries
+		state->info->map_chunks+=12;
+		state->info->map = realloc(state->info->map, sizeof(memmap_chunk) * state->info->map_chunks);
+		memset(state->info->map + state->info->map_chunks - 12, 0, sizeof(memmap_chunk) * 12);
+		map = state->info->map + state->index;
+		// see comment in radica.c for some more details on the logic of this setup
+		uint32_t bank_size = 64 * 1024;
+		uint32_t start = map->start;
+		uint32_t map_size = map->end - map->start;
+		for (uint32_t bank_offset = 0, i = state->info->mapper_start_index; bank_offset < map_size; bank_offset += bank_size, i++)
+		{
+			if (bank_offset > 0x10000 && bank_offset <= 0x100000) {
+				bank_size += bank_size;
+			} else if (bank_offset > 0x200000 && bank_offset < 0x3F0000) {
+				bank_size >>= 1;
+			}
+			map->start = start + bank_offset;
+			map->end = map->start + bank_size;
+			map->buffer = state->rom + bank_offset;
+			map->mask = bank_size - 1;
+			map->flags = MMAP_READ | MMAP_PTR_IDX | MMAP_CODE;
+			map->ptr_index = i;
+			map++;
+			state->index++;
+		}
+		map->start = 0xA13000;
+		map->end = 0xA13100;
+		map->mask = 0xFF;
+		map->write_16 = radica_write_w;
+		map->write_8 = radica_write_b;
+		map->read_16 = radica_read_w;
+		map->read_8 = radica_read_b;
 	} else {
 		fatal_error("Invalid device type %s for ROM DB map entry %d with address %s\n", dtype, state->index, key);
 	}
