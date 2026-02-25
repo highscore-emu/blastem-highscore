@@ -1951,7 +1951,7 @@ void settings_string(struct nk_context *context, char *label, char *path, char *
 	char *buffer = malloc(buffer_len);
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, buffer_len-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len-1, nk_filter_default);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len, nk_filter_default);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
@@ -1969,7 +1969,7 @@ void settings_path(struct nk_context *context, char *label, char *path, char *de
 	char *buffer = malloc(buffer_len);
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, buffer_len-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len-1, nk_filter_default);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len, nk_filter_default);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
