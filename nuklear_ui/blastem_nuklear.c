@@ -1934,7 +1934,7 @@ void settings_int_input(struct nk_context *context, char *label, char *path, cha
 	}
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, sizeof(buffer)-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, sizeof(buffer)-1, nk_filter_decimal);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, sizeof(buffer), nk_filter_decimal);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
@@ -1951,7 +1951,7 @@ void settings_string(struct nk_context *context, char *label, char *path, char *
 	char *buffer = malloc(buffer_len);
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, buffer_len-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len-1, nk_filter_default);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len, nk_filter_default);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
@@ -1965,11 +1965,11 @@ void settings_path(struct nk_context *context, char *label, char *path, char *de
 	nk_label(context, label, NK_TEXT_LEFT);
 	char *curstr = tern_find_path_default(config, path, (tern_val){.ptrval = def}, TVAL_PTR).ptrval;
 	uint32_t len = strlen(curstr);
-	uint32_t buffer_len = len > 100 ? len + 1 : 101;
+	uint32_t buffer_len = len > 260 ? len + 1 : 261;
 	char *buffer = malloc(buffer_len);
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, buffer_len-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len-1, nk_filter_default);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len, nk_filter_default);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
