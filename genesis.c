@@ -411,10 +411,12 @@ static void adjust_int_cycle(m68k_context * context, vdp_context * v_context)
 		return;
 	}
 
-	context->target_cycle = context->int_cycle < context->sync_cycle ? context->int_cycle : context->sync_cycle;
 	if (context->should_return || gen->header.enter_debugger || context->wp_hit) {
-		context->target_cycle = context->cycles;
-	} else if (context->target_cycle < context->cycles) {
+		context->sync_cycle = context->cycles;
+	}
+
+	context->target_cycle = context->int_cycle < context->sync_cycle ? context->int_cycle : context->sync_cycle;
+	if (context->target_cycle < context->cycles) {
 		//Changes to SR can result in an interrupt cycle that's in the past
 		//This can cause issues with the implementation of STOP though
 		context->target_cycle = context->cycles;
