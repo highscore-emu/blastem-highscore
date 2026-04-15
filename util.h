@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <time.h>
+#include <wchar.h>
 #include "tern.h"
 
 typedef struct {
@@ -52,6 +53,10 @@ void bin_to_hex(uint8_t *output, uint8_t *input, uint64_t size);
 char *utf16be_to_utf8(uint8_t *buf, uint32_t max_size);
 //Returns the next Unicode codepoint from a utf-8 string
 int utf8_codepoint(const char **text);
+//Converts a UTF-8 string to a UTF-16 string in system endianness
+wchar_t *utf8_to_utf16(const char *text);
+//Converts a UTF-16 string in system endianness to UTF-8
+char *utf16_to_utf8(const wchar_t *text);
 //Determines whether a character is a valid path separator for the current platform
 char is_path_sep(char c);
 //Determines whether a path is considered an absolute path on the current platform

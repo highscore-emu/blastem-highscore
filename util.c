@@ -1287,7 +1287,10 @@ uint8_t delete_file(char *path)
 {
 #ifdef _WIN32
 	//TODO: Call Unicode version and prepend special string to remove max path limitation
-	return 0 != DeleteFileA(path);
+	wchar_t *widepath = to_windows_path(path);
+	uint8_t ret = 0 != DeleteFileW(widepath);
+	free(widepath);
+	return ret;
 #else
 	return 0 == unlink(path);
 #endif
