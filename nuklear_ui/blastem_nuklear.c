@@ -2759,8 +2759,19 @@ static void font_init(uint8_t window, struct nk_context *ctx)
 	if (!font) {
 		fatal_error("Failed to find default font path\n");
 	}
-	def_font = nk_font_atlas_add_from_memory(atlas, font, font_size, height / 24, NULL);
-	free(font);
+	struct nk_font_config font_config = nk_font_config(height / 24);
+	static const nk_rune ranges[] = {
+		0x20, 0x7E, //ASCII
+		0xA0, 0x233, //Latin 1 and Latin Extened A & B
+		0x370, 0x4FF, //Greek, Coptic and Cyrillic
+		0
+	};
+	font_config.range = ranges;
+	font_config.ttf_blob = font;
+	font_config.ttf_size = font_size;
+	font_config.size = height / 24;
+	font_config.ttf_data_owned_by_atlas = 1;
+	def_font = nk_font_atlas_add(atlas, &font_config);
 	if (fb_context) {
 		nk_rawfb_font_stash_end(fb_context);
 	} else {
