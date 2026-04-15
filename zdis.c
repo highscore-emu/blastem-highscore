@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include "util.h"
 
 uint8_t visited[(64*1024)/8];
 uint8_t label[(64*1024)/8];

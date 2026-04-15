@@ -39,7 +39,7 @@ GLUDIR:=x64
 endif
 GLEW32S_LIB:=$(GLEW_PREFIX)/lib/Release/$(GLUDIR)/glew32s.lib
 CFLAGS:=-std=gnu99 -Wreturn-type -Werror=return-type -Werror=implicit-function-declaration -Wpointer-arith -Werror=pointer-arith
-LDFLAGS:=-lm -lmingw32 -lws2_32 -lcomdlg32 -mwindows
+LDFLAGS:=-lm -lmingw32 -lws2_32 -lcomdlg32 -lole32 -mwindows
 ifneq ($(MAKECMDGOALS),libblastem.dll)
 CFLAGS+= -I"$(SDL2_PREFIX)/include/$(SDL_UPPER)" -I"$(GLEW_PREFIX)/include" -DGLEW_STATIC
 LDFLAGS+= $(GLEW32S_LIB) -L"$(SDL2_PREFIX)/lib" -l$(SDL_UPPER)main -l$(SDL_UPPER) -lopengl32 -lglu32

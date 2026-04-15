@@ -315,6 +315,93 @@ int utf8_codepoint(const char **text)
 	return value;
 }
 
+wchar_t *utf8_to_utf16(const char *text)
+{
+	const char *cur = text;
+	size_t utf16_code_units = 0;
+	while (*cur)
+	{
+		int codepoint = utf8_codepoint(&cur);
+		utf16_code_units += codepoint >= 0x10000 ? 2 : 1;
+		
+	}
+	wchar_t *out = calloc(utf16_code_units + 1, sizeof(wchar_t));
+	wchar_t *cur_out = out;
+	cur = text;
+	while (*cur)
+	{
+		int codepoint = utf8_codepoint(&cur);
+		if (codepoint < 0x10000) {
+			*(cur_out++) = codepoint;
+		} else {
+			codepoint -= 0x10000;
+			*(cur_out++) = 0xD800 | codepoint >> 10;
+			*(cur_out++) = 0xDC00 | (codepoint & 0x3FF);
+		}
+	}
+	return out;
+}
+
+char *utf16_to_utf8(const wchar_t *text)
+{
+	size_t utf8_bytes = 0;
+	for (const uint16_t *cur = (const uint16_t *)text; *cur; cur++)
+	{
+		int codepoint;
+		if (*cur < 0xD800 || *cur >= 0xE000) {
+			codepoint = *cur;
+		} else if (*cur < 0xDC00 && cur[1] >= 0xDD00 && cur[1] < 0xE000) {
+			//valid surrogate pair
+			codepoint = 0x10000 | (*cur & 0x3FF) << 10 | (cur[1] & 0x3FF);
+			cur++;
+		} else {
+			//take the wtf8 approach
+			codepoint = *cur;
+		}
+		if (codepoint < 0x80) {
+			utf8_bytes += 1;
+		} else if (codepoint < 0x800) {
+			utf8_bytes += 2;
+		} else if (codepoint < 0x10000) {
+			utf8_bytes += 3;
+		} else {
+			utf8_bytes += 4;
+		}
+	}
+	char *out = calloc(utf8_bytes + 1, 1);
+	char *cur_out = out;
+	for (const uint16_t *cur = (const uint16_t *)text; *cur; cur++)
+	{
+		int codepoint;
+		if (*cur < 0xD800 || *cur >= 0xE000) {
+			codepoint = *cur;
+		} else if (*cur < 0xDC00 && cur[1] >= 0xDD00 && cur[1] < 0xE000) {
+			//valid surrogate pair
+			codepoint = 0x10000 | (*cur & 0x3FF) << 10 | (cur[1] & 0x3FF);
+			cur++;
+		} else {
+			//take the wtf8 approach
+			codepoint = *cur;
+		}
+		if (codepoint < 0x80) {
+			*(cur_out++) = codepoint;
+		} else if (codepoint < 0x800) {
+			*(cur_out++) = 0xC0 | codepoint >> 6;
+			*(cur_out++) = 0x80 | (codepoint & 0x3F);
+		} else if (codepoint < 0x10000) {
+			*(cur_out++) = 0xE0 | codepoint >> 12;
+			*(cur_out++) = 0x80 | (codepoint >> 6 & 0x3F);
+			*(cur_out++) = 0x80 | (codepoint & 0x3F);
+		} else {
+			*(cur_out++) = 0xF0 | codepoint >> 18;
+			*(cur_out++) = 0x80 | (codepoint >> 12 & 0x3F);
+			*(cur_out++) = 0x80 | (codepoint >> 6 & 0x3F);
+			*(cur_out++) = 0x80 | (codepoint & 0x3F);
+		}
+	}
+	return out;
+}
+
 char is_path_sep(char c)
 {
 #ifdef _WIN32
@@ -572,29 +659,106 @@ uint8_t is_stdout_enabled(void)
 #include <winsock2.h>
 #include <windows.h>
 #include <shlobj.h>
+#include <versionhelpers.h>
 
-char * get_home_dir()
+static void fix_slashes(wchar_t *path)
 {
-	static char path[MAX_PATH];
-	SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, path);
-	return path;
-}
-
-char * get_exe_dir()
-{
-	static char path[MAX_PATH];
-	HMODULE module = GetModuleHandleA(NULL);
-	GetModuleFileNameA(module, path, MAX_PATH);
-
-	int pathsize = strlen(path);
-	for(char * cur = path + pathsize - 1; cur != path; cur--)
+	for (; *path; path++)
 	{
-		if (*cur == '\\') {
-			*cur = 0;
-			break;
+		if (*path == L'/') {
+			*path = L'\\';
 		}
 	}
-	return path;
+}
+
+static wchar_t *to_windows_path(const char *path)
+{
+	char *tmp = NULL;
+	if (!startswith(path, "\\\\?\\")) {
+		//TODO: avoid this extra allocation
+		tmp = alloc_concat("\\\\?\\", path);
+		path = tmp;
+	}
+	wchar_t *widepath = utf8_to_utf16(path);
+	free(tmp);
+	fix_slashes(widepath);
+	return widepath;
+}
+
+FILE *fopen_utf8(const char *path, const char *mode)
+{
+	wchar_t *widepath = to_windows_path(path);
+	wchar_t *widemode = utf8_to_utf16(mode);
+	FILE *ret = _wfopen(widepath, widemode);
+	free(widepath);
+	free(widemode);
+	return ret;
+}
+
+#ifndef DISABLE_ZLIB
+
+gzFile gzopen_utf8(const char *path, const char *mode)
+{
+	wchar_t *widepath = to_windows_path(path);
+	gzFile ret = gzopen_w(widepath, mode);
+	free(widepath);
+	return ret;
+}
+
+#endif
+
+typedef HRESULT (*SHGetKnownFolderPath_t)(REFKNOWNFOLDERID, DWORD, HANDLE, PWSTR *);
+static SHGetKnownFolderPath_t SHGetKnownFolderPath_ptr;
+static void maybe_get_shgetknownfolderpath(void)
+{
+	if (!SHGetKnownFolderPath_ptr && IsWindowsVistaOrGreater()) {
+		SHGetKnownFolderPath_ptr = (SHGetKnownFolderPath_t)GetProcAddress(GetModuleHandle("shell32.dll"), "SHGetKnownFolderPath");
+	}
+}
+
+char *get_home_dir()
+{
+	static char *ret;
+	static wchar_t path[MAX_PATH];
+	if (!ret) {
+		maybe_get_shgetknownfolderpath();		
+		if (SHGetKnownFolderPath_ptr) {
+			//{5E6C858F-0E22-4760-9AFE-EA3317B67173}
+	static GUID my_folderid_profile = {0x5E6C858F, 0x0E22, 0x4760, {0x9A, 0xFE, 0xEA, 0x33, 0x17, 0xB6, 0x71, 0x73}};
+			wchar_t *wide_ret = NULL;
+			if (S_OK == SHGetKnownFolderPath_ptr(&my_folderid_profile, 0, NULL, &wide_ret)) {
+				ret = utf16_to_utf8(wide_ret);
+			}
+			if (wide_ret) {
+				CoTaskMemFree(wide_ret);
+			}
+		} else {
+			SHGetFolderPathW(NULL, CSIDL_PROFILE, NULL, 0, path);
+			ret = utf16_to_utf8(path);
+		}
+	}
+	return ret;
+}
+
+char *get_exe_dir()
+{
+	static char *ret;
+	if (!ret) {
+		static wchar_t path[32767];
+		HMODULE module = GetModuleHandleW(NULL);
+		GetModuleFileNameW(module, path, sizeof(path)/sizeof(*path));
+
+		int pathsize = wcslen(path);
+		for(wchar_t * cur = path + pathsize - 1; cur != path; cur--)
+		{
+			if (*cur == L'\\') {
+				*cur = 0;
+				break;
+			}
+		}
+		ret = utf16_to_utf8(path);
+	}
+	return ret;
 }
 
 dir_entry *get_dir_list(char *path, size_t *numret)
@@ -628,10 +792,19 @@ dir_entry *get_dir_list(char *path, size_t *numret)
 		}
 	} else {
 		HANDLE dir;
-		WIN32_FIND_DATA file;
-		char *pattern = alloc_concat(path, "/*.*");
-		dir = FindFirstFile(pattern, &file);
+		WIN32_FIND_DATAW file;
+		char *pattern;
+		if (startswith(path, "\\\\?\\")) {
+			pattern = alloc_concat(path, "\\*.*");
+		} else {
+			const char *parts[] = {"\\\\?\\", path, "\\*.*"};
+			pattern = alloc_concat_m(3, parts);
+		}
+		wchar_t *wide_pattern = utf8_to_utf16(pattern);
+		fix_slashes(wide_pattern);
+		dir = FindFirstFileW(wide_pattern, &file);
 		free(pattern);
+		free(wide_pattern);
 		if (dir == INVALID_HANDLE_VALUE) {
 			if (numret) {
 				*numret = 0;
@@ -655,9 +828,9 @@ dir_entry *get_dir_list(char *path, size_t *numret)
 				storage = storage * 2;
 				ret = realloc(ret, sizeof(dir_entry) * storage);
 			}
-			ret[pos].name = strdup(file.cFileName);
+			ret[pos].name = utf16_to_utf8(file.cFileName);
 			ret[pos++].is_dir = (file.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-		} while (FindNextFile(dir, &file));
+		} while (FindNextFileW(dir, &file));
 
 		FindClose(dir);
 		if (numret) {
@@ -670,8 +843,10 @@ dir_entry *get_dir_list(char *path, size_t *numret)
 time_t get_modification_time(char *path)
 {
 	HANDLE results;
-	WIN32_FIND_DATA file;
-	results = FindFirstFile(path, &file);
+	WIN32_FIND_DATAW file;
+	wchar_t *widepath = to_windows_path(path);
+	results = FindFirstFileW(widepath, &file);
+	free(widepath);
 	if (results == INVALID_HANDLE_VALUE) {
 		return 0;
 	}
@@ -684,9 +859,9 @@ time_t get_modification_time(char *path)
 	return (time_t)wintime;
 }
 
-int ensure_dir_exists(const char *path)
+static int ensure_dir_exists_wide(const wchar_t *widepath)
 {
-	if (CreateDirectory(path, NULL)) {
+	if (CreateDirectoryW(widepath, NULL)) {
 		return 1;
 	}
 	if (GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -696,25 +871,29 @@ int ensure_dir_exists(const char *path)
 		warning("CreateDirectory failed with unexpected error code %X\n", GetLastError());
 		return 0;
 	}
-	char *parent = strdup(path);
-	//Windows technically supports both native and Unix-style path separators
-	//so search for both
-	char *sep = strrchr(parent, '\\');
-	char *osep = strrchr(parent, '/');
-	if (osep && (!sep || osep > sep)) {
-		sep = osep;
-	}
+	wchar_t *parent = _wcsdup(widepath);
+	wchar_t *sep = wcsrchr(parent, '\\');
+	int ret;
 	if (!sep || sep == parent) {
 		//relative path, but for some reason we failed
-		return 0;
+		ret = 0;
+		goto done;
 	}
 	*sep = 0;
-	if (!ensure_dir_exists(parent)) {
-		free(parent);
-		return 0;
+	if (!ensure_dir_exists_wide(parent)) {
+		ret = 0;
+		goto done;
 	}
+	ret = CreateDirectoryW(widepath, NULL);
+done:
 	free(parent);
-	return CreateDirectory(path, NULL);
+	return ret;
+}
+
+int ensure_dir_exists(const char *path)
+{
+	wchar_t *widepath = to_windows_path(path);
+	return ensure_dir_exists_wide(widepath);
 }
 
 static WSADATA wsa_data;
@@ -1293,12 +1472,29 @@ dir_entry *get_bundled_dir_list(char *name, size_t *num_out)
 #ifdef _WIN32
 char const *get_userdata_dir()
 {
-	static char path[MAX_PATH];
-	if (S_OK == SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, path))
-	{
-		return path;
+	static char *ret;
+	static wchar_t path[MAX_PATH];
+	if (!ret) {
+		maybe_get_shgetknownfolderpath();
+		if (SHGetKnownFolderPath_ptr) {
+			//{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}
+			static GUID my_folderid_localappdata = {0xF1B32785, 0x6FBA, 0x4FCF, {0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91}};
+			wchar_t *wide_ret = NULL;
+			//KF_FLAG_CREATE = 0x00008000
+			if (S_OK == SHGetKnownFolderPath_ptr(&my_folderid_localappdata, 0x00008000, NULL, &wide_ret)) {
+				ret = utf16_to_utf8(wide_ret);
+			}
+			if (wide_ret) {
+				CoTaskMemFree(wide_ret);
+			}
+		} else {
+			if (S_OK != SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, path)) {
+				return NULL;
+			}
+			ret = utf16_to_utf8(path);
+		}
 	}
-	return NULL;
+	return ret;
 }
 
 char const *get_config_dir()

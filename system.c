@@ -34,7 +34,11 @@
 #ifdef __ANDROID__
 #define romopen gzopen_wrapper
 #else
+#ifdef _WIN32
+#define romopen gzopen_utf8
+#else
 #define romopen gzopen
+#endif
 #endif
 #define romread gzfread
 #define romseek gzseek

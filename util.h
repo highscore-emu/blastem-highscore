@@ -16,6 +16,16 @@ typedef struct {
 #define PATH_SEP "/"
 #endif
 
+#ifdef _WIN32
+//redirect standard fopen to a wrapper that does utf8/utf16 conversion and uses _wfopen
+FILE *fopen_utf8(const char *path, const char *mode);
+#define fopen(path, mode) fopen_utf8(path, mode)
+#ifndef DISABLE_ZLIB
+#include "zlib/zlib.h"
+gzFile gzopen_utf8(const char *path, const char *mode);
+#endif
+#endif
+
 //Utility functions
 
 //Allocates a new string containing the concatenation of first and second
