@@ -136,7 +136,7 @@ uint8_t get_initial_browse_path(char **dst)
 		}
 	}
 	if (!base) {
-		base = tern_find_path(config, "ui\0initial_path\0", TVAL_PTR).ptrval;
+		base = strdup(tern_find_path(config, "ui\0initial_path\0", TVAL_PTR).ptrval);
 	}
 #endif
 	if (!base){
@@ -144,7 +144,7 @@ uint8_t get_initial_browse_path(char **dst)
 		
 		base = get_external_storage_path();
 #else
-		base = "$HOME";
+		base = strdup("$HOME");
 #endif
 	}
 	tern_node *vars = tern_insert_ptr(NULL, "HOME", get_home_dir());
