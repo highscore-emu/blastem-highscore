@@ -5,7 +5,7 @@
 #include "render.h"
 #include "render_audio.h"
 #include "blastem.h"
-#include "util.h"
+#include "paths.h"
 #include "debug.h"
 
 static void laseractive_next_shake(upd78k2_context *upd, uint8_t port_bit, uint32_t cycle)

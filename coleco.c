@@ -5,7 +5,7 @@
 #include "render.h"
 #include "io.h"
 #include "blastem.h"
-#include "util.h"
+#include "paths.h"
 #include "debug.h"
 #include "bindings.h"
 #include "saves.h"

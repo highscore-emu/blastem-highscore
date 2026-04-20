@@ -3,7 +3,7 @@
 #include <ctype.h>
 #include "cd_graphics.h"
 #include "genesis.h"
-#include "util.h"
+#include "paths.h"
 #include "debug.h"
 #include "gdb_remote.h"
 #include "blastem.h"

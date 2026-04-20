@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 #include "system.h"
-#include "util.h"
+#include "paths.h"
 #include "wave.h"
 
 uint8_t cdrom_scramble(uint16_t *lsfr, uint8_t data)

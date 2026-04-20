@@ -5,11 +5,6 @@
 #include "upd78k2_dis.h"
 #include "util.h"
 
-int headless;
-void render_errorbox(char *title, char *message) {}
-void render_warnbox(char *title, char *message) {}
-void render_infobox(char *title, char *message) {}
-
 typedef struct {
 	uint16_t address_off;
 	uint16_t address_end;

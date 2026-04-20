@@ -8,5 +8,15 @@ typedef struct {
 } iface_info;
 
 uint8_t get_host_address(iface_info *out);
+//Initializes the socket library on platforms that need it
+void socket_init(void);
+//Sets a sockt to blocking or non-blocking mode
+int socket_blocking(int sock, int should_block);
+//Close a socket
+void socket_close(int sock);
+//Return the last error on a socket operation
+int socket_last_error(void);
+//Returns if the last socket error was EAGAIN/EWOULDBLOCK
+int socket_error_is_wouldblock(void);
 
 #endif //NET_H_

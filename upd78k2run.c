@@ -1,15 +1,6 @@
 #include <stdlib.h>
 #include "upd78k2.h"
 
-int headless = 1;
-void render_errorbox(char * title, char * buf)
-{
-}
-
-void render_infobox(char * title, char * buf)
-{
-}
-
 uint8_t pram[768];
 uint8_t rom[0xFB00];
 

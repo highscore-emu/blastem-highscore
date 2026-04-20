@@ -25,6 +25,7 @@ int gdb_sock;
 #include "68kinst.h"
 #include "debug.h"
 #include "util.h"
+#include "net.h"
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdlib.h>

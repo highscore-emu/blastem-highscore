@@ -17,15 +17,6 @@
 #include <stddef.h>
 #include <stdarg.h>
 
-int headless = 1;
-void render_errorbox(char * title, char * buf)
-{
-}
-
-void render_infobox(char * title, char * buf)
-{
-}
-
 uint8_t z80_ram[0x2000];
 
 uint8_t z80_unmapped_read(uint32_t location, void * context)

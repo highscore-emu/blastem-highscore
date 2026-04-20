@@ -33,9 +33,11 @@
 #define ROMFILE gzFile
 #ifdef __ANDROID__
 #define romopen gzopen_wrapper
+gzFile gzopen_wrapper(const char *path, const char *mode);
 #else
 #ifdef _WIN32
 #define romopen gzopen_utf8
+gzFile gzopen_utf8(const char *path, const char *mode);
 #else
 #define romopen gzopen
 #endif
@@ -484,3 +486,34 @@ end:
 	return buffer;
 #endif
 }
+
+#ifndef DISABLE_ZLIB
+
+#ifdef __ANDROID__
+gzFile gzopen_wrapper(const char *path, const char *mode)
+{
+	if (startswith(path, "content://")) {
+		debug_message("gzopen_wrapper(%s, %s) - Using Storage Access Framework\n", path, mode);
+		int fd = open_uri(path, mode);
+		if (!fd) {
+			return NULL;
+		}
+		return gzdopen(fd, mode);
+	} else {
+		debug_message("fopen_wrapper(%s, %s) - Norma gzopen\n", path, mode);
+		return gzopen(path, mode);
+	}
+}
+#endif
+
+#ifdef _WIN32
+gzFile gzopen_utf8(const char *path, const char *mode)
+{
+	wchar_t *widepath = to_windows_path(path);
+	gzFile ret = gzopen_w(widepath, mode);
+	free(widepath);
+	return ret;
+}
+#endif
+
+#endif

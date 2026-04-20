@@ -17,7 +17,6 @@ uint8_t ram[64 * 1024];
 #define START_OFF 0x100
 #define OS_START 0xE400
 #define OS_RESET 0xE403
-int headless = 1;
 
 #ifndef NEW_CORE
 void z80_next_int_pulse(z80_context * context)
@@ -25,14 +24,6 @@ void z80_next_int_pulse(z80_context * context)
 	context->int_pulse_start = context->int_pulse_end = CYCLE_NEVER;
 }
 #endif
-
-void render_errorbox(char *title, char *message)
-{
-}
-
-void render_infobox(char *title, char *message)
-{
-}
 
 void *console_write(uint32_t address, void *context, uint8_t value)
 {

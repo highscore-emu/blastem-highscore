@@ -14,11 +14,6 @@
 #include "util.h"
 #include "disasm.h"
 
-int headless;
-void render_errorbox(char *title, char *message) {}
-void render_warnbox(char *title, char *message) {}
-void render_infobox(char *title, char *message) {}
-
 void check_reference(disasm_context *context, m68kinst * inst, m68k_op_info * op)
 {
 	label_def *def = NULL;

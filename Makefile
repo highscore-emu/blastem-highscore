@@ -15,6 +15,7 @@ Z80_DISPATCH:=goto
 BUNDLED_LIBZ:=zlib/adler32.o zlib/compress.o zlib/crc32.o zlib/deflate.o zlib/gzclose.o zlib/gzlib.o zlib/gzread.o\
 	zlib/gzwrite.o zlib/infback.o zlib/inffast.o zlib/inflate.o zlib/inftrees.o zlib/trees.o zlib/uncompr.o zlib/zutil.o
 
+UTIL_LDFLAGS:=
 ifeq ($(OS),Windows)
 
 GLEW_PREFIX:=glew
@@ -324,6 +325,7 @@ ifneq ($(OS),Windows)
 ALL+= termhelper
 endif
 DISOBJS:=dis.o disasm.o backend.o 68kinst.o tern.o vos_program_module.o util.o
+ZDISOBJS:=zdis.o z80inst.o tern.o util.o
 MTESTOBJS:=trans.o serialize.o $(M68KOBJS) $(TRANSOBJS) util.o
 ZTESTOBJS:=ztestrun.o serialize.o $(Z80OBJS) $(TRANSOBJS) util.o
 CPMOBJS:=blastcpm.o util.o serialize.o $(Z80OBJS) $(TRANSOBJS)
@@ -357,6 +359,7 @@ endif
 -include $(MAINOBJS:%.o=$(OBJDIR)/%.d)
 -include $(LIBOBJS:%.o=$(LIBOBJDIR)/%.d)
 -include $(DISOBJS:%.o=$(OBJDIR)/%.d)
+-include $(ZDISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.d)
 -include $(UPDDISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(OBJDIR)/trans.d
@@ -386,7 +389,7 @@ dis$(EXE) : $(DISOBJS:%.o=$(OBJDIR)/%.o)
 jagdis : $(OBJDIR)/jagdis.o $(OBJDIR)/jagcpu.o $(OBJDIR)/tern.o
 	$(CC) -o $@ $^ $(OPT)
 
-zdis$(EXE) : $(OBJDIR)/zdis.o $(OBJDIR)/z80inst.o
+zdis$(EXE) : $(ZDISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 trans : $(MTESTOBJS:%.o=$(OBJDIR)/%.o)

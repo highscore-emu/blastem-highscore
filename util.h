@@ -11,6 +11,14 @@ typedef struct {
 	uint8_t is_dir;
 } dir_entry;
 
+typedef enum {
+	DEBUG,
+	INFO,
+	WARN,
+	FATAL
+} log_level;
+typedef void (*log_fun)(log_level level, char *message);
+
 #ifdef _WIN32
 #define PATH_SEP "\\"
 #else
@@ -21,10 +29,8 @@ typedef struct {
 //redirect standard fopen to a wrapper that does utf8/utf16 conversion and uses _wfopen
 FILE *fopen_utf8(const char *path, const char *mode);
 #define fopen(path, mode) fopen_utf8(path, mode)
-#ifndef DISABLE_ZLIB
-#include "zlib/zlib.h"
-gzFile gzopen_utf8(const char *path, const char *mode);
-#endif
+//does UTF-8 to UTF-16 conversion, ensures all slashes are backslashes and prepends \\?\ for long path access
+wchar_t *to_windows_path(const char *path);
 #endif
 
 //Utility functions
@@ -57,38 +63,10 @@ int utf8_codepoint(const char **text);
 wchar_t *utf8_to_utf16(const char *text);
 //Converts a UTF-16 string in system endianness to UTF-8
 char *utf16_to_utf8(const wchar_t *text);
-//Determines whether a character is a valid path separator for the current platform
-char is_path_sep(char c);
-//Determines whether a path is considered an absolute path on the current platform
-char is_absolute_path(char *path);
-//Returns the basename of a path with th extension (if any) stripped
-char * basename_no_extension(const char *path);
-//Returns the extension from a path or NULL if there is no extension
-char *path_extension(char const *path);
-//Returns true if the given path matches one of the extensions in the list
-uint8_t path_matches_extensions(char *path, const char **ext_list, uint32_t num_exts);
-//Returns the directory portion of a path or NULL if there is no directory part
-char *path_dirname(const char *path);
 //Gets the smallest power of two that is >= a certain value, won't work for values > 0x80000000
 uint32_t nearest_pow2(uint32_t val);
-//Should be called by main with the value of argv[0] for use by get_exe_dir
-void set_exe_str(char * str);
-//Returns the directory the executable is in
-char * get_exe_dir();
-//Returns the user's home directory
-char * get_home_dir();
-//Returns an appropriate path for storing config files
-char const *get_config_dir();
-//Returns an appropriate path for saving non-config data like savestates
-char const *get_userdata_dir();
-//Returns the path of a file bundled with the executable
-char *bundled_file_path(char *name);
-//Reads a file bundled with the executable
-char *read_bundled_file(char *name, uint32_t *sizeret);
 //Returns an array of normal files and directories residing in a directory
 dir_entry *get_dir_list(char *path, size_t *numret);
-//Returns an array of normal files and directories residing in a bundled directory
-dir_entry *get_bundled_dir_list(char *name, size_t *num_out);
 //Frees a dir list returned by get_dir_list
 void free_dir_list(dir_entry *list, size_t numentries);
 //Performs a case-insensitive sort by file name on a dir list
@@ -111,26 +89,14 @@ void debug_message(char *format, ...);
 void disable_stdout_messages(void);
 //Returns stdout disable status
 uint8_t is_stdout_enabled(void);
+//Register a method to receive log messages in addition to or in place of stderr/stdout
+void register_log_handler(log_fun handler);
 //Deletes a file, returns true on success, false on failure
 uint8_t delete_file(char *path);
-//Initializes the socket library on platforms that need it
-void socket_init(void);
-//Sets a sockt to blocking or non-blocking mode
-int socket_blocking(int sock, int should_block);
-//Close a socket
-void socket_close(int sock);
-//Return the last error on a socket operation
-int socket_last_error(void);
-//Returns if the last socket error was EAGAIN/EWOULDBLOCK
-int socket_error_is_wouldblock(void);
 //works like fgets, but calls timeout_cb every timeout_usec microseconds while waiting for input
 char *fgets_timeout(char *dst, size_t size, FILE *f, uint64_t timeout_usec, void (*timeout_cb)(void));
 #if defined(__ANDROID__) && !defined(IS_LIB)
 FILE* fopen_wrapper(const char *path, const char *mode);
-#ifndef DISABLE_ZLIB
-#include "zlib/zlib.h"
-gzFile gzopen_wrapper(const char *path, const char *mode);
-#endif
 #endif
 
 #endif //UTIL_H_

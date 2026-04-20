@@ -13,29 +13,29 @@
 #include <android/log.h>
 #include <SDL_system.h>
 #include <jni.h>
-#define info_puts(msg) __android_log_write(ANDROID_LOG_INFO, "BlastEm", msg)
-#define warning_puts(msg) __android_log_write(ANDROID_LOG_WARN, "BlastEm", msg)
-#define fatal_puts(msg) __android_log_write(ANDROID_LOG_FATAL, "BlastEm", msg)
 
-#define info_printf(msg, args) __android_log_vprint(ANDROID_LOG_INFO, "BlastEm", msg, args)
-#define warning_printf(msg, args) __android_log_vprint(ANDROID_LOG_WARN, "BlastEm", msg, args)
-#define fatal_printf(msg, args) __android_log_vprint(ANDROID_LOG_FATAL, "BlastEm", msg, args)
+android_LogPriority log_level_to_android(log_level)
+{
+	switch (log_level)
+	{
+	case DEBUG: return ANDROID_LOG_DEBUG;
+	case INFO: ANDROID_LOG_INFO;
+	case WARN: ANDROID_LOG_WARN;
+	case FATAL: ANDROID_LOG_FATAL;
+	}
+}
+
+#define log_puts(stream, msg, level) __android_log_write(log_level_to_android(level), "BlastEm", msg)
+#define log_printf(sream, format, level, args) __android_log_vprint(log_level_to_android(level), "BlastEm", msg, args)
+
 #else
-#define info_puts(msg) fputs(msg, stdout);
-#define warning_puts(msg) fputs(msg, stderr);
-#define fatal_puts(msg) fputs(msg, stderr);
 
-#define info_printf(msg, args) vprintf(msg, args)
-#define warning_printf(msg, args) vfprintf(stderr, msg, args)
-#define fatal_printf(msg, args) vfprintf(stderr, msg, args)
+#define log_puts(stream, msg, level) fputs(msg, stream);
+#define log_printf(stream, format, level, args) vfprintf(stream, format, args)
+
 #endif
 
 #include "util.h"
-
-void render_errorbox(char *title, char *message);
-void render_warnbox(char *title, char *message);
-void render_infobox(char *title, char *message);
-extern int headless;
 
 char * alloc_concat(char const * first, char const * second)
 {
@@ -402,110 +402,6 @@ char *utf16_to_utf8(const wchar_t *text)
 	return out;
 }
 
-char is_path_sep(char c)
-{
-#ifdef _WIN32
-	if (c == '\\') {
-		return 1;
-	}
-#endif
-	return c == '/';
-}
-
-char is_absolute_path(char *path)
-{
-#ifdef _WIN32
-	if (path[1] == ':' && is_path_sep(path[2]) && isalpha(path[0])) {
-		return 1;
-	}
-#endif
-	return is_path_sep(path[0]);
-}
-
-char * basename_no_extension(const char *path)
-{
-	const char *lastdot = NULL;
-	const char *lastslash = NULL;
-	const char *cur;
-	for (cur = path; *cur; cur++)
-	{
-		if (*cur == '.') {
-			lastdot = cur;
-		} else if (is_path_sep(*cur)) {
-			lastslash = cur + 1;
-		}
-	}
-	if (!lastdot) {
-		lastdot = cur;
-	}
-	if (!lastslash) {
-		lastslash = path;
-	}
-	char *barename = malloc(lastdot-lastslash+1);
-	memcpy(barename, lastslash, lastdot-lastslash);
-	barename[lastdot-lastslash] = 0;
-
-	return barename;
-}
-
-char *path_extension(char const *path)
-{
-	char const *lastdot = NULL;
-	char const *lastslash = NULL;
-	char const *cur;
-	for (cur = path; *cur; cur++)
-	{
-		if (*cur == '.') {
-			lastdot = cur;
-		} else if (is_path_sep(*cur)) {
-			lastslash = cur + 1;
-		}
-	}
-	if (!lastdot || (lastslash && lastslash > lastdot)) {
-		//no extension
-		return NULL;
-	}
-	return strdup(lastdot+1);
-}
-
-uint8_t path_matches_extensions(char *path, const char **ext_list, uint32_t num_exts)
-{
-	char *ext = path_extension(path);
-	if (!ext) {
-		return 0;
-	}
-	uint32_t extidx;
-	for (extidx = 0; extidx < num_exts; extidx++)
-	{
-		if (!strcasecmp(ext, ext_list[extidx])) {
-			free(ext);
-			return 1;
-		}
-	}
-	free(ext);
-	return 0;
-}
-
-char * path_dirname(const char *path)
-{
-	const char *lastslash = NULL;
-	const char *cur;
-	for (cur = path; *cur; cur++)
-	{
-		if (is_path_sep(*cur)) {
-			lastslash = cur;
-		}
-	}
-	if (!lastslash) {
-		return NULL;
-	}
-	char *dir = malloc(lastslash-path+1);
-	memcpy(dir, path, lastslash-path);
-	dir[lastslash-path] = 0;
-
-	return dir;
-}
-
 uint32_t nearest_pow2(uint32_t val)
 {
 	uint32_t ret = 1;
@@ -516,22 +412,19 @@ uint32_t nearest_pow2(uint32_t val)
 	return ret;
 }
 
-static char * exe_str;
-
-void set_exe_str(char * str)
+static uint8_t output_enabled = 1;
+static log_fun log_handler;
+void log_msg(char *format, log_level level, va_list args)
 {
-	exe_str = str;
-}
-
-void fatal_error(char *format, ...)
-{
-	va_list args;
-	va_start(args, format);
-	if (!headless) {
+	FILE *stream = level >= WARN ? stderr : stdout;
+	if (log_handler) {
 		//take a guess at the final size
 		int32_t size = strlen(format) * 2;
 		char *buf = malloc(size);
+		va_list tmp;
+		va_copy(tmp, args);
 		int32_t actual = vsnprintf(buf, size, format, args);
+		va_end(tmp);
 		if (actual >= size || actual < 0) {
 			if (actual < 0) {
 				//seems on windows, vsnprintf is returning -1 when the buffer is too small
@@ -542,96 +435,39 @@ void fatal_error(char *format, ...)
 			}
 			free(buf);
 			buf = malloc(actual);
-			va_end(args);
-			va_start(args, format);
 			vsnprintf(buf, actual, format, args);
 		}
-		fatal_puts(buf);
-		render_errorbox("Fatal Error", buf);
+		if (output_enabled || level >= WARN) {
+			log_puts(stream, buf, log_level);
+		}
+		log_handler(level, buf);
 		free(buf);
-	} else {
-		fatal_printf(format, args);
+	} else if (output_enabled || level >= WARN) {
+		log_printf(stream, format, log_level, args);
 	}
+}
+void fatal_error(char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	log_msg(format, FATAL, args);
 	va_end(args);
 	exit(1);
 }
-
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 
 void warning(char *format, ...)
 {
 	va_list args;
 	va_start(args, format);
-#ifndef _WIN32
-	if (headless || (isatty(STDERR_FILENO) && isatty(STDIN_FILENO))) {
-		warning_printf(format, args);
-	} else {
-#endif
-		int32_t size = strlen(format) * 2;
-		char *buf = malloc(size);
-		int32_t actual = vsnprintf(buf, size, format, args);
-		if (actual >= size || actual < 0) {
-			if (actual < 0) {
-				//seems on windows, vsnprintf is returning -1 when the buffer is too small
-				//since we don't know the proper size, a generous multiplier will hopefully suffice
-				actual = size * 4;
-			} else {
-				actual++;
-			}
-			free(buf);
-			buf = malloc(actual);
-			va_end(args);
-			va_start(args, format);
-			vsnprintf(buf, actual, format, args);
-		}
-		warning_puts(buf);
-		render_infobox("BlastEm Info", buf);
-		free(buf);
-#ifndef _WIN32
-	}
-#endif
+	log_msg(format, WARN, args);
 	va_end(args);
 }
 
-static uint8_t output_enabled = 1;
 void info_message(char *format, ...)
 {
 	va_list args;
 	va_start(args, format);
-#ifndef _WIN32
-	if (headless || (isatty(STDOUT_FILENO) && isatty(STDIN_FILENO))) {
-		if (output_enabled) {
-			info_printf(format, args);
-		}
-	} else {
-#endif
-		int32_t size = strlen(format) * 2;
-		char *buf = malloc(size);
-		int32_t actual = vsnprintf(buf, size, format, args);
-		if (actual >= size || actual < 0) {
-			if (actual < 0) {
-				//seems on windows, vsnprintf is returning -1 when the buffer is too small
-				//since we don't know the proper size, a generous multiplier will hopefully suffice
-				actual = size * 4;
-			} else {
-				actual++;
-			}
-			free(buf);
-			buf = malloc(actual);
-			va_end(args);
-			va_start(args, format);
-			vsnprintf(buf, actual, format, args);
-		}
-		if (output_enabled) {
-			info_puts(buf);
-		}
-		render_infobox("BlastEm Info", buf);
-		free(buf);
-#ifndef _WIN32
-	}
-#endif
+	log_msg(format, INFO, args);
 	va_end(args);
 }
 
@@ -639,9 +475,8 @@ void debug_message(char *format, ...)
 {
 	va_list args;
 	va_start(args, format);
-	if (output_enabled) {
-		info_printf(format, args);
-	}
+	log_msg(format, DEBUG, args);
+	va_end(args);
 }
 
 void disable_stdout_messages(void)
@@ -654,12 +489,14 @@ uint8_t is_stdout_enabled(void)
 	return output_enabled;
 }
 
+void register_log_handler(log_fun handler)
+{
+	log_handler = handler;
+}
+
 #ifdef _WIN32
 #define WINVER 0x501
-#include <winsock2.h>
 #include <windows.h>
-#include <shlobj.h>
-#include <versionhelpers.h>
 
 static void fix_slashes(wchar_t *path)
 {
@@ -671,7 +508,7 @@ static void fix_slashes(wchar_t *path)
 	}
 }
 
-static wchar_t *to_windows_path(const char *path)
+wchar_t *to_windows_path(const char *path)
 {
 	char *tmp = NULL;
 	if (!startswith(path, "\\\\?\\")) {
@@ -692,72 +529,6 @@ FILE *fopen_utf8(const char *path, const char *mode)
 	FILE *ret = _wfopen(widepath, widemode);
 	free(widepath);
 	free(widemode);
-	return ret;
-}
-
-#ifndef DISABLE_ZLIB
-
-gzFile gzopen_utf8(const char *path, const char *mode)
-{
-	wchar_t *widepath = to_windows_path(path);
-	gzFile ret = gzopen_w(widepath, mode);
-	free(widepath);
-	return ret;
-}
-
-#endif
-
-typedef HRESULT (*SHGetKnownFolderPath_t)(REFKNOWNFOLDERID, DWORD, HANDLE, PWSTR *);
-static SHGetKnownFolderPath_t SHGetKnownFolderPath_ptr;
-static void maybe_get_shgetknownfolderpath(void)
-{
-	if (!SHGetKnownFolderPath_ptr && IsWindowsVistaOrGreater()) {
-		SHGetKnownFolderPath_ptr = (SHGetKnownFolderPath_t)GetProcAddress(GetModuleHandle("shell32.dll"), "SHGetKnownFolderPath");
-	}
-}
-
-char *get_home_dir()
-{
-	static char *ret;
-	static wchar_t path[MAX_PATH];
-	if (!ret) {
-		maybe_get_shgetknownfolderpath();		
-		if (SHGetKnownFolderPath_ptr) {
-			//{5E6C858F-0E22-4760-9AFE-EA3317B67173}
-	static GUID my_folderid_profile = {0x5E6C858F, 0x0E22, 0x4760, {0x9A, 0xFE, 0xEA, 0x33, 0x17, 0xB6, 0x71, 0x73}};
-			wchar_t *wide_ret = NULL;
-			if (S_OK == SHGetKnownFolderPath_ptr(&my_folderid_profile, 0, NULL, &wide_ret)) {
-				ret = utf16_to_utf8(wide_ret);
-			}
-			if (wide_ret) {
-				CoTaskMemFree(wide_ret);
-			}
-		} else {
-			SHGetFolderPathW(NULL, CSIDL_PROFILE, NULL, 0, path);
-			ret = utf16_to_utf8(path);
-		}
-	}
-	return ret;
-}
-
-char *get_exe_dir()
-{
-	static char *ret;
-	if (!ret) {
-		static wchar_t path[32767];
-		HMODULE module = GetModuleHandleW(NULL);
-		GetModuleFileNameW(module, path, sizeof(path)/sizeof(*path));
-
-		int pathsize = wcslen(path);
-		for(wchar_t * cur = path + pathsize - 1; cur != path; cur--)
-		{
-			if (*cur == L'\\') {
-				*cur = 0;
-				break;
-			}
-		}
-		ret = utf16_to_utf8(path);
-	}
 	return ret;
 }
 
@@ -896,46 +667,6 @@ int ensure_dir_exists(const char *path)
 	return ensure_dir_exists_wide(widepath);
 }
 
-static WSADATA wsa_data;
-static void socket_cleanup(void)
-{
-	WSACleanup();
-}
-
-void socket_init(void)
-{
-	static uint8_t started;
-	if (!started) {
-		started = 1;
-		WSAStartup(MAKEWORD(2,2), &wsa_data);
-		atexit(socket_cleanup);
-	}
-}
-
-int socket_blocking(int sock, int should_block)
-{
-	u_long param = !should_block;
-	if (ioctlsocket(sock, FIONBIO, &param)) {
-		return WSAGetLastError();
-	}
-	return 0;
-}
-
-void socket_close(int sock)
-{
-	closesocket(sock);
-}
-
-int socket_last_error(void)
-{
-	return WSAGetLastError();
-}
-
-int socket_error_is_wouldblock(void)
-{
-	return WSAGetLastError() == WSAEWOULDBLOCK;
-}
-
 typedef struct {
 	HANDLE           request_event;
 	HANDLE           reply_event;
@@ -1002,43 +733,7 @@ char *fgets_timeout(char *dst, size_t size, FILE *f, uint64_t timeout_usec, void
 
 #else
 #include <fcntl.h>
-#include <signal.h>
-
-void socket_init(void)
-{
-	//SIGPIPE on network sockets is not desired
-	//would be better to do this in a more limited way,
-	//but the alternatives are not portable
-	signal(SIGPIPE, SIG_IGN);
-}
-
-int socket_blocking(int sock, int should_block)
-{
-	if (fcntl(sock, F_SETFL, should_block ? 0 : O_NONBLOCK)) {
-		return errno;
-	}
-	return 0;
-}
-
-void socket_close(int sock)
-{
-	close(sock);
-}
-
-int socket_last_error(void)
-{
-	return errno;
-}
-
-int socket_error_is_wouldblock(void)
-{
-	return errno == EAGAIN || errno == EWOULDBLOCK;
-}
-
-char * get_home_dir()
-{
-	return getenv("HOME");
-}
+#include <unistd.h>
 
 char * readlink_alloc(char * path)
 {
@@ -1062,50 +757,6 @@ char * readlink_alloc(char * path)
 	} while ((linksize+1) > cursize);
 	linktext[linksize] = 0;
 	return linktext;
-}
-
-char * get_exe_dir()
-{
-	static char * exe_dir;
-	if (!exe_dir) {
-		char * cur;
-#ifdef HAS_PROC
-		char * linktext = readlink_alloc("/proc/self/exe");
-		if (!linktext) {
-			goto fallback;
-		}
-		int linksize = strlen(linktext);
-		for(cur = linktext + linksize - 1; cur != linktext; cur--)
-		{
-			if (is_path_sep(*cur)) {
-				*cur = 0;
-				break;
-			}
-		}
-		if (cur == linktext) {
-			free(linktext);
-fallback:
-#endif
-			if (!exe_str) {
-				fputs("/proc/self/exe is not available and set_exe_str was not called!", stderr);
-			}
-			int pathsize = strlen(exe_str);
-			for(cur = exe_str + pathsize - 1; cur != exe_str; cur--)
-			{
-				if (is_path_sep(*cur)) {
-					exe_dir = malloc(cur-exe_str+1);
-					memcpy(exe_dir, exe_str, cur-exe_str);
-					exe_dir[cur-exe_str] = 0;
-					break;
-				}
-			}
-#ifdef HAS_PROC
-		} else {
-			exe_dir = linktext;
-		}
-#endif
-	}
-	return exe_dir;
 }
 
 char *fgets_timeout(char *dst, size_t size, FILE *f, uint64_t timeout_usec, void (*timeout_cb)(void))
@@ -1296,54 +947,9 @@ uint8_t delete_file(char *path)
 #endif
 }
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && !defined(IS_LIB)
 
 #include <SDL.h>
-#ifndef IS_LIB
-char *read_bundled_file(char *name, uint32_t *sizeret)
-{
-	SDL_RWops *rw = SDL_RWFromFile(name, "rb");
-	if (!rw) {
-		if (sizeret) {
-			*sizeret = -1;
-		}
-		return NULL;
-	}
-
-	long fsize = rw->size(rw);
-	if (sizeret) {
-		*sizeret = fsize;
-	}
-	char *ret;
-	if (fsize) {
-		ret = malloc(fsize);
-		if (SDL_RWread(rw, ret, 1, fsize) != fsize) {
-			free(ret);
-			ret = NULL;
-		}
-	} else {
-		ret = NULL;
-	}
-	SDL_RWclose(rw);
-	return ret;
-}
-
-dir_entry *get_bundled_dir_list(char *name, size_t *num_out)
-{
-	static const char activity_class_name[] = "com/retrodev/blastem/BlastEmActivity";
-	static const char get_assets_list_name[] = "getAssetsList";
-	JNIEnv *env = SDL_AndroidGetJNIEnv();
-	jclass act_class = (*env)->FindClass(env, activity_class_name);
-	if (!act_class) {
-		fatal_error("Failed to find activity class %s\n", activity_class_name);
-	}
-	jmethodID meth = (*env)->GetMethodID(env, act_class, get_assets_list_name, "(Ljava/lang/String;)[Ljava/lang/String;");
-	if (!meth) {
-		fatal_error("Failed to find method %s\n", get_assets_list_name);
-	}
-	return jdir_list_helper(env, meth, name, num_out);
-}
-
 static int open_uri(const char *path, const char *mode)
 {
 	static const char activity_class_name[] = "com/retrodev/blastem/BlastEmActivity";
@@ -1380,170 +986,5 @@ FILE* fopen_wrapper(const char *path, const char *mode)
 	}
 }
 
-#ifndef DISABLE_ZLIB
-gzFile gzopen_wrapper(const char *path, const char *mode)
-{
-	if (startswith(path, "content://")) {
-		debug_message("gzopen_wrapper(%s, %s) - Using Storage Access Framework\n", path, mode);
-		int fd = open_uri(path, mode);
-		if (!fd) {
-			return NULL;
-		}
-		return gzdopen(fd, mode);
-	} else {
-		debug_message("fopen_wrapper(%s, %s) - Norma gzopen\n", path, mode);
-		return gzopen(path, mode);
-	}
-}
-#endif
-#endif // IS_LIB
-
-char const *get_config_dir()
-{
-	return SDL_AndroidGetInternalStoragePath();
-}
-
-char const *get_userdata_dir()
-{
-	return SDL_AndroidGetInternalStoragePath();
-}
-
-#else
-
-#ifndef IS_LIB
-char *bundled_file_path(char *name)
-{
-#ifdef DATA_PATH
-	char *data_dir = DATA_PATH;
-#else
-	char *data_dir = get_exe_dir();
-	if (!data_dir) {
-		return NULL;
-	}
-#endif
-	char const *pieces[] = {data_dir, PATH_SEP, name};
-	return alloc_concat_m(3, pieces);
-}
-
-char *read_bundled_file(char *name, uint32_t *sizeret)
-{
-	char *path = bundled_file_path(name);
-	if (!path) {
-		if (sizeret) {
-			*sizeret = -1;
-		}
-		return NULL;
-	}
-	FILE *f = fopen(path, "rb");
-	free(path);
-	if (!f) {
-		if (sizeret) {
-			*sizeret = -1;
-		}
-		return NULL;
-	}
-
-	long fsize = file_size(f);
-	if (sizeret) {
-		*sizeret = fsize;
-	}
-	char *ret;
-	if (fsize) {
-		//reserve an extra byte in case caller wants
-		//to null terminate the data
-		ret = malloc(fsize+1);
-		if (fread(ret, 1, fsize, f) != fsize) {
-			free(ret);
-			ret = NULL;
-		}
-	} else {
-		ret = NULL;
-	}
-	fclose(f);
-	return ret;
-}
-
-dir_entry *get_bundled_dir_list(char *name, size_t *num_out)
-{
-	char *path = bundled_file_path(name);
-	dir_entry *ret = get_dir_list(path, num_out);
-	free(path);
-	return ret;
-}
-#endif //ISLIB
-
-#ifdef _WIN32
-char const *get_userdata_dir()
-{
-	static char *ret;
-	static wchar_t path[MAX_PATH];
-	if (!ret) {
-		maybe_get_shgetknownfolderpath();
-		if (SHGetKnownFolderPath_ptr) {
-			//{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}
-			static GUID my_folderid_localappdata = {0xF1B32785, 0x6FBA, 0x4FCF, {0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91}};
-			wchar_t *wide_ret = NULL;
-			//KF_FLAG_CREATE = 0x00008000
-			if (S_OK == SHGetKnownFolderPath_ptr(&my_folderid_localappdata, 0x00008000, NULL, &wide_ret)) {
-				ret = utf16_to_utf8(wide_ret);
-			}
-			if (wide_ret) {
-				CoTaskMemFree(wide_ret);
-			}
-		} else {
-			if (S_OK != SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, path)) {
-				return NULL;
-			}
-			ret = utf16_to_utf8(path);
-		}
-	}
-	return ret;
-}
-
-char const *get_config_dir()
-{
-	static char* confdir;
-	if (!confdir) {
-		char const *base = get_userdata_dir();
-		if (base) {
-			confdir = alloc_concat(base,  PATH_SEP "blastem");
-		}
-	}
-	return confdir;
-}
-#define CONFIG_PREFIX ""
-#define SAVE_PREFIX ""
-
-#else
-
-#define CONFIG_PREFIX "/.config"
-#define USERDATA_SUFFIX "/.local/share"
-
-char const *get_config_dir()
-{
-	static char* confdir;
-	if (!confdir) {
-		char const *base = get_home_dir();
-		if (base) {
-			confdir = alloc_concat(base, CONFIG_PREFIX PATH_SEP "blastem");
-		}
-	}
-	return confdir;
-}
-
-char const *get_userdata_dir()
-{
-	static char* savedir;
-	if (!savedir) {
-		char const *base = get_home_dir();
-		if (base) {
-			savedir = alloc_concat(base, USERDATA_SUFFIX);
-		}
-	}
-	return savedir;
-}
-
-
-#endif //_WIN32
-#endif //__ANDROID__
+#endif //defined(__ANDROID__) && !defined(IS_LIB)
 

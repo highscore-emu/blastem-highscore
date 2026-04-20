@@ -5,7 +5,7 @@
 #include "io.h"
 #include "blastem.h"
 #include "saves.h"
-#include "util.h"
+#include "paths.h"
 #include "genesis.h"
 #include "sms.h"
 #include "menu.h"
