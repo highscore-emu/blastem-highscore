@@ -1,0 +1,175 @@
+info
+	prefix sh2
+	opcode_size 16
+	header sh2.h
+	pc_reg pc
+
+regs
+	gpr 32 r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
+	sr 32
+	gbr 32
+	vbr 32
+	mach 32
+	macl 32
+	pr 32
+	pc 32
+	scratch1 32
+	scratch2 32
+	prefetch 32
+	prefetch_full 8
+	did_mem 8
+
+sh2_read32
+	arg addr 32
+	#TODO: cache
+	scratch1 = addr
+	ocall read_32
+
+sh2_read16
+	arg addr 32
+	#TODO: cache
+	scratch1 = addr
+	ocall read_16
+
+sh2_read8
+	arg addr 32
+	#TODO: cache
+	scratch1 = addr
+	ocall read_8
+
+sh2_read32_data
+	arg addr 32
+	did_mem = 1
+	sh2_read32 addr
+
+sh2_read16_data
+	arg addr 32
+	did_mem = 1
+	sh2_read16 addr
+
+sh2_read8_data
+	arg addr 32
+	did_mem = 1
+	sh2_read8 addr
+
+sh2_write8
+	arg addr 32
+	arg value 8
+	did_mem = 1
+	scratch2 = addr
+	scratch1 = value
+	ocall write_8
+
+sh2_write16
+	arg addr 32
+	arg value 16
+	did_mem = 1
+	scratch2 = addr
+	scratch1 = value
+	ocall write_16
+
+sh2_write32
+	arg addr 32
+	arg value 32
+	did_mem = 1
+	scratch2 = addr
+	scratch1 = value
+	ocall write_32
+
+sh2_vector_read
+	arg vector 32
+	scratch1 = vector << 2
+	scratch1 += vbr
+	sh2_read32 scratch1
+
+sh2_fetch
+	if prefetch_full
+		prefetch = prefetch >> 16
+		prefetch_full = 0
+	else
+		if did_mem
+			#pipeline bubble to to MA/IF conflict
+			cycles 1
+		end
+		scratch1 = pc & 1
+		if scratch1
+			sh2_read16 pc
+			prefetch = scratch1
+		else
+			sh2_read32 pc
+			prefetch = scratch1
+			prefetch_full = 1
+		end
+	end
+	did_mem = 0
+	
+sh2_reset
+	sr = 0xF
+	vbr = 0
+	sh2_vector_read 0
+	pc = scratch1
+	sh2_vector_read 1
+	r15 = scratch1
+	sh2_fetch
+	
+1110NNNNIIIIIIII mov_imm
+	cycles 1
+	gpr.N = sext 16 I
+	gpr.N = sext 32 gpr.N
+	sh2_fetch
+
+1001NNNNDDDDDDDD mov_disp_w_pc
+	cycles 1
+	scratch1 = D << 1
+	scratch1 += pc
+	sh2_read16_data scratch1
+	gpr.N = sext 32 scratch1
+	sh2_fetch
+
+1101NNNNDDDDDDDD mov_disp_l_pc
+	cycles 1
+	scratch1 = D << 2
+	scratch1 += pc
+	sh2_read32_data scratch1
+	gpr.N = scratch1
+	sh2_fetch
+
+0110NNNNMMMM0011 mov_rm_rn
+	cycles 1
+	gpr.N = gpr.M
+	sh2_fetch
+
+0010NNNNMMMM0000 store_rm_rn_b
+	cycles 1
+	sh2_write8 gpr.N gpr.M
+	sh2_fetch
+
+0010NNNNMMMM0001 store_rm_rn_w
+	cycles 1
+	sh2_write16 gpr.N gpr.M
+	sh2_fetch
+
+0010NNNNMMMM0010 store_rm_rn_l
+	cycles 1
+	sh2_write32 gpr.N gpr.M
+	sh2_fetch
+
+0110NNNNMMMM0000 load_rm_rn_b
+	cycles 1
+	sh2_read8_data gpr.M
+	scratch1 = sext 16 scratch1
+	gpr.N = sext 32 scratch1
+
+0110NNNNMMMM0001 load_rm_rn_w
+	cycles 1
+	sh2_read16_data gpr.M
+	gpr.N = sext 32 scratch1
+
+0110NNNNMMMM0010 load_rm_rn_l
+	cycles 1
+	sh2_read32_data gpr.M
+	gpr.N = scratch1
+
+sh2_run_op
+	scratch1 = prefetch & 0xFFFF
+	dispatch scratch1
