@@ -1,4 +1,4 @@
-BlastEm 0.6.0
+BlastEm 0.6.X
 -------------
 
 Installation
@@ -104,6 +104,22 @@ don't correspond to a normal character, check the list below:
   play
   search
   back
+  np0          Number Pad 0
+  np1          Number Pad 1
+  np2          Number Pad 2
+  np3          Number Pad 3
+  np4          Number Pad 4
+  np5          Number Pad 5
+  np6          Number Pad 6
+  np7          Number Pad 7
+  np8          Number Pad 8
+  np9          Number Pad 9
+  np/          Number Pad /
+  np*          Number Pad *
+  np-          Number Pad -
+  np+          Number Pad +
+  npenter      Number Pad Enter
+  np.          Number Pad .
 
 The pads subsection is used to map gamepads and joysticks. Gamepads that are
 recognized, can have their buttons and axes mapped with semantic names.
@@ -152,11 +168,16 @@ ui.plane_debug               Toggles the VDP plane debug view
 ui.vram_debug                Toggles the VDP VRAM debug view
 ui.cram_debug                Toggles the VDP CRAM debug view
 ui.compositing_debug         Toggles the VDP compositing debug view
+ui.oscilloscope              Toggles an oscilloscope visualization
+ui.cd_graphics_debug         Toggles the Sega CD graphics ASIC debug view
 ui.vdp_debug_mode            Cycles the mode/palette of the VDP debug view
                              that currently has focus
 ui.enter_debugger            Enters the debugger for the main CPU of the
 							 currently emulated system
 ui.screenshot                Takes an internal screenshot
+ui.record_video              Toggles video recording. Videos are recorded as an
+                             animated PNG paired with a WAV file.
+ui.vgm_log                   Toggles VGM file logging
 ui.menu                      Opens the in-game menu, or exits the menu if it
                              is currently open.
 ui.exit                      Quits the emulator
@@ -166,6 +187,8 @@ ui.set_speed.N               Selects a specific machine speed specified by N
                              specified in the "clocks" section of the config
 ui.next_speed                Selects the next machine speed
 ui.prev_speed                Selects the previous machine speed
+ui.pause                     Pauses emulation
+ui.advance                   Advances a single frame if paused. Pauses if not.
 ui.toggle_fullscreen         Toggles between fullscreen and windowed mode
 ui.soft_reset                Resets a portion of the emulated machine
                              Equivalent to pushing the reset button on the
@@ -176,6 +199,22 @@ ui.sms_pause                 Triggers a press of the pause button when in SMS
                              mode
 ui.toggle_keyboard_captured  Toggles the capture state of the host keyboard
                              when an emulated keyboard is present
+ui.release_mouse             Release the mouse from the captured state
+ui.paste                     Pastes the contents of the clipboard into the
+                             emulated system by simulating keypresses.
+							 Currently, this is only implemented for SC-3000
+
+Cassette Actions
+----------------
+
+When emulating the SC-3000, cassette emulation is supported via the lock-on
+functionality. The following binding names can be triggered by a key or gamepad
+binding.
+
+cassette.play                Start playing the virtual tape
+cassette.record              Starting recording on the virtual tape
+cassette.stop                Stop the virtual tape at the current position
+cassette.rewind              Rewind the virtual tape
 
 IO
 --
@@ -185,7 +224,22 @@ IO assignments can be overridden by the ROM database when appropriate. For
 instance, games with mouse support can automatically use the mouse and games
 that only support 3-button pads can automatically force an appropriate pad.
 Unforunately, the ROM database is not yet exhaustive so manual configuration
-may be needed here in some cases.
+may be needed here in some cases. The following IO devices are recognized
+
+gamepad.2           SMS gamepad
+gamepad.3           3-button Gen/MD gamepad
+gamepad.6           6-button Gen/MD gamepad
+heartbeat_trainer   Special peripheral used for the Heartbeat Personal Trainer
+mouse               Sega/Mega mouse
+saturn_keyboard     Saturn keybord or keyboard adapter
+xband_keyboard      Xband keyboard
+sega_parallel       PC Parallel port connection used by some of Sega's devtools
+generic             Generic pipe-based device emulation for use with external
+                    software.
+serial              Generic pipe-based serial emulation
+sega_multitap       Sega's 4-player Multitap
+ea_multitap_port_a  First port of EA's 4-way Play multitap
+ea_multitap_port_a  Second port of EA's 4-way Play multitap
 
 Video
 -----
@@ -401,42 +455,76 @@ Debugger
 --------
 
 BlastEm has an integrated command-line debugger loosely based on GDB's
-interface. The interface is very rough at the moment. Available commands in the
-68K debugger are:
-    b ADDRESS            - Set a breakpoint at ADDRESS
-    d BREAKPOINT         - Delete a 68K breakpoint
-    co BREAKPOINT        - Run a list of debugger commands each time
-                           BREAKPOINT is hit
-    a ADDRESS            - Advance to address
-    n                    - Advance to next instruction
-    o                    - Advance to next instruction ignoring branches to
-                           lower addresses (good for breaking out of loops)
-    s                    - Advance to next instruction (follows bsr/jsr)
-    c                    - Continue
-    bt                   - Print a backtrace
-    p[/(x|X|d|c)] VALUE  - Print a register or memory location
-    di[/(x|X|d|c)] VALUE - Print a register or memory location each time
-                           a breakpoint is hit
-    vs                   - Print VDP sprite list
-    vr                   - Print VDP register info
-    zb ADDRESS           - Set a Z80 breakpoint
-    zp[/(x|X|d|c)] VALUE - Display a Z80 value
-    q                    - Quit BlastEm
-Available commands in the Z80 debugger are:
-    b  ADDRESS           - Set a breakpoint at ADDRESS
-    de BREAKPOINT        - Delete a Z80 breakpoint
-    a  ADDRESS           - Advance to address
-    n                    - Advance to next instruction
-    c                    - Continue
-    p[/(x|X|d|c)] VALUE  - Print a register or memory location
-    di[/(x|X|d|c)] VALUE - Print a register or memory location each time
-                           a breakpoint is hit
-    q                    - Quit BlastEm
+interface. It contains a turing complete language to support complex
+breakpoint conditions and to allow some basic scripting. 
 
 The -d flag can be used to cause BlastEm to start in the debugger.
 Alternatively, you can use the ui.enter_debugger action (mapped to the 'u' key
 by default) to enter the debugger while a game is running. To debug the menu
 ROM, use the -dm flag.
+
+
+Top level debugger commands take the following form:
+
+    COMMAND[/FORMAT_CHAR] [ARGS]
+	
+Where COMMAND is the name of the command, an unambiguous prefix or an explict
+alias. FORMAT_CHAR is a single character specifying the desired format for
+certain commands. ARGS is a list of arguments separated by spaces. Arguments
+must be syntactically valid as an expression and are generally evaluated as
+such, but there are some exceptions. For instance, the "function" command
+expects its first argument to be the bare name of the function. This is used
+directly rather than evaluated.
+
+To get a list of commands valid in the current context use the help command.
+The help command will also list explicit aliases for a command and its expected
+arguments.
+
+The commands available in all contexts are:
+    quit
+	help
+	breakpoint ADDRESS             Add a new breakpoint at ADDRESS for the
+	                               current CPU
+    watchpoint ADDRESS [SIZE]      Set a watchpoint at ADDRESS with an optional
+	                               size in bytes. If not specified, the default
+								   size is context dependent.
+	continue                       Resume execution
+	advance ADDRESS                Resume execution until ADDRESS is reached
+	step                           Advance to the next instruction, stepping
+	                               into subroutines.
+	next                           Advance to the next instruction, stepping
+	                               over subroutine calls.
+	over                           Similar to next, but ignores branches to
+	                               a lower address. Good for skipping over
+								   loops.
+	backtrace                      Attempts to print a backtrace. Note that
+	                               this uses heuristics and will not provide
+								   correct results in all cases.
+	frames EXPRESSION              Resume execution for EXPRESSION video frames
+	print[/FORMAT] EXPRESSION      Print the value of EXPRESSION using FORMAT
+	printf FORMAT EXPRESSION...    Basically the same as the C function
+	softreset                      Equivalent to the ui.soft_reset binding
+	display[/FORMAT] EXPRESSION... Print one ore more expressions every time
+	                               this debug context is entered
+    deletedisplay                  Removes an entry added via "display"
+	commands BREAKPOINT            Set a list of commands to execute when a
+	                               breakpoint is hit. End the list with "end"
+	function NAME [ARGS...]        Creates a user-defined named NAME with
+								   arguments ARGS. Enter the body of the
+								   function on subsequent lines. End with "end"
+    return VALUE                   Returns a value inside a function
+	set MEM|NAME VALUE             Sets a register, symbol or memory location
+	                               to VALUE
+	variable NAME [VALUE]          Create a new variable called NAME and set it
+	                               to VALUE or 0 if no value provided
+	array NAME [VALUE...]          Create a new array called NAME if it doesn't
+								   already exist. The array is initialized with
+								   the remaining parameters.
+    append NAME VALUE              Appens VALUE to the array NAME
+	bindup NAME                    Simulate a keyup for binding NAME
+	binddown NAME                  Simulate a keydown for binding NAME
+
+TODO: expressions, builtin functions and operators
 
 GDB Remote Debugging
 --------------------
