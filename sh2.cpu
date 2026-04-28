@@ -1,5 +1,5 @@
 info
-	prefix sh2
+	prefix sh2_
 	opcode_size 16
 	header sh2.h
 	pc_reg pc
@@ -9,8 +9,8 @@ regs
 	sr 32
 	gbr 32
 	vbr 32
-	mach 32
 	macl 32
+	mach 32
 	pr 32
 	pc 32
 	scratch1 32
@@ -18,6 +18,14 @@ regs
 	prefetch 32
 	prefetch_full 8
 	did_mem 8
+	t 8
+	m 8
+	q 8
+
+flags
+	Z 0 zero t
+	V 0 overflow t
+	C 0 carry t
 
 sh2_read32
 	arg addr 32
@@ -104,7 +112,7 @@ sh2_fetch
 	did_mem = 0
 	
 sh2_reset
-	sr = 0xF
+	sr = 0xF0
 	vbr = 0
 	sh2_vector_read 0
 	pc = scratch1
@@ -113,12 +121,14 @@ sh2_reset
 	sh2_fetch
 	
 1110NNNNIIIIIIII mov_imm
+	nospecialize I
 	cycles 1
 	gpr.N = sext 16 I
 	gpr.N = sext 32 gpr.N
 	sh2_fetch
 
 1001NNNNDDDDDDDD mov_disp_w_pc
+	nospecialize D
 	cycles 1
 	scratch1 = D << 1
 	scratch1 += pc
@@ -127,6 +137,7 @@ sh2_reset
 	sh2_fetch
 
 1101NNNNDDDDDDDD mov_disp_l_pc
+	nospecialize D
 	cycles 1
 	scratch1 = D << 2
 	scratch1 += pc
@@ -159,16 +170,540 @@ sh2_reset
 	sh2_read8_data gpr.M
 	scratch1 = sext 16 scratch1
 	gpr.N = sext 32 scratch1
+	sh2_fetch
 
 0110NNNNMMMM0001 load_rm_rn_w
 	cycles 1
 	sh2_read16_data gpr.M
 	gpr.N = sext 32 scratch1
+	sh2_fetch
 
 0110NNNNMMMM0010 load_rm_rn_l
 	cycles 1
 	sh2_read32_data gpr.M
 	gpr.N = scratch1
+	sh2_fetch
+
+0010NNNNMMMM0100 store_predec_rm_rn_b
+	cycles 1
+	gpr.N -= 1
+	sh2_write8 gpr.N gpr.M
+	sh2_fetch
+
+0010NNNNMMMM0101 store_predec_rm_rn_w
+	cycles 1
+	gpr.N -= 2
+	sh2_write16 gpr.N gpr.M
+	sh2_fetch
+
+0010NNNNMMMM0110 store_predec_rm_rn_l
+	cycles 1
+	gpr.N -= 4
+	sh2_write32 gpr.N gpr.M
+	sh2_fetch
+
+0110NNNNMMMM0100 load_postinc_rm_rn_b
+	cycles 1
+	sh2_read8_data gpr.M
+	scratch1 = sext 16 scratch1
+	gpr.N = sext 32 scratch1
+	gpr.M += 1
+	sh2_fetch
+
+0110NNNNMMMM0101 load_postinc_rm_rn_w
+	cycles 1
+	sh2_read16_data gpr.M
+	gpr.N = sext 32 scratch1
+	gpr.M += 2
+	sh2_fetch
+
+0110NNNNMMMM0110 load_postinc_rm_rn_l
+	cycles 1
+	sh2_read8_data gpr.M
+	gpr.N = scratch1
+	gpr.M += 4
+	sh2_fetch
+
+10000000NNNNDDDD store_r0_disp_rn_b
+	cycles 1
+	scratch2 = D + gpr.N
+	sh2_write8 scratch2 r0
+	sh2_write8 scratch2 r0
+	sh2_fetch
+
+10000001NNNNDDDD store_r0_disp_rn_w
+	cycles 1
+	scratch2 = D << 1
+	scratch2 += gpr.N
+	sh2_write16 scratch2 r0
+	sh2_fetch
+
+0001NNNNMMMMDDDD store_rm_disp_rn_l
+	cycles 1
+	scratch2 = D << 2
+	scratch2 += gpr.N
+	sh2_write8 scratch2 gpr.M
+	sh2_fetch
+
+10000100MMMMDDDD load_disp_rm_r0_b
+	cycles 1
+	scratch1 = D + gpr.M
+	sh2_read8_data scratch1
+	scratch1 = sext 16 scratch1
+	r0 = sext 32 scratch1
+	sh2_fetch
+
+10000101MMMMDDDD load_disp_rm_r0_w
+	cycles 1
+	scratch1 = D << 1
+	scratch1 += gpr.M
+	sh2_read16_data scratch1
+	r0 = sext 32 scratch1
+	sh2_fetch
+
+0101NNNNMMMMDDDD load_disp_rm_rn_l
+	cycles 1
+	scratch1 = D << 2
+	scratch1 += gpr.M
+	sh2_read16_data scratch1
+	gpr.N = sext 32 scratch1
+	sh2_fetch
+
+0000NNNNMMMM0100 store_rm_r0_rn_indexed_b
+	cycles 1
+	scratch2 = r0 + gpr.N
+	sh2_write8 scratch2 gpr.M
+	sh2_fetch
+
+0000NNNNMMMM0101 store_rm_r0_rn_indexed_w
+	cycles 1
+	scratch2 = r0 + gpr.N
+	sh2_write16 scratch2 gpr.M
+	sh2_fetch
+
+0000NNNNMMMM0110 store_rm_r0_rn_indexed_l
+	cycles 1
+	scratch2 = r0 + gpr.N
+	sh2_write32 scratch2 gpr.M
+	sh2_fetch
+
+0000NNNNMMMM1100 load_r0_rm_indexed_rn_b
+	cycles 1
+	scratch1 = r0 + gpr.M
+	sh2_read8_data scratch1
+	scratch1 = sext 16 scratch1
+	gpr.N = sext 32 scratch1
+	sh2_fetch
+
+0000NNNNMMMM1101 load_r0_rm_indexed_rn_w
+	cycles 1
+	scratch1 = r0 + gpr.M
+	sh2_read16_data scratch1
+	gpr.N = sext 32 scratch1
+	sh2_fetch
+
+0000NNNNMMMM1110 load_r0_rm_indexed_rn_l
+	cycles 1
+	scratch1 = r0 + gpr.M
+	sh2_read32_data scratch1
+	gpr.N = scratch1
+	sh2_fetch
+
+11000000DDDDDDDD store_r0_disp_gpr_b
+	nospecialize D
+	cycles 1
+	scratch2 = D + gbr
+	sh2_write8 scratch2 r0
+	sh2_fetch
+
+11000001DDDDDDDD store_r0_disp_gpr_w
+	nospecialize D
+	cycles 1
+	scratch2 = D << 1
+	scratch2 += gbr
+	sh2_write16 scratch2 r0
+	sh2_fetch
+
+11000010DDDDDDDD store_r0_disp_gpr_l
+	nospecialize D
+	cycles 1
+	scratch2 = D << 2
+	scratch2 += gbr
+	sh2_write32 scratch2 r0
+	sh2_fetch
+
+11000100DDDDDDDD load_disp_gbr_r0_b
+	nospecialize D
+	cycles 1
+	scratch1 = D + gbr
+	sh2_read8_data scratch1
+	scratch1 = sext 16 scratch1
+	r0 = sext 32 scratch1
+	sh2_fetch
+
+11000101DDDDDDDD load_disp_gbr_r0_w
+	nospecialize D
+	cycles 1
+	scratch1 = D << 1
+	scratch1 += gbr
+	sh2_read16_data scratch1
+	r0 = sext 32 scratch1
+	sh2_fetch
+
+11000110DDDDDDDD load_disp_gbr_r0_l
+	nospecialize D
+	cycles 1
+	scratch1 = D << 2
+	scratch1 += gbr
+	sh2_read32_data scratch1
+	r0 = scratch1
+	sh2_fetch
+
+11000111DDDDDDDD mova
+	nospecialize D
+	cycles 1
+	scratch1 = D << 2
+	scratch1 += pc
+	sh2_read32_data scratch1
+	r0 = scratch1
+	sh2_fetch
+
+0000NNNN00101001 movt
+	cycles 1
+	gpr.N = t
+	sh2_fetch
+
+0110NNNNMMMM1000 swap_b
+	local temp1 32
+	local temp2 32
+	cycles 1
+	temp1 = gpr.M >> 8
+	temp1 &= 0xFF
+	temp2 = gpr.M << 8
+	temp2 &= 0xFF00
+	gpr.N = gpr.M & 0xFFFF0000
+	gpr.N |= temp1
+	gpr.N |= temp2
+	sh2_fetch
+
+0110NNNNMMMM1001 swap_w
+	local temp 32
+	cycles 1
+	temp = gpr.M >> 16
+	gpr.N = gpr.M << 16
+	gpr.N |= temp
+	sh2_fetch
+
+0010NNNNMMMM1101 xtrct
+	cycles 1
+	scratch1 = gpr.M << 16
+	gpr.N >>= 16
+	gpr.N |= scratch1
+	sh2_fetch
+
+0011NNNNMMMM1100 add_rm_rn
+	cycles 1
+	gpr.N += gpr.M
+	sh2_fetch
+
+0111NNNNIIIIIIII add_imm_rn
+	nospecialize I
+	local imm 32
+	cycles 1
+	imm = sext 16 I
+	imm = sext 32 scratch1
+	gpr.N += imm
+	sh2_fetch
+
+0011NNNNMMMM1110 addc_rm_rn
+	cycles 1
+	gpr.N = adc gpr.M gpr.N
+	update_flags C
+	sh2_fetch
+
+0011NNNNMMMM1111 addv_rm_rn
+	cycles 1
+	gpr.N += gpr.M
+	update_flags V
+	sh2_fetch
+
+10001000IIIIIIII cmpeq_imm_r0
+	nospecialize I
+	local imm 32
+	cycles 1
+	imm = sext 16 I
+	imm = sext 32 scratch1
+	cmp imm r0
+	update_flags Z
+	sh2_fetch
+
+0011NNNNMMMM0000 cmpeq_rm_rn
+	cycles 1
+	cmp gpr.M gpr.N
+	update_flags Z
+	sh2_fetch
+
+0011NNNNMMMM0010 cmphs_rm_rn
+	cycles 1
+	if gpr.N >=U gpr.M
+		t = 1
+	else
+		t = 0
+	end
+	sh2_fetch
+
+0011NNNNMMMM0011 cmpge_rm_rn
+	cycles 1
+	if gpr.N >=S gpr.M
+		t = 1
+	else
+		t = 0
+	end
+	sh2_fetch
+
+0011NNNNMMMM0110 cmphi_rm_rn
+	cycles 1
+	cmp gpr.M gpr.N
+	update_flags C
+	t = !t
+	sh2_fetch
+
+0011NNNNMMMM0111 cmpgt_rm_rn
+	cycles 1
+	if gpr.N >=S gpr.M
+		if gpr.N = gpr.M
+			t = 0
+		else
+			t = 1
+		end
+	else
+		t = 0
+	end
+	sh2_fetch
+
+0100NNNN00010101 cmppl_rn
+	cycles 1
+	if gpr.N >=S 1
+		t = 1
+	else
+		t = 0
+	end
+
+0100NNNN00010001 cmppz_rn
+	cycles 1
+	if gpr.N >=S 0
+		t = 1
+	else
+		t = 0
+	end
+
+0010NNNNMMMM1100 cmpstr_rm_rn
+	local temp 32
+	local hh 32
+	local hl 32
+	local lh 32
+	local ll 32
+	cycles 1
+	temp = gpr.M ^ gpr.N
+	hh = temp >> 24
+	hh &= 0xFF
+	hl = temp >> 16
+	hl &= 0xFF
+	lh = temp >> 8
+	lh &= 0xFF
+	ll = temp & 0xFF
+	hh = !hh
+	hl = !hl
+	lh = !lh
+	ll = !ll
+	t = hh | hl
+	t |= lh
+	t |= ll
+	sh2_fetch
+
+0011NNNNMMMM0100 div1
+	local old_q 8
+	local tmp 32
+	cycles 1
+	
+	old_q = q
+	q = gpr.N >> 31
+	gpr.N <<= 1
+	gpr.N |= t
+	tmp = gpr.N
+	if old_q
+		if m
+			gpr.N -= gpr.M
+			if tmp >=U gpr.N
+				q = !q
+			else
+				#Q unchanged
+			end
+		else
+			gpr.N += gpr.M
+			if gpr.N >=U tmp
+				#Q unchanged
+			else
+				q = !q
+			end
+		end
+	else
+		if m
+			gpr.N += gpr.M
+			if gpr.N >=U tmp
+				q = !q
+			else
+				#Q unchanged
+			end
+		else
+			gpr.N -= gpr.M
+			if tmp >=U gpr.N
+				#Q unchanged
+			else
+				q = !q
+			end
+		end
+	end
+	t = q ^ m
+	t = !t
+	sh2_fetch
+
+0010NNNNMMMM0111 div0s
+	cycles 1
+	q = gpr.N >> 31
+	m = gpr.M >> 31
+	t = m ^ q
+	sh2_fetch
+
+0000000000011001 div0u
+	cycles 1
+	q = 0
+	m = 0
+	t = 0
+	sh2_fetch
+
+0011NNNNMMMM1101 dmuls
+	local temp 64
+	cycles 3 #manual says 2-4
+	temp = gpr.N *S gpr.M
+	macl = temp
+	mach = temp >> 32
+	sh2_fetch
+
+0011NNNNMMMM0101 dmulu
+	local temp 64
+	cycles 3 #manual says 2-4
+	temp = gpr.N * gpr.M
+	macl = temp
+	mach = temp >> 32
+	sh2_fetch
+
+0100NNNN00010000 dt
+	cycles 1
+	gpr.N -= 1
+	update_flags Z
+	sh2_fetch
+
+0110NNNNMMMM1110 exts_b
+	cycles 1
+	gpr.M = sext 16 gpr.N
+	gpr.M = sext 32 gpr.M
+	sh2_fetch
+
+0110NNNNMMMM1111 exts_w
+	cycles 1
+	gpr.M = sext 16 gpr.N
+	gpr.M = sext 32 gpr.M
+	sh2_fetch
+
+0110NNNNMMMM1100 extu_b
+	cycles 1
+	gpr.M = gpr.N & 0xFF
+	sh2_fetch
+
+0110NNNNMMMM1101 extu_w
+	cycles 1
+	gpr.M = gpr.N & 0xFFFF
+	sh2_fetch
+
+0000NNNNMMMM1111 mac_l
+	local tmp1 64
+	local tmp2 64
+	cycles 3 # manual says 3/(2 to 4)
+	tmp1 = gpr.N * gpr.M
+	tmp2 = mach << 32
+	tmp2 |= macl
+	tmp1 += tmp2
+	macl = tmp1
+	mach = tmp1 >> 32
+	sh2_fetch
+
+0100NNNNMMMM1111 mac_w
+	local tmp1 64
+	local tmp2 64
+	local tmpn 32
+	local tmpm 32
+	cycles 3 # manual says 3/(2 to 4)
+	tmpn = sext 16 gpr.N
+	tmpm = sext 16 gpr.M
+	tmp1 = tmpn * tmpm
+	tmp2 = mach << 32
+	tmp2 |= macl
+	tmp1 += tmp2
+	macl = tmp1
+	mach = tmp1 >> 32
+	sh2_fetch
+
+0000NNNNMMMM0111 mul_l
+	cycles 3 # manual says 2-4
+	macl = gpr.N * gpr.M
+	sh2_fetch
+
+0010NNNNMMMM1111 muls_w
+	local tmpn 32
+	local tmpm 32
+	cycles 2 # manual says 1-3
+	tmpn = sext 16 gpr.N
+	tmpm = sext 16 gpr.M
+	macl = tmpn *S tmpm
+	sh2_fetch
+
+0010NNNNMMMM1110 mulu_w
+	local tmpn 32
+	local tmpm 32
+	cycles 2 # manual says 1-3
+	tmpn = gpr.N & 0xFFFF
+	tmpm = gpr.M & 0xFFFF
+	macl = tmpn * tmpm
+	sh2_fetch
+
+0110NNNNMMMM1011 neg
+	cycles 1
+	gpr.N = -gpr.M
+	sh2_fetch
+
+0110NNNNMMMM1010 negc
+	cycles 1
+	gpr.N = sbc gpr.M 0
+	update_flags C
+	sh2_fetch
+
+0011NNNNMMMM1000 sub
+	cycles 1
+	gpr.N -= gpr.M
+	sh2_fetch
+
+0011NNNNMMMM1010 subc
+	cycles 1
+	gpr.N = sbc gpr.M gpr.N
+	update_flags C
+	sh2_fetch
+
+0011NNNNMMMM1011 subv
+	cycles 1
+	gpr.N -= gpr.M
+	update_flags V
+	sh2_fetch
 
 sh2_run_op
 	scratch1 = prefetch & 0xFFFF

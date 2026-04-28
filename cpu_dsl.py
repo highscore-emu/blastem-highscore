@@ -17,7 +17,7 @@ binaryOps = {
 	'>>': 'lsr',
 	'*': 'mulu',
 	'*S': 'muls',
-    '/': 'divu',
+	'/': 'divu',
 	'&': 'and',
 	'|': 'or',
 	'^': 'xor'
@@ -27,7 +27,7 @@ unaryOps = {
 	'!': 'lnot',
 	'-': 'neg'
 }
-compareOps = {'>=U', '=', '!='}
+compareOps = {'>=U', '>=S', '=', '!='}
 class Block:
 	def addOp(self, op):
 		pass
@@ -62,6 +62,7 @@ class Block:
 				parts = [assignmentOps[op]] + parts[2:]
 				if op == '=':
 					if len(parts) > 2 and parts[2] in binaryOps:
+						# assignment of binary operator expression
 						op = parts[2]
 						if op == '-':
 							tmp = parts[1]
@@ -70,6 +71,7 @@ class Block:
 						parts[0] = binaryOps[op]
 						del parts[2]
 					elif len(parts) > 1 and parts[1][0] in unaryOps:
+						# assignment of unary operator expression result
 						rest = parts[1][1:]
 						op = parts[1][0]
 						if rest:
@@ -77,6 +79,10 @@ class Block:
 						else:
 							del parts[1]
 						parts[0] = unaryOps[op]
+					elif len(parts) > 2:
+						# assignment of instruction result
+						parts[0] = parts[1]
+						del parts[1]
 				else:
 					if op == '<<=' or op == '>>=':
 						parts.insert(1, dst)
@@ -397,7 +403,7 @@ class Op:
 					elif calc == 'overflow':
 						needsOflow = True
 			decl = ''
-			if needsCarry or needsOflow or needsHalf or (flagUpdates and needsSizeAdjust):
+			if needsCarry or needsOflow or needsHalf or (flagUpdates and needsSizeAdjust) or size == 64:
 				if needsCarry and op != '>>':
 					size *= 2
 				decl,name = prog.getTemp(size)
@@ -1303,7 +1309,7 @@ _opMap = {
 	'rrc': Op().addImplementation('c', 2, _rrcCImpl),
 	'mulu': Op(lambda a, b: a * b).addImplementation('c', 2, _muluCImpl),
 	'muls': Op().addImplementation('c', 2, _mulsCImpl),
-    'divu': Op(lambda a, b: a * b).addImplementation('c', 2, _divuCImpl),
+	'divu': Op(lambda a, b: a * b).addImplementation('c', 2, _divuCImpl),
 	'and': Op(lambda a, b: a & b).cBinaryOperator('&'),
 	'or':  Op(lambda a, b: a | b).cBinaryOperator('|'),
 	'xor': Op(lambda a, b: a ^ b).cBinaryOperator('^'),
@@ -1608,6 +1614,18 @@ def _geuCImpl(prog, parent, fieldVals, output):
 	else:
 		raise Exception(">=U not implemented in the general case yet")
 
+def _gesCImpl(prog, parent, fieldVals, output):
+	if prog.lastOp.op == 'cmp':
+		output.pop()
+		params = [prog.resolveParam(p, parent, fieldVals) for p in prog.lastOp.params]
+		a = params[1]
+		b = params[0]
+		sza = prog.paramSize(prog.lastOp.params[1])
+		szb = prog.paramSize(prog.lastOp.params[0])
+		return f'\n\tif (((int{sza}_t){a}) >= ((int{szb}_t){b})) ' + '{'
+	else:
+		raise Exception(">=S not implemented in the general case yet")
+
 def _eqCImpl(prog, parent, fieldVals, output):
 	if prog.lastOp.op == 'cmp':
 		output.pop()
@@ -1627,12 +1645,21 @@ def _neqCImpl(prog, parent, fieldVals, output):
 _ifCmpImpl = {
 	'c': {
 		'>=U': _geuCImpl,
+		'>=S': _gesCImpl,
 		'=': _eqCImpl,
 		'!=': _neqCImpl
 	}
 }
+def _gesCmpEval(a, b):
+	if a & 0x80000000:
+		a = -((-a) & 0xFFFFFFFF)
+	if b & 0x80000000:
+		b = -((-b) & 0xFFFFFFFF)
+	return a >= b
+
 _ifCmpEval = {
 	'>=U': lambda a, b: a >= b,
+	'>=S': _gesCmpEval,
 	'=': lambda a, b: a == b,
 	'!=': lambda a, b: a != b
 }
