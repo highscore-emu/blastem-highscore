@@ -705,6 +705,196 @@ sh2_reset
 	update_flags V
 	sh2_fetch
 
+0010NNNNMMMM1001 and_rm_rn
+	cycles 1
+	gpr.N &= gpr.M
+	sh2_fetch
+
+11001001IIIIIIII andi_r0
+	nospecialize I
+	cycles 1
+	r0 &= I
+	sh2_fetch
+
+11001101IIIIIIII andi_r0_gbr
+	nospecialize I
+	cycles 1
+	local imm 8
+	imm = I
+	scratch1 = r0 + gbr
+	sh2_read8_data scratch1
+	cycles 2
+	scratch1 &= imm
+	scratch2 = r0 + gbr
+	sh2_write8 scratch2 scratch1
+	sh2_fetch
+
+0110NNNNMMMM0111 not
+	cycles 1
+	gpr.N = ~gpr.M
+	sh2_fetch
+
+0010NNNNMMMM1011 or_rm_rn
+	cycles 1
+	gpr.N |= gpr.M
+	sh2_fetch
+
+11001011IIIIIIII or_imm_r0
+	cycles 1
+	r0 |= I
+	sh2_fetch
+
+11001111IIIIIIII or_imm_r0_gbr
+	nospecialize I
+	cycles 1
+	local imm 8
+	imm = I
+	scratch1 = r0 + gbr
+	sh2_read8_data scratch1
+	cycles 2
+	scratch1 |= imm
+	scratch2 = r0 + gbr
+	sh2_write8 scratch2 scratch1
+	sh2_fetch
+
+0100NNNN00011011 tas
+	cycles 1
+	sh2_read8_data gpr.N
+	cycles 3
+	t = !scratch1
+	scratch1 |= 0x80
+	sh2_write8 gpr.N scratch1
+	sh2_fetch
+
+0010NNNNMMMM1000 tst_rm_rn
+	local temp 32
+	cycles 1
+	temp = gpr.N & gpr.M
+	t = !temp
+	sh2_fetch
+
+11001000IIIIIIII tst_imm_r0
+	nospecialize I
+	local temp 32
+	cycles 1
+	temp = r0 & I
+	t = !temp
+	sh2_fetch
+
+11001100IIIIIIII tst_imm_r0_gbr
+	nospecialize I
+	local imm 32
+	cycles 1
+	imm = I
+	scratch1 = r0 + gbr
+	sh2_read8_data scratch1
+	cycles 2
+	imm &= scratch1
+	t = !imm
+	sh2_fetch
+
+0010NNNNMMMM1010 xor_rm_rn
+	cycles 1
+	gpr.N ^= gpr.M
+	sh2_fetch
+
+11001010IIIIIIII xor_imm_r0
+	nospecialize I
+	cycles 1
+	r0 ^= I
+	sh2_fetch
+
+11001110IIIIIIII xor_imm_r0_gbr
+	nospecialize I
+	cycles 1
+	local imm 8
+	imm = I
+	scratch1 = r0 + gbr
+	sh2_read8_data scratch1
+	cycles 2
+	scratch1 ^= imm
+	scratch2 = r0 + gbr
+	sh2_write8 scratch2 scratch1
+	sh2_fetch
+
+0100NNNN00000100 rotl
+	cycles 1
+	gpr.N = rol gpr.N 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00000101 rotr
+	cycles 1
+	gpr.N = ror gpr.N 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00100100 rotcl
+	cycles 1
+	gpr.N = rlc gpr.N 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00100101 rotcr
+	cycles 1
+	gpr.N = rrc gpr.N 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00100000 shal
+	cycles 1
+	gpr.N = gpr.N << 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00100001 shar
+	cycles 1
+	gpr.N = asr gpr.N 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00000000 shll
+	cycles 1
+	gpr.N = gpr.N << 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00000001 shlr
+	cycles 1
+	gpr.N = gpr.N >> 1
+	update_flags C
+	sh2_fetch
+
+0100NNNN00001000 shll2
+	cycles 1
+	gpr.N = gpr.N << 2
+	sh2_fetch
+
+0100NNNN00001001 shlr2
+	cycles 1
+	gpr.N = gpr.N >> 2
+	sh2_fetch
+
+0100NNNN00011000 shll8
+	cycles 1
+	gpr.N = gpr.N << 8
+	sh2_fetch
+
+0100NNNN00011001 shlr8
+	cycles 1
+	gpr.N = gpr.N >> 8
+	sh2_fetch
+
+0100NNNN00101000 shll16
+	cycles 1
+	gpr.N = gpr.N << 16
+	sh2_fetch
+
+0100NNNN00101001 shlr16
+	cycles 1
+	gpr.N = gpr.N >> 16
+	sh2_fetch
+
 sh2_run_op
 	scratch1 = prefetch & 0xFFFF
 	dispatch scratch1
