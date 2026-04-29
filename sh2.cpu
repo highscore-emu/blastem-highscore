@@ -19,6 +19,7 @@ regs
 	prefetch_full 8
 	did_mem 8
 	t 8
+	s 8
 	m 8
 	q 8
 
@@ -91,6 +92,7 @@ sh2_vector_read
 	sh2_read32 scratch1
 
 sh2_fetch
+	pc += 2
 	if prefetch_full
 		prefetch = prefetch >> 16
 		prefetch_full = 0
@@ -108,6 +110,21 @@ sh2_fetch
 			prefetch = scratch1
 			prefetch_full = 1
 		end
+	end
+	did_mem = 0
+
+sh2_fetch_delay_slot
+	pc += 2
+	if prefetch_full
+		prefetch = prefetch >> 16
+		prefetch_full = 0
+	else
+		if did_mem
+			#pipeline bubble to to MA/IF conflict
+			cycles 1
+		end
+		sh2_read16 pc
+		prefetch = scratch1
 	end
 	did_mem = 0
 	
@@ -630,10 +647,22 @@ sh2_reset
 	local tmp1 64
 	local tmp2 64
 	cycles 3 # manual says 3/(2 to 4)
-	tmp1 = gpr.N * gpr.M
+	sh2_read32_data gpr.N
+	tmp1 = scratch1
+	sh2_read32_data gpr.M
+	tmp1 *= scratch1
 	tmp2 = mach << 32
 	tmp2 |= macl
 	tmp1 += tmp2
+	if s
+		if tmp1 >=S 0x800000000000
+			tmp1 = 0x7FFFFFFFFFFF
+		else
+			if tmp1 >=U 0xFFFF800000000001
+				tmp1 = 0xFFFF800000000000
+			end
+		end
+	end
 	macl = tmp1
 	mach = tmp1 >> 32
 	sh2_fetch
@@ -644,12 +673,25 @@ sh2_reset
 	local tmpn 32
 	local tmpm 32
 	cycles 3 # manual says 3/(2 to 4)
-	tmpn = sext 16 gpr.N
-	tmpm = sext 16 gpr.M
+	sh2_read32_data gpr.N
+	tmpn = sext 16 scratch1
+	sh2_read32_data gpr.M
+	tmpm = sext 16 scratch1
 	tmp1 = tmpn * tmpm
 	tmp2 = mach << 32
 	tmp2 |= macl
 	tmp1 += tmp2
+	if s
+		if tmp1 >=S 0x80000000
+			tmp1 = 0x17FFFFFFF
+		else
+			if tmp1 >=U 0xFFFFFFFF80000001
+				tmp1 = 0x180000000
+			else
+				tmp1 &= 0xFFFFFFFF
+			end
+		end
+	end
 	macl = tmp1
 	mach = tmp1 >> 32
 	sh2_fetch
@@ -893,6 +935,340 @@ sh2_reset
 0100NNNN00101001 shlr16
 	cycles 1
 	gpr.N = gpr.N >> 16
+	sh2_fetch
+
+10001011DDDDDDDD bf
+	local disp 32
+	cycles 1
+	if t = 0
+		disp = sext 16 D
+		disp = sext 32 D
+		disp <<= 1
+		pc += disp
+		pc += 2
+		prefetch_full = 0
+		cycles 2
+	end
+	sh2_fetch
+
+10001001DDDDDDDD bt
+	local disp 32
+	cycles 1
+	if t
+		disp = sext 16 D
+		disp = sext 32 D
+		disp <<= 1
+		pc += disp
+		pc += 2
+		prefetch_full = 0
+		cycles 2
+	end
+	sh2_fetch
+
+10001111DDDDDDDD bf_s
+	local disp 32
+	cycles 1
+	if t = 0
+		disp = sext 16 D
+		disp = sext 32 D
+		disp <<= 1
+		sh2_fetch_delay_slot
+		pc += disp
+		pc += 2
+		cycles 1
+	else
+		sh2_fetch
+	end
+
+10001101DDDDDDDD bt_s
+	local disp 32
+	cycles 1
+	if t
+		disp = sext 16 D
+		disp = sext 32 D
+		disp <<= 1
+		sh2_fetch_delay_slot
+		pc += disp
+		pc += 2
+		cycles 1
+	else
+		sh2_fetch
+	end
+
+1010DDDDDDDDDDDD bra
+	nospecialize D
+	local disp 32
+	local temp 32
+	cycles 1
+	disp = D
+	temp = disp & 0x800
+	if temp
+		disp |= 0xFFFFF000
+	else
+	disp <<= 1
+	sh2_fetch_delay_slot
+	pc += disp
+	pc += 2
+	cycles 1
+
+0000MMMM00100011 braf
+	cycles 1
+	sh2_fetch_delay_slot
+	pc += gpr.M
+	cycles 1
+
+1011DDDDDDDDDDDD bsr
+	nospecialize D
+	local disp 32
+	local temp 32
+	cycles 1
+	disp = D
+	temp = disp & 0x800
+	if temp
+		disp |= 0xFFFFF000
+	else
+	disp <<= 1
+	pr = pc
+	sh2_fetch_delay_slot
+	pc += disp
+	pc += 2
+	cycles 1
+
+0000MMMM00000011 bsrf
+	cycles 1
+	pr = pc
+	sh2_fetch_delay_slot
+	pc += gpr.M
+	cycles 1
+
+0100MMMM00101011 jmp
+	cycles 1
+	sh2_fetch_delay_slot
+	pc = gpr.M
+	cycles 1
+
+0100MMMM00001011 jsr
+	cycles 1
+	pr = pc
+	sh2_fetch_delay_slot
+	pc = gpr.M
+	cycles 1
+
+0000000000001011 sh2_rts
+	cycles 1
+	sh2_fetch_delay_slot
+	pc = pr + 4
+	cycles 1
+
+0000000000001000 clrt
+	cycles 1
+	t = 0
+	sh2_fetch
+
+0000000000101000 clrmac
+	cycles 1
+	mach = 0
+	macl = 0
+	sh2_fetch
+
+0100MMMM00001110 ldc_rm_sr
+	cycles 1
+	sr = gpr.M & 0x3F3
+	t = sr & 1
+	s = sr >> 1
+	s &= 1
+	q = sr >> 8
+	q &= 1
+	m = sr >> 9
+	m &= 1
+	sh2_fetch
+
+0100MMMM00011110 ldc_rm_gbr
+	cycles 1
+	gbr = gpr.M
+	sh2_fetch
+
+0100MMMM00101110 ldc_rm_vbr
+	cycles 1
+	vbr = gpr.M
+	sh2_fetch
+
+0100MMMM00000111 ldc_rm_postinc_sr
+	cycles 1
+	sh2_read32_data gpr.M
+	cycles 2
+	sr = scratch1 & 0x3F3
+	gpr.M += 4
+	t = sr & 1
+	s = sr >> 1
+	s &= 1
+	q = sr >> 8
+	q &= 1
+	m = sr >> 9
+	m &= 1
+	sh2_fetch
+
+0100MMMM00010111 ldc_rm_postinc_gbr
+	cycles 1
+	sh2_read32_data gpr.M
+	cycles 2
+	gbr = scratch1
+	gpr.M += 4
+	sh2_fetch
+
+0100MMMM00100111 ldc_rm_postinc_vbr
+	cycles 1
+	sh2_read32_data gpr.M
+	cycles 2
+	vbr = scratch1
+	gpr.M += 4
+	sh2_fetch
+
+0100MMMM00001010 lds_mach
+	cycles 1
+	mach = gpr.M
+	sh2_fetch
+
+0100MMMM00011010 lds_macl
+	cycles 1
+	macl = gpr.M
+	sh2_fetch
+
+0100MMMM00101010 lds_pr
+	cycles 1
+	pr = gpr.M
+	sh2_fetch
+
+0100MMMM00000110 lds_rm_postinc_mach
+	cycles 1
+	sh2_read32_data gpr.M
+	mach = scratch1
+	gpr.M += 4
+	sh2_fetch
+
+0100MMMM00010110 lds_rm_postinc_macl
+	cycles 1
+	sh2_read32_data gpr.M
+	macl = scratch1
+	gpr.M += 4
+	sh2_fetch
+
+0100MMMM00100110 lds_rm_postinc_pr
+	cycles 1
+	sh2_read32_data gpr.M
+	pr = scratch1
+	gpr.M += 4
+	sh2_fetch
+
+0000000000001001 nop
+	cycles 1
+	sh2_fetch
+
+0000000000011000 sett
+	cycles 1
+	t = 1
+	sh2_fetch
+
+0000NNNN00000010 stc_sr_rn
+	cycles 1
+	gpr.N = sr
+	sh2_fetch
+
+0000NNNN00010010 stc_gbr_rn
+	cycles 1
+	gpr.N = gbr
+	sh2_fetch
+
+0000NNNN00100010 stc_vbr_rn
+	cycles 1
+	gpr.N = vbr
+	sh2_fetch
+
+0100NNNN00000011 stc_sr_rn_predec
+	cycles 2
+	gpr.N -= 4
+	sh2_write32 gpr.N sr
+	sh2_fetch
+
+0100NNNN00010011 stc_gbr_rn_predec
+	cycles 2
+	gpr.N -= 4
+	sh2_write32 gpr.N gbr
+	sh2_fetch
+
+0100NNNN00100011 stc_vbr_rn_predec
+	cycles 2
+	gpr.N -= 4
+	sh2_write32 gpr.N vbr
+	sh2_fetch
+
+0000NNNN00001010 sts_mach_rn
+	cycles 1
+	gpr.N = mach
+	sh2_fetch
+
+0000NNNN00011010 sts_macl_rn
+	cycles 1
+	gpr.N = macl
+	sh2_fetch
+
+0000NNNN00101010 sts_pr_rn
+	cycles 1
+	gpr.N = pr
+	sh2_fetch
+
+0100NNNN00000010 sts_mach_rn_predec
+	cycles 1
+	gpr.N -= 4
+	sh2_write32 gpr.N mach
+	sh2_fetch
+
+0100NNNN00010010 sts_macl_rn_predec
+	cycles 1
+	gpr.N -= 4
+	sh2_write32 gpr.N macl
+	sh2_fetch
+
+0100NNNN00100010 sts_pr_rn_predec
+	cycles 1
+	gpr.N -= 4
+	sh2_write32 gpr.N pr
+	sh2_fetch
+
+0000000000101011 rte
+	cycles 1
+	sh2_fetch_delay_slot
+	cycles 1
+	sh2_read32_data r15
+	pc = scratch1 + 4
+	r15 += 4
+	cycles 1
+	sh2_read32_data r15
+	sr = scratch1 & 0x3F3
+	t = sr & 1
+	s = sr >> 1
+	s &= 1
+	q = sr >> 8
+	q &= 1
+	m = sr >> 9
+	m &= 1
+	cycles 1
+
+11000011IIIIIIII trapa
+	local imm 32
+	nospecialize I
+	cycles 2
+	r15 -= 4
+	imm = I
+	sh2_write32 r15 sr
+	cycles 2
+	r15 -= 4
+	scratch1 = pc - 2
+	sh2_write32 r15 scratch1
+	sh2_vector_read imm
+	pc = scratch1 + 4
+	cycles 3
+	prefetch_full = 0
 	sh2_fetch
 
 sh2_run_op

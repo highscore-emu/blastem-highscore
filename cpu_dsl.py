@@ -8,7 +8,8 @@ assignmentOps = {
 	'>>=': 'lsr',
 	'&=': 'and',
 	'|=': 'or',
-	'^=': 'xor'
+	'^=': 'xor',
+	'*=': 'mulu'
 }
 binaryOps = {
 	'+': 'add',
@@ -411,9 +412,21 @@ class Op:
 				prog.lastA = a
 				prog.lastB = b
 				if size == 64:
-					a = '((uint64_t){a})'.format(a=a)
-					b = '((uint64_t){b})'.format(b=b)
-				prog.lastBFlow = b if op == '-' else '(~{b})'.format(b=b)
+					if type(a) is int:
+						if a >= 0:
+							a = f'{a}ULL'
+						else:
+							a = f'{a}LL'
+					else:
+						a = f'((uint64_t){a})'
+					if type(b) is int:
+						if b >= 0:
+							b = f'{b}ULL'
+						else:
+							b = f'{b}LL'
+					else:
+						b = f'((uint64_t){b})'
+				prog.lastBFlow = b if op == '-' else f'(~{b})'
 			elif needsSizeAdjust:
 				decl,name = prog.getTemp(size)
 				dst = params[2]
@@ -474,13 +487,20 @@ class Op:
 						return decl + '\n\t{dst} = {op}({a} & {mask});'.format(
 							dst = dst, a = params[0], op = op, mask = (1 << prog.sizeAdjust) - 1
 						)
+			a = params[0]
+			if size == 64:
+				if type(a) is int:
+					if a >= 0:
+						a = f'{a}ULL'
+					else:
+						a = f'{a}LL'
 			if needsSizeAdjust:
 				return decl + '\n\t{dst} = ({dst} & ~{mask}) | (({op}{a}) & {mask});'.format(
-					dst = dst, a = params[0], op = op, mask = (1 << prog.sizeAdjust) - 1
+					dst = dst, a = a, op = op, mask = (1 << prog.sizeAdjust) - 1
 				)
 			else:
 				return decl + '\n\t{dst} = {op}{a};'.format(
-					dst = dst, a = params[0], op = op
+					dst = dst, a = a, op = op
 				)
 		self.impls['c'] = _impl
 		self.outOp = (1,)
@@ -1610,7 +1630,19 @@ def _geuCImpl(prog, parent, fieldVals, output):
 	if prog.lastOp.op == 'cmp':
 		output.pop()
 		params = [prog.resolveParam(p, parent, fieldVals) for p in prog.lastOp.params]
-		return '\n\tif ({a} >= {b}) '.format(a=params[1], b = params[0]) + '{'
+		a = params[1]
+		b = params[0]
+		if type(a) is int:
+			if a >= 0x100000000:
+				a = f'{a}ULL'
+			elif a > 0x7FFFFFFF:
+				a = f'{a}U'
+		if type(b) is int:
+			if b >= 0x100000000:
+				b = f'{b}ULL'
+			elif b > 0x7FFFFFFF:
+				b = f'{b}U'
+		return f'\n\tif ({a} >= {b}) ' + '{'
 	else:
 		raise Exception(">=U not implemented in the general case yet")
 
