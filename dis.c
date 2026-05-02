@@ -74,56 +74,6 @@ void print_label_def(char *key, tern_val val, uint8_t valtype, void *data)
 	}
 }
 
-void process_address_def(disasm_context *context, char *def)
-{
-	char *end;
-	uint32_t address = strtol(def, &end, 16);
-	if (*end == '=') {
-		defer_disasm(context, address);
-		add_label(context, strip_ws(end+1), address);
-	} else if (*end && !isspace(*end)) {
-		uint8_t is_table = 0;
-		if (*end == 't') {
-			is_table = 1;
-			end++;
-		}
-		uint8_t el_size, is_pointer = 0;;
-		switch (*end)
-		{
-		case 'y':
-		case 'b': el_size = 1; break;
-		case 'w': el_size = 2; break;
-		case 'f':
-		case 'p': is_pointer = 1;
-		case 'l': el_size = 4; break;
-		default:
-			fprintf(stderr, "Invalid character %c in address definition %s\n", *end, def);
-			exit(1);
-		}
-		uint32_t count = 1;
-		char *count_end = end + 1;
-		if (is_table) {
-			count = strtol(end + 1, &count_end, 10);
-			if (count_end == end + 2) {
-				fprintf(stderr, "Table address definition %s missing count\n", def);
-				exit(1);
-			}
-		}
-		label_def *def = *count_end == '=' ? add_label(context, strip_ws(count_end+1), address) : reference(context, address);
-		def->data_count = count;
-		def->data_size = el_size;
-		def->is_pointer = is_pointer;
-		if (*end == 'f') {
-			defer_disasm_label(context, address, def);
-		} else {
-			visit(context, address);
-		}
-	} else {
-		defer_disasm(context, address);
-		reference(context, address);
-	}
-}
-
 int main(int argc, char ** argv)
 {
 	long filesize;

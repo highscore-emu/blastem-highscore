@@ -320,7 +320,7 @@ ifdef FONT_PATH
 CFLAGS+= -DFONT_PATH='"'$(FONT_PATH)'"'
 endif
 
-ALL=dis$(EXE) zdis$(EXE) blastem$(EXE)
+ALL=dis$(EXE) zdis$(EXE) upddis$(EXE) sh2dis$(EXE) blastem$(EXE)
 ifneq ($(OS),Windows)
 ALL+= termhelper
 endif
@@ -331,6 +331,7 @@ ZTESTOBJS:=ztestrun.o serialize.o $(Z80OBJS) $(TRANSOBJS) util.o
 CPMOBJS:=blastcpm.o util.o serialize.o $(Z80OBJS) $(TRANSOBJS)
 UPD78K2RUNOBJS:=upd78k2.o upd78k2run.o util.o backend.o tern.o
 UPDDISOBJS:=upddis.o upd78k2_dis.o disasm.o tern.o util.o backend.o
+SH2DISOBJS:=sh2dis.o sh2_decode.o disasm.o tern.o util.o backend.o
 
 LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB -DDISABLE_ZLIB
 
@@ -362,6 +363,7 @@ endif
 -include $(ZDISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.d)
 -include $(UPDDISOBJS:%.o=$(OBJDIR)/%.d)
+-include $(SH2DISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(OBJDIR)/trans.d
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
@@ -411,6 +413,9 @@ upd78k2run : $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 upddis$(EXE) : $(UPDDISOBJS:%.o=$(OBJDIR)/%.o)
+	$(CC) -o $@ $^ $(OPT)
+
+sh2dis$(EXE) : $(SH2DISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c

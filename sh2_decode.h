@@ -1,6 +1,7 @@
 #ifndef SH2_DECODE_H_
 #define SH2_DECODE_H_
 #include <stdint.h>
+#include "disasm.h"
 
 enum {
 	SH2_INVALID,
@@ -119,7 +120,7 @@ enum {
 	SH2_NOREG,
 	SH2_SR, SH2_GBR, SH2_VBR,
 	SH2_MACH, SH2_MACL, SH2_PR,
-	SH2_IMMED, SH2_REL, SH2_IDX_R0_GBR,
+	SH2_IMMED, SH2_REL, SH2_IDX_R0_GBR, SH2_DISP_PC,
 	SH2_R0 = 16, SH2_R1, SH2_R2, SH2_R3,
 	SH2_R4, SH2_R5, SH2_R6, SH2_R7,
 	SH2_R8, SH2_R9, SH2_R10, SH2_R11,
@@ -144,7 +145,7 @@ enum {
 	SH2_DISP_R4, SH2_DISP_R5, SH2_DISP_R6, SH2_DISP_R7,
 	SH2_DISP_R8, SH2_DISP_R9, SH2_DISP_R10, SH2_DISP_R11,
 	SH2_DISP_R12, SH2_DISP_R13, SH2_DISP_R14, SH2_DISP_SP,
-	SH2_DISP_PC, SH2_DISP_GBR
+	SH2_DISP_GBR
 };
 
 typedef struct {
@@ -155,5 +156,8 @@ typedef struct {
 } sh2_inst;
 
 extern const char *sh2_mnemonics[];
+
+sh2_inst sh2_decode(uint16_t inst);
+int sh2_disasm(char *dst, sh2_inst inst, uint32_t address, disasm_context *context);
 
 #endif //SH2_DECODE_H_

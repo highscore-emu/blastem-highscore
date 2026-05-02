@@ -2,6 +2,7 @@
 #include "sh2_decode.h"
 
 const char *sh2_mnemonics[] = {
+	"invalid",
 	"add",
 	"addc",
 	"addv",
@@ -90,7 +91,7 @@ static const char* sh2_regnames[] = {
 	NULL,
 	"sr", "gbr", "vbr",
 	"mach", "macl", "pr",
-	"#%d", NULL, "@(r0,gbr)",
+	"#%d", NULL, "@(r0,gbr)", "@(%s,pc)",
 	[SH2_R0] = "r0", "r1", "r2", "r3",
 	"r4", "r5", "r6", "r7",
 	"r8", "r9", "r10", "r11",
@@ -115,7 +116,7 @@ static const char* sh2_regnames[] = {
 	"@(%d,r4)", "@(%d,r5)", "@(%d,r6)", "@(%d,r7)",
 	"@(%d,r8)", "@(%d,r9)", "@(%d,r10)", "@(%d,r11)",
 	"@(%d,r12)", "@(%d,r13)", "@(%d,r14)", "@(%d,sp)",
-	"@(%d,pc)", "@(%d,gbr)"
+	"@(%d,gbr)"
 };
 
 
@@ -342,7 +343,7 @@ sh2_inst sh2_decode(uint16_t inst)
 		case 0x3: return reg_binary(SH2_MOV, rm, rn);
 		case 0x4:
 		case 0x5:
-		case 0x6: return (sh2_inst){.opcode = SH2_MOVB + oplo, .src = SH2_POSTINC_R0 + rm, .dst = SH2_R0 + rn};
+		case 0x6: return (sh2_inst){.opcode = SH2_MOVB + (oplo & 3), .src = SH2_POSTINC_R0 + rm, .dst = SH2_R0 + rn};
 		case 0x7: return reg_binary(SH2_NOT, rm, rn);
 		case 0x8:
 		case 0x9: return reg_binary(SH2_SWAPB + (oplo & 1), rm, rn);
@@ -386,7 +387,7 @@ sh2_inst sh2_decode(uint16_t inst)
 		case 0x3: return (sh2_inst){.opcode = SH2_TRAPA, .src = SH2_IMMED, .immed = (inst & 0xFF)};
 		case 0x4:
 		case 0x5:
-		case 0x6: return (sh2_inst){.opcode = SH2_MOVB + rn, .src = SH2_DISP_GBR, .dst = SH2_R0, .immed = (inst & 0xFF) << rn};
+		case 0x6: return (sh2_inst){.opcode = SH2_MOVB + (rn & 3), .src = SH2_DISP_GBR, .dst = SH2_R0, .immed = (inst & 0xFF) << rn};
 		case 0x7: return (sh2_inst){.opcode = SH2_MOVA, .src = SH2_DISP_PC, .dst = SH2_R0, .immed = (inst & 0xFF) << 2};
 		case 0x8: return immed8_zext(SH2_TST, inst & 0xFF, SH2_R0);
 		case 0x9: return immed8_zext(SH2_TST, inst & 0xFF, SH2_R0);
@@ -397,8 +398,52 @@ sh2_inst sh2_decode(uint16_t inst)
 		case 0xE: return immed8_zext(SH2_TST, inst & 0xFF, SH2_IDX_R0_GBR);
 		case 0xF: return immed8_zext(SH2_TST, inst & 0xFF, SH2_IDX_R0_GBR);
 		}
-	case 0xD: return (sh2_inst){.opcode = SH2_MOVL, .src = SH2_DISP_PC, .dst = rn, .immed = (inst & 0xFF) << 2};
+	case 0xD: return (sh2_inst){.opcode = SH2_MOVL, .src = SH2_DISP_PC, .dst = SH2_R0 + rn, .immed = (inst & 0xFF) << 2};
 	case 0xE: return immed8_sext(SH2_MOV, inst & 0xFF, SH2_R0 + rn);
 	case 0xF: return sh2_invalid;
 	}
+	return sh2_invalid;
+}
+
+int sh2_disasm(char *dst, sh2_inst inst, uint32_t address, disasm_context *context)
+{
+	int ret = sprintf(dst, "%s", sh2_mnemonics[inst.opcode]);
+	if (inst.src) {
+		if (inst.src == SH2_IMMED || inst.src >= SH2_DISP_R0) {
+			dst[ret++] = ' ';
+			ret += sprintf(dst + ret, sh2_regnames[inst.src], inst.immed);
+		} else if (inst.src == SH2_DISP_PC) {
+			dst[ret++] = ' ';
+			if (inst.opcode == SH2_MOVL) {
+				address &= ~3;
+			}
+			address += inst.immed + 4;
+			char label[128];
+			if (context && context->labels) {
+				format_label(label, address, context);
+			} else {
+				sprintf(label, "%d", inst.immed);
+			}
+			ret += sprintf(dst + ret, sh2_regnames[inst.src], label);
+		} else if (inst.src == SH2_REL) {
+			address += inst.immed + 4;
+			if (context && context->labels) {
+				dst[ret++] = ' ';
+				ret += format_label(dst + ret, address, context);
+			} else {
+				ret += sprintf(dst + ret, " $%X", address);
+			}
+		} else {
+			ret += sprintf(dst + ret, " %s", sh2_regnames[inst.src]);
+		}
+	}
+	if (inst.dst) {
+		if (inst.dst == SH2_IMMED || inst.dst >= SH2_DISP_R0) {
+			dst[ret++] = ',';
+			ret += sprintf(dst + ret, sh2_regnames[inst.dst], inst.immed);
+		} else {
+			ret += sprintf(dst + ret, ",%s", sh2_regnames[inst.dst]);
+		}
+	}
+	return ret;
 }

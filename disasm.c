@@ -2,12 +2,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <ctype.h>
+#include "util.h"
 
 label_def *find_label(disasm_context *context, uint32_t address)
 {
 	char key[MAX_INT_KEY_SIZE];
 	tern_sortable_int_key(address & context->address_mask, key);
 	return tern_find_ptr(context->labels, key);
+}
+
+label_def *find_label_by_name(disasm_context *context, const char *name)
+{
+	return tern_find_ptr(context->labels_by_name, name);
 }
 
 int format_label(char *dst, uint32_t address, disasm_context *context)
@@ -33,19 +40,20 @@ label_def *add_find_label(disasm_context *context, uint32_t address)
 	return def;
 }
 
-static void name_label(label_def *def, const char *name)
+void name_label(disasm_context *context, label_def *def, const char *name)
 {
 	if (def->num_labels == def->storage) {
 		def->storage = def->storage ? def->storage * 2 : 4;
 		def->labels = realloc(def->labels, def->storage * sizeof(char*));;
 	}
 	def->labels[def->num_labels++] = strdup(name);
+	context->labels_by_name = tern_insert_ptr(context->labels_by_name, name, def);
 }
 
 label_def *weak_label(disasm_context *context, const char *name, uint32_t address)
 {
 	label_def *def = add_find_label(context, address);
-	name_label(def, name);
+	name_label(context, def, name);
 	return def;
 }
 
@@ -59,7 +67,7 @@ label_def *reference(disasm_context *context, uint32_t address)
 label_def *add_label(disasm_context *context, const char *name, uint32_t address)
 {
 	label_def *def = reference(context, address);
-	name_label(def, name);
+	name_label(context, def, name);
 	return def;
 }
 
@@ -97,6 +105,56 @@ void defer_disasm_label(disasm_context *context, uint32_t address, label_def *la
 void defer_disasm(disasm_context *context, uint32_t address)
 {
 	defer_disasm_label(context, address, NULL);
+}
+
+void process_address_def(disasm_context *context, char *def)
+{
+	char *end;
+	uint32_t address = strtol(def, &end, 16);
+	if (*end == '=') {
+		defer_disasm(context, address);
+		add_label(context, strip_ws(end+1), address);
+	} else if (*end && !isspace(*end)) {
+		uint8_t is_table = 0;
+		if (*end == 't') {
+			is_table = 1;
+			end++;
+		}
+		uint8_t el_size, is_pointer = 0;;
+		switch (*end)
+		{
+		case 'y':
+		case 'b': el_size = 1; break;
+		case 'w': el_size = 2; break;
+		case 'f':
+		case 'p': is_pointer = 1;
+		case 'l': el_size = 4; break;
+		default:
+			fprintf(stderr, "Invalid character %c in address definition %s\n", *end, def);
+			exit(1);
+		}
+		uint32_t count = 1;
+		char *count_end = end + 1;
+		if (is_table) {
+			count = strtol(end + 1, &count_end, 10);
+			if (count_end == end + 2) {
+				fprintf(stderr, "Table address definition %s missing count\n", def);
+				exit(1);
+			}
+		}
+		label_def *def = *count_end == '=' ? add_label(context, strip_ws(count_end+1), address) : reference(context, address);
+		def->data_count = count;
+		def->data_size = el_size;
+		def->is_pointer = is_pointer;
+		if (*end == 'f') {
+			defer_disasm_label(context, address, def);
+		} else {
+			visit(context, address);
+		}
+	} else {
+		defer_disasm(context, address);
+		reference(context, address);
+	}
 }
 
 void process_m68k_vectors(disasm_context *context, uint16_t *table, uint8_t labels_only)
@@ -392,6 +450,93 @@ void add_upd7823x_labels(disasm_context *context)
 	weak_label(context, "IST", 0xFFF8);
 }
 
+void process_sh2_vectors(disasm_context *context, uint16_t *table, uint8_t labels_only)
+{
+	static const char* names[] = {
+		"illegal_instruction",
+		NULL,
+		"slot_illegal_instruction",
+		NULL,
+		"cpu_address_error",
+		"dma_address_error",
+		"nmi",
+		"user_break"
+	};
+	uint32_t address = table[0] << 16 | table[1];
+	add_label(context, "power_on_reset", address);
+	if (!labels_only) {
+		defer_disasm(context, address);
+	}
+	address = table[4] << 16 | table[5];
+	add_label(context, "manual_reset", address);
+	if (!labels_only) {
+		defer_disasm(context, address);
+	}
+	
+	for (int i = 0; i < sizeof(names)/sizeof(*names); i++)
+	{
+		if (!names[i]) {
+			continue;
+		}
+		address = table[i*2+8] << 16 | table[i*2 + 9];
+		add_label(context, names[i], address);
+		if (!labels_only) {
+			defer_disasm(context, address);
+		}
+	}
+	if (!labels_only) {
+		visit(context, 0);
+		label_def *def = reference(context, 0);
+		def->data_count = 13;
+		def->data_size = 4;
+		def->is_pointer = 1;
+	}
+
+	char trap_name[] = "trap_00";
+	for (int i = 0; i < 32; i++)
+	{
+		if (i < 0x10) {
+			trap_name[5] = i < 0xA ? '0' + i : 'a' + i - 0xA;
+			trap_name[6] = 0;
+		} else {
+			char c = i >> 4;
+			trap_name[5] = c < 0xA ? '0' + c : 'a' + c - 0xA;
+			c = i & 0xF;
+			trap_name[6] = c < 0xA ? '0' + c : 'a' + c - 0xA;
+		}
+		address = table[i*2+64] << 16 | table[i*2 + 65];
+		add_label(context, trap_name, address);
+		if (!labels_only) {
+			defer_disasm(context, address);
+		}
+	}
+	if (!labels_only) {
+		visit(context, 0x80);
+		label_def *def = reference(context, 0x80);
+		def->data_count = 32;
+		def->data_size = 4;
+		def->is_pointer = 1;
+	}
+
+	char int_name[] = "irl_0";
+	for (int i = 0; i < 15; i++)
+	{
+		int_name[4] = i < 0x9 ? '1' + i : 'a' + i - 0x9;
+		address = table[i*2+128] << 16 | table[i*2 + 129];
+		add_label(context, int_name, address);
+		if (!labels_only) {
+			defer_disasm(context, address);
+		}
+	}
+	if (!labels_only) {
+		visit(context, 0x100);
+		label_def *def = reference(context, 0x100);
+		def->data_count = 15;
+		def->data_size = 4;
+		def->is_pointer = 1;
+	}
+}
+
 disasm_context *create_68000_disasm(void)
 {
 	disasm_context *context = calloc(1, sizeof(disasm_context));
@@ -416,5 +561,14 @@ disasm_context *create_upd78k2_disasm(void)
 	context->address_mask = 0xFFFF;
 	context->invalid_inst_addr_mask = 0;
 	context->visit_preshift = 0;
+	return context;
+}
+
+disasm_context *create_sh2_disasm(void)
+{
+	disasm_context *context = calloc(1, sizeof(disasm_context));
+	context->address_mask = 0x7FFFFFF;
+	context->invalid_inst_addr_mask = 1;
+	context->visit_preshift = 1;
 	return context;
 }
