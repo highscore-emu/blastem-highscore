@@ -24,7 +24,8 @@ typedef enum {
 	SYSTEM_COLECOVISION,
 	SYSTEM_PICO,
 	SYSTEM_COPERA,
-	SYSTEM_LASERACTIVE
+	SYSTEM_LASERACTIVE,
+	SYSTEM_32X
 } system_type;
 
 typedef enum {

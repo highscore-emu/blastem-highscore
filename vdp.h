@@ -11,6 +11,7 @@
 #include "system.h"
 #include "serialize.h"
 #include "pixel.h"
+#include "32x_video.h"
 
 #define VDP_REGS 24
 #define CRAM_SIZE 64
@@ -192,6 +193,7 @@ struct vdp_context {
 	uint8_t        *done_composite;
 	pixel_t        *debug_fbs[NUM_DEBUG_TYPES];
 	char           *kmod_msg_buffer;
+	s32x_video     *s32x_vid;
 	vdp_hook       dma_hook;
 	vdp_reg_hook   reg_hook;
 	vdp_data_hook  data_hook;

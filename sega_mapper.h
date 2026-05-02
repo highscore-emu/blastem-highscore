@@ -3,11 +3,21 @@
 #include "serialize.h"
 
 uint16_t read_sram_w(uint32_t address, m68k_context * context);
+uint16_t s32x_read_sram_w(uint32_t address, void * vcontext);
+uint16_t s32x_read_bankable_w(uint32_t address, void * vcontext);
 uint8_t read_sram_b(uint32_t address, m68k_context * context);
+uint8_t s32x_read_sram_b(uint32_t address, void * vcontext);
+uint8_t s32x_read_bankable_b(uint32_t address, void * vcontext);
 m68k_context * write_sram_area_w(uint32_t address, m68k_context * context, uint16_t value);
+void *s32x_write_sram_area_w(uint32_t address, void *vcontext, uint16_t value);
+void *s32x_write_bankable_w(uint32_t address, void *vcontext, uint16_t value);
 m68k_context * write_sram_area_b(uint32_t address, m68k_context * context, uint8_t value);
+void *s32x_write_sram_area_b(uint32_t address, void *vcontext, uint8_t value);
+void *s32x_write_bankable_b(uint32_t address, void *vcontext, uint8_t value);
 m68k_context * write_bank_reg_w(uint32_t address, m68k_context * context, uint16_t value);
 m68k_context * write_bank_reg_b(uint32_t address, m68k_context * context, uint8_t value);
+void *s32x_write_bank_reg_w(uint32_t address, void *vcontext, uint16_t value);
+void *s32x_write_bank_reg_b(uint32_t address, void *vcontext, uint8_t value);
 uint16_t med_reg_read_w(uint32_t address, void *vcontext);
 uint8_t med_reg_read_b(uint32_t address, void *vcontext);
 void* write_med_ram0_w(uint32_t address, void *vcontext, uint16_t value);

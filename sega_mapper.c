@@ -18,6 +18,36 @@ uint16_t read_sram_w(uint32_t address, m68k_context * context)
 	return 0xFFFF;//We should never get here
 }
 
+uint16_t s32x_read_sram_w(uint32_t address, void * vcontext)
+{
+	m68k_context * context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return 0xFFFF; // probably should return vector table
+		}
+	}
+	return read_sram_w(address, context);
+}
+
+uint16_t s32x_read_bankable_w(uint32_t address, void * vcontext)
+{
+	m68k_context * context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return read_sram_w(address, context);
+		}
+	}
+	return 0xFFFF; // probably should return vector table
+}
+
 uint8_t read_sram_b(uint32_t address, m68k_context * context)
 {
 	genesis_context * gen = context->system;
@@ -40,6 +70,36 @@ uint8_t read_sram_b(uint32_t address, m68k_context * context)
 		}
 	}
 	return 0xFF;//We should never get here
+}
+
+uint8_t s32x_read_sram_b(uint32_t address, void * vcontext)
+{
+	m68k_context * context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return 0xFF; // probably should return vector table
+		}
+	}
+	return read_sram_b(address, context);
+}
+
+uint8_t s32x_read_bankable_b(uint32_t address, void * vcontext)
+{
+	m68k_context * context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return read_sram_b(address, context);
+		}
+	}
+	return 0xFF; // probably should return vector table
 }
 
 m68k_context * write_sram_area_w(uint32_t address, m68k_context * context, uint16_t value)
@@ -72,6 +132,39 @@ m68k_context * write_sram_area_w(uint32_t address, m68k_context * context, uint1
 	return context;
 }
 
+void *s32x_write_sram_area_w(uint32_t address, void *vcontext, uint16_t value)
+{
+	m68k_context *context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return vcontext;
+		}
+	}
+	return write_sram_area_w(address, context, value);
+}
+
+void *s32x_write_bankable_w(uint32_t address, void *vcontext, uint16_t value)
+{
+	m68k_context *context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			if ((mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) >= 2) {
+				return write_sram_area_w(address, context, value);
+			}
+		}
+	}
+	return vcontext;
+}
+
+
 m68k_context * write_sram_area_b(uint32_t address, m68k_context * context, uint8_t value)
 {
 	genesis_context * gen = context->system;
@@ -95,6 +188,38 @@ m68k_context * write_sram_area_b(uint32_t address, m68k_context * context, uint8
 		}
 	}
 	return context;
+}
+
+void *s32x_write_sram_area_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	m68k_context *context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return vcontext;
+		}
+	}
+	return write_sram_area_b(address, context, value);
+}
+
+void *s32x_write_bankable_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	m68k_context *context = vcontext;
+	genesis_context * gen = context->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			if ((mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) >= 2) {
+				return write_sram_area_b(address, context, value);
+			}
+		}
+	}
+	return vcontext;
 }
 
 static void* write_med_ram_w(uint32_t address, void *vcontext, uint16_t value, uint16_t bank)
@@ -269,6 +394,48 @@ m68k_context * write_bank_reg_b(uint32_t address, m68k_context * context, uint8_
 		write_bank_reg_w(address, context, value);
 	}
 	return context;
+}
+
+void *s32x_write_bank_reg_w(uint32_t address, void *vcontext, uint16_t value)
+{
+	m68k_context *context = vcontext;
+	genesis_context *gen = context->system;
+	s32x *mars = gen->mars;
+	address &= 0xE;
+	address >>= 1;
+	gen->bank_regs[address] = value;
+	if (address) {
+		//TODO: implement full sega mapper/MED extension for 32X
+		return vcontext;
+	}
+	uint8_t cart_mapped_high = (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) && !(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV);
+	if (cart_mapped_high && (mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) < 2) {
+		//SRAM area not currently mapped, nothing to do 
+		return vcontext;
+	}
+	uint16_t start_index = cart_mapped_high ? gen->mapper_start_index - 1 : gen->mapper_start_index;
+	if (value & 1) {
+		//Used for games that only use the mapper for SRAM
+		if (context->mem_pointers[start_index]) {
+			gen->mapper_temp = context->mem_pointers[start_index];				
+			context->mem_pointers[start_index] = NULL;
+		}
+	} else {
+		//Used for games that only use the mapper for SRAM
+		if (!context->mem_pointers[start_index]) {
+			context->mem_pointers[start_index] = gen->mapper_temp;
+			gen->mapper_temp = NULL;
+		}
+	}
+	return vcontext;
+}
+
+void *s32x_write_bank_reg_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	if (!(address & 1)) {
+		return vcontext;
+	}
+	return s32x_write_bank_reg_w(address, vcontext, value);
 }
 
 uint16_t med_reg_read_w(uint32_t address, void *vcontext)

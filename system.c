@@ -10,6 +10,7 @@
 #include "util.h"
 #include "cdimage.h"
 #include "laseractive.h"
+#include "32x.h"
 
 #define SMD_HEADER_SIZE 512
 #define SMD_MAGIC1 0x03
@@ -294,7 +295,9 @@ system_type detect_system_type(system_media *media)
 		if (safe_cmp("SEGADISCSYSTEM", 0, media->buffer, media->size)) {
 			return SYSTEM_SEGACD;
 		}
-		//TODO: Differentiate between vanilla Genesis and 32X games
+		if (safe_cmp(" 32X", 0x104, media->buffer, media->size)) {
+			return SYSTEM_32X;
+		}
 		return SYSTEM_GENESIS;
 	}
 	if (safe_cmp("TMR SEGA", 0x1FF0, media->buffer, media->size)
@@ -418,6 +421,8 @@ system_header *alloc_config_system(system_type stype, system_media *media, uint3
 		return &(alloc_config_pico(media->buffer, media->size, lock_on, lock_on_size, opts, force_region, stype))->header;
 	case SYSTEM_LASERACTIVE:
 		return &(alloc_laseractive(media, opts))->header;
+	case SYSTEM_32X:
+		return &(alloc_genesis_32x(media, opts, force_region))->header;
 	default:
 		return NULL;
 	}

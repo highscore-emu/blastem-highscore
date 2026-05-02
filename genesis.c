@@ -2884,23 +2884,10 @@ static genesis_context *shared_init(uint32_t system_opts, rom_info *rom, uint8_t
 	return gen;
 }
 
-static memmap_chunk base_map[] = {
-	{0xE00000, 0x1000000, 0xFFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
-	{0xC00000, 0xE00000,  0x1FFFFF, .read_16 = (read_16_fun)vdp_port_read,  .write_16 =(write_16_fun)vdp_port_write,
-			   .read_8 = (read_8_fun)vdp_port_read_b, .write_8 = (write_8_fun)vdp_port_write_b},
-	{0xA00000, 0xA12000,  0x1FFFF,  .read_16 = (read_16_fun)io_read_w, .write_16 = (write_16_fun)io_write_w,
-			   .read_8 = (read_8_fun)io_read, .write_8 = (write_8_fun)io_write},
-	{0x000000, 0xFFFFFF, 0xFFFFFF, .read_16 = (read_16_fun)unused_read, .write_16 = unused_write,
-			   .read_8 = (read_8_fun)unused_read_b, .write_8 = (write_8_fun)unused_write_b}
-};
-const size_t base_chunks = sizeof(base_map)/sizeof(*base_map);
-
-genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, uint32_t ym_opts, uint8_t force_region)
+static genesis_context *shared_init_gen(rom_info info, void *lock_on, uint32_t lock_on_size, uint32_t ym_opts, uint8_t force_region)
 {
-	tern_node *rom_db = get_rom_db();
-	rom_info info = configure_rom(rom_db, rom, rom_size, lock_on, lock_on_size, base_map, base_chunks);
-	rom = info.rom;
-	rom_size = info.rom_size;
+	void *rom = info.rom;
+	uint32_t rom_size = info.rom_size;
 #ifndef BLASTEM_BIG_ENDIAN
 	byteswap_rom(nearest_pow2(rom_size), rom);
 	if (lock_on) {
@@ -3152,6 +3139,23 @@ genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_o
 	return gen;
 }
 
+static memmap_chunk base_map[] = {
+	{0xE00000, 0x1000000, 0xFFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
+	{0xC00000, 0xE00000,  0x1FFFFF, .read_16 = (read_16_fun)vdp_port_read,  .write_16 =(write_16_fun)vdp_port_write,
+			   .read_8 = (read_8_fun)vdp_port_read_b, .write_8 = (write_8_fun)vdp_port_write_b},
+	{0xA00000, 0xA12000,  0x1FFFF,  .read_16 = (read_16_fun)io_read_w, .write_16 = (write_16_fun)io_write_w,
+			   .read_8 = (read_8_fun)io_read, .write_8 = (write_8_fun)io_write},
+	{0x000000, 0xFFFFFF, 0xFFFFFF, .read_16 = (read_16_fun)unused_read, .write_16 = unused_write,
+			   .read_8 = (read_8_fun)unused_read_b, .write_8 = (write_8_fun)unused_write_b}
+};
+const size_t base_chunks = sizeof(base_map)/sizeof(*base_map);
+genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, uint32_t ym_opts, uint8_t force_region)
+{
+	tern_node *rom_db = get_rom_db();
+	rom_info info = configure_rom(rom_db, rom, rom_size, lock_on, lock_on_size, base_map, base_chunks);
+	return shared_init_gen(info, lock_on, lock_on_size, ym_opts, force_region);
+}
+
 genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region)
 {
 	tern_node *rom_db = get_rom_db();
@@ -3213,6 +3217,33 @@ genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t syste
 	gen->header.type = SYSTEM_SEGACD;
 
 	set_audio_config(gen);
+	return gen;
+}
+
+static memmap_chunk base_map_32x[] = {
+	{0xE00000, 0x1000000, 0xFFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
+	{0xC00000, 0xE00000,  0x1FFFFF, .read_16 = (read_16_fun)vdp_port_read,  .write_16 =(write_16_fun)vdp_port_write,
+			   .read_8 = (read_8_fun)vdp_port_read_b, .write_8 = (write_8_fun)vdp_port_write_b},
+	{0xA15100, 0xA15400, 0xFFFFFF, .read_16 = s32x_68k_read, .write_16 = s32x_68k_write,
+			   .read_8 = s32x_68k_read_b, .write_8 = s32x_68k_write_b},
+	{0xA00000, 0xA12000,  0x1FFFF,  .read_16 = (read_16_fun)io_read_w, .write_16 = (write_16_fun)io_write_w,
+			   .read_8 = (read_8_fun)io_read, .write_8 = (write_8_fun)io_write},
+	{0xA130EC, 0xA130F0, 0x3, .flags = MMAP_READ, .buffer = "AMSR"},
+	{0x000000, 0xFFFFFF, 0xFFFFFF, .read_16 = (read_16_fun)unused_read, .write_16 = unused_write,
+			   .read_8 = (read_8_fun)unused_read_b, .write_8 = (write_8_fun)unused_write_b}
+};
+const size_t s32x_base_chunks = sizeof(base_map_32x)/sizeof(*base_map_32x);
+
+genesis_context *alloc_genesis_32x(system_media *media, uint32_t opts, uint8_t force_region)
+{
+	tern_node *rom_db = get_rom_db();
+	rom_info info = configure_rom(rom_db, media->buffer, media->size, 
+		media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, base_map_32x, s32x_base_chunks
+	);
+	genesis_context *gen = shared_init_gen(info, media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, opts, force_region);
+	gen->mars = alloc_32x(media, force_region);
+	gen->header.type = SYSTEM_32X;
+	gen->vdp->s32x_vid = &gen->mars->video;
 	return gen;
 }
 
