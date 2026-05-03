@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "32x.h"
 #include "genesis.h"
+#include "sega_mapper.h"
 
 s32x *alloc_32x(system_media *media, uint8_t force_region)
 {
@@ -60,19 +61,69 @@ static uint16_t reg_write_masks[] = {
 
 static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t changes)
 {
-	if (
-		(reg == S32X_ADAPT_CTRL && (changes & BIT_ADEN_M68K))
-		|| (reg == S32X_DREQ_CTRL && (changes & BIT_DREQ_RV))
-		|| (reg == S32X_CART_BANK && (changes & S32X_BANK_MASK))
-	) {
+	uint8_t aden_changed = reg == S32X_ADAPT_CTRL && (changes & BIT_ADEN_M68K);
+	uint8_t rv_changed = reg == S32X_DREQ_CTRL && (changes & BIT_DREQ_RV);
+	uint8_t bank_changed = reg == S32X_CART_BANK && (changes & S32X_BANK_MASK);
+	if (aden_changed || rv_changed || bank_changed) {
 		genesis_context *gen = m68k->system;
 		s32x *mars = gen->mars;
-		uint8_t cart_mapped_high = (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) && !(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV);
+		uint8_t cart_mapped_high = (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) && !(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV);
 		if (cart_mapped_high) {
 			m68k->mem_pointers[0] = NULL;
 			m68k->mem_pointers[1] = gen->cart;
+			// This is either for SRAM with the cart mapped low or unused
+			m68k->mem_pointers[3] = NULL;
 			uint32_t bank_start = (mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) << 20;
-			
+			const memmap_chunk *chunk = find_map_chunk(bank_start, &m68k->opts->gen, 0, NULL);
+			if (!chunk) {
+				m68k->mem_pointers[2] = NULL;
+				return;
+			}
+			uint32_t offset = bank_start - chunk->start;
+			offset &= chunk->mask;
+			if (chunk->flags & (MMAP_ONLY_ODD | MMAP_ONLY_EVEN)) {
+				offset >>= 1;
+			}
+			if (gen->mapper_type == MAPPER_SEGA_SRAM && chunk->write_16 == s32x_write_sram_area_w && (gen->bank_regs[0] & 3) == 1) {
+				gen->mapper_temp = ((uint8_t *)chunk->buffer) + offset;
+				m68k->mem_pointers[2] = NULL;
+			} else {
+				m68k->mem_pointers[2] = (uint16_t *)((uint8_t *)chunk->buffer) + offset;
+				gen->mapper_temp = NULL;
+			}
+		} else {
+			m68k->mem_pointers[0] = gen->cart;
+			m68k->mem_pointers[1] = NULL;
+			m68k->mem_pointers[2] = NULL;
+			memmap_chunk *chunk = NULL;
+			for (uint32_t i = 0; i < m68k->opts->gen.memmap_chunks; i++)
+			{
+				const memmap_chunk *chunk = m68k->opts->gen.memmap + i;
+				if ((chunk->flags & MMAP_PTR_IDX) && chunk->ptr_index == 3) {
+					m68k->mem_pointers[3] = chunk->buffer;
+					break;
+				} else {
+					chunk = NULL;
+				}
+			}
+			if (gen->mapper_type == MAPPER_SEGA_SRAM) {
+				if ((gen->bank_regs[0] & 3) == 1) {
+					m68k->mem_pointers[3] = NULL;
+					if (chunk) {
+						gen->mapper_temp = chunk->buffer;
+					}
+				} else {
+					if (chunk) {
+						m68k->mem_pointers[3] = chunk->buffer;
+					}
+					gen->mapper_temp = NULL;
+				}
+			} else if (chunk) {
+				m68k->mem_pointers[3] = chunk->buffer;
+			}
+		}
+		if (bank_changed) {
+			m68k_invalidate_code_range(m68k, 0x900000, 0xA00000);
 		}
 	}
 }
@@ -137,8 +188,10 @@ uint16_t s32x_read_68k_vector(uint32_t address, void *vcontext)
 	}
 	uint32_t vector =  0x880200 + (((address & 0xFC) - 0x4) >> 1) * 3;
 	if (address & 2) {
+		printf("68K Vector table read %03X: %04X\n", address, vector & 0xFFFF);
 		return vector;
 	}
+	printf("68K Vector table read %03X: %04X\n", address, vector >> 16);
 	return vector >> 16;
 }
 

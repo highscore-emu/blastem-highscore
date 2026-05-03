@@ -504,7 +504,8 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				}
 				//TODO: ROM mirroring
 				info->map[0].mask = 0xFFFFFF;
-				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
+				info->map[0].aux_mask = info->map[0].mask;
+				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
 				info->map[0].read_16 = s32x_read_68k_vector;
 				info->map[0].read_8 = s32x_read_68k_vector_b;
 				info->map[0].buffer = rom;
@@ -513,13 +514,15 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				info->map[1].start = 0x880000;
 				info->map[1].end = 0x900000;
 				info->map[1].mask = 0x7FFFF;
-				info->map[1].flags = MMAP_READ | MMAP_PTR_IDX;
+				info->map[1].aux_mask = info->map[1].mask;
+				info->map[1].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
 				info->map[1].ptr_index = 1;
+				info->map[1].buffer = rom;
 				
 				info->map[2].start = 0x900000;
 				info->map[2].end = 0xA00000;
 				info->map[2].mask = 0xFFFFF;
-				info->map[2].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
+				info->map[2].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
 				info->map[2].ptr_index = 2;
 				info->map[2].read_16 = s32x_read_bankable_w;//these will only be called when mem_pointers[2] == NULL
 				info->map[2].read_8 = s32x_read_bankable_b;
@@ -554,7 +557,8 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				info->mapper_type = MAPPER_SEGA_SRAM;
 				info->map[0].end = 0x200000;
 				info->map[0].mask = 0xFFFFFF;
-				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
+				info->map[0].aux_mask = info->map[0].mask;
+				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
 				info->map[0].read_16 = s32x_read_68k_vector;
 				info->map[0].read_8 = s32x_read_68k_vector_b;
 				info->map[0].buffer = rom;
@@ -563,13 +567,15 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				info->map[1].start = 0x880000;
 				info->map[1].end = 0x900000;
 				info->map[1].mask = 0x7FFFF;
-				info->map[1].flags = MMAP_READ | MMAP_PTR_IDX;
+				info->map[1].aux_mask = info->map[1].mask;
+				info->map[1].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
 				info->map[1].ptr_index = 1;
+				info->map[1].buffer = rom;
 				
 				info->map[2].start = 0x900000;
 				info->map[2].end = 0xA00000;
 				info->map[2].mask = 0xFFFFF;
-				info->map[2].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
+				info->map[2].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
 				info->map[2].ptr_index = 2;
 				info->map[2].read_16 = s32x_read_bankable_w;//these will only be called when mem_pointers[2] == NULL
 				info->map[2].read_8 = s32x_read_bankable_b;
@@ -580,7 +586,8 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				info->map[3].start = 0x200000;
 				info->map[3].end = 0x400000;
 				info->map[3].mask = 0x1FFFFF;
-				info->map[3].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
+				info->map[3].aux_mask = info->map[3].mask;
+				info->map[3].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
 				info->map[3].ptr_index = info->mapper_start_index = 3;
 				info->map[3].read_16 = s32x_read_sram_w;//these will only be called when mem_pointers[3] == NULL
 				info->map[3].read_8 = s32x_read_sram_b;
@@ -602,7 +609,35 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 			return;
 		}
 	}
+	info->map_chunks = base_chunks + 3;
+	info->map = malloc(sizeof(memmap_chunk) * info->map_chunks);
+	memset(info->map, 0, sizeof(memmap_chunk)*info->map_chunks);
+	memcpy(info->map+3, base_map, sizeof(memmap_chunk) * base_chunks);
+	//0 -> ROM
+	//1 -> Fixed 32X ROM bank
+	//2 -> Mappable 32X ROM bank
+	info->map[0].end = rom_end;
+	info->map[0].mask = rom_end - 1;
+	info->map[0].aux_mask = info->map[0].mask;
+	info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
+	info->map[0].read_16 = s32x_read_68k_vector;
+	info->map[0].read_8 = s32x_read_68k_vector_b;
+	info->map[0].buffer = rom;
+	info->map[0].ptr_index = 0;
 	
+	info->map[1].start = 0x880000;
+	info->map[1].end = 0x900000;
+	info->map[1].mask = 0x7FFFF & info->map[0].mask;
+	info->map[1].aux_mask = info->map[1].mask;
+	info->map[1].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+	info->map[1].ptr_index = 1;
+	info->map[1].buffer = rom;
+	
+	info->map[2].start = 0x900000;
+	info->map[2].end = 0xA00000;
+	info->map[2].mask = 0xFFFFF& info->map[0].mask;
+	info->map[2].flags = MMAP_READ | MMAP_PTR_IDX;
+	info->map[2].ptr_index = 2;
 }
 
 static rom_info configure_rom_heuristics_shared(uint8_t *rom, uint32_t rom_size)
