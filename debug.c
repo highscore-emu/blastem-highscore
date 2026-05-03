@@ -4997,10 +4997,11 @@ debug_root *find_m68k_root(m68k_context *context)
 		case SYSTEM_SEGACD:
 		case SYSTEM_PICO:
 		case SYSTEM_COPERA:
+		case SYSTEM_32X:
 			//check if this is the main CPU
 			if (context->system == current_system) {
 				genesis_context *gen = context->system;
-				if (current_system->type == SYSTEM_GENESIS || current_system->type == SYSTEM_SEGACD) {
+				if (current_system->type == SYSTEM_GENESIS || current_system->type == SYSTEM_SEGACD || current_system->type == SYSTEM_32X) {
 					root->other_roots = tern_insert_ptr(root->other_roots, "z80", find_z80_root(gen->z80));
 					root->other_roots = tern_insert_ptr(root->other_roots, "io", find_io_root(&gen->io));
 				}
@@ -5872,6 +5873,7 @@ debug_root *find_z80_root(z80_context *context)
 		{
 		case SYSTEM_GENESIS:
 		case SYSTEM_SEGACD:
+		case SYSTEM_32X:
 			gen = context->system;
 			add_commands(root, gen_z80_commands, NUM_GEN_Z80);
 			root->other_roots = tern_insert_ptr(root->other_roots, "m68k", find_m68k_root(gen->m68k));
