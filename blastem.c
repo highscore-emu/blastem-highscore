@@ -487,7 +487,7 @@ int main(int argc, char ** argv)
 			case 'm':
 				i++;
 				if (i >= argc) {
-					fatal_error("-r must be followed by a machine type (sms, gg, sg, sc, gen, pico, copera, jag or media)\n");
+					fatal_error("-r must be followed by a machine type (sms, gg, sg, sc, gen, 32x, pico, copera, jag or media)\n");
 				}
 				if (!strcmp("sms", argv[i])) {
 					stype = force_stype = SYSTEM_SMS;
@@ -499,6 +499,8 @@ int main(int argc, char ** argv)
 					stype = force_stype = SYSTEM_SC3000;
 				} else if (!strcmp("gen", argv[i])) {
 					stype = force_stype = SYSTEM_GENESIS;
+				} else if (!strcmp("32x", argv[i])) {
+					stype = force_stype = SYSTEM_32X;
 				} else if (!strcmp("pico", argv[i])) {
 					stype = force_stype = SYSTEM_PICO;
 				} else if (!strcmp("copera", argv[i])) {
@@ -549,6 +551,7 @@ int main(int argc, char ** argv)
 					"                   sg     - Sega SG-1000\n"
 					"                   sc     - Sega SC-3000\n"
 					"                   gen    - Sega Genesis/Megadrive\n"
+					"                   32x    - Sega 32X\n"
 					"                   pico   - Sega Pico\n"
 					"                   copera - Yamaha Copera\n"
 					"                   media  - Media Player\n"
