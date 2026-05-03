@@ -356,6 +356,13 @@ endif
 ifeq ($(wildcard $(LIBOBJDIR)/upd78k2.d),)
 LIBORDERONLY+= upd78k2.c
 endif
+#same for the SH2 core
+ifeq ($(wildcard $(OBJDIR)/sh2.d),)
+ORDERONLY+= sh2.c
+endif
+ifeq ($(wildcard $(LIBOBJDIR)/sh2.d),)
+LIBORDERONLY+= sh2.c
+endif
 
 -include $(MAINOBJS:%.o=$(OBJDIR)/%.d)
 -include $(LIBOBJS:%.o=$(LIBOBJDIR)/%.d)
