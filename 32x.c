@@ -171,7 +171,7 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 		uint16_t changes = old ^ new;
 		check_cart_map_change(reg, m68k, changes);
 	} else if (address >= 0xA15180) {
-		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
+		s32x_video_68k_write_b(address, &mars->video, value);
 	}
 	return vcontext;
 }

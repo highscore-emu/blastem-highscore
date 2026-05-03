@@ -22,5 +22,6 @@ typedef struct {
 void s32x_video_init(s32x_video *vid);
 uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video);
 void s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t value);
+void s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t value);
 
 #endif //S32X_VIDEO_H_
