@@ -1,0 +1,120 @@
+#include <string.h>
+#include <stdlib.h>
+
+void sh2_read_8(sh2_context *sh2)
+{
+	//TODO: cache
+	uint32_t address = sh2->scratch1;
+	if (address >= 0xFFFFFE00) {
+		sh2->scratch1 = sh2->peripherals[address & 0x1FF];
+	} else if (address < 0x28000000) {
+		sh2->scratch1 = read_byte(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	}
+}
+
+void sh2_read_16(sh2_context *sh2)
+{
+	//TODO: cache
+	uint32_t address = sh2->scratch1;
+	if (address >= 0xFFFFFE00) {
+		address &= 0x1FE;
+		sh2->scratch1 = sh2->peripherals[address] << 8 | sh2->peripherals[address | 1];
+	} else if (address < 0x28000000) {
+		sh2->scratch1 = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	}
+}
+
+void sh2_read_32(sh2_context *sh2)
+{
+	//TODO: cache
+	uint32_t address = sh2->scratch1;
+	if (address >= 0xFFFFFE00) {
+		address &= 0x1FC;
+		sh2->scratch1 = sh2->peripherals[address] << 24 | sh2->peripherals[address | 1] << 16
+			| sh2->peripherals[address | 2] << 8 | sh2->peripherals[address | 3];
+	} else if (address < 0x28000000) {
+		sh2->scratch1 = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
+		sh2->scratch1 |= read_word(address | 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	}
+}
+
+void sh2_write_8(sh2_context *sh2)
+{
+	//TODO: cache
+	uint32_t address = sh2->scratch2;
+	if (address >= 0xFFFFFE00) {
+		sh2->peripherals[address & 0x1FF] = sh2->scratch1;
+	} else if (address < 0x28000000) {
+		write_byte(address, sh2->scratch1, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	}
+}
+
+void sh2_write_16(sh2_context *sh2)
+{
+	//TODO: cache
+	uint32_t address = sh2->scratch2;
+	if (address >= 0xFFFFFE00) {
+		address &= 0x1FE;
+		sh2->peripherals[address] = sh2->scratch1 >> 8;
+		sh2->peripherals[address | 1] = sh2->scratch1;
+	} else if (address < 0x28000000) {
+		write_word(address, sh2->scratch1, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	}
+}
+
+void sh2_write_32(sh2_context *sh2)
+{
+	//TODO: cache
+	uint32_t address = sh2->scratch2;
+	if (address >= 0xFFFFFE00) {
+		address &= 0x1FC;
+		sh2->peripherals[address] = sh2->scratch1 >> 24;
+		sh2->peripherals[address | 1] = sh2->scratch1 >> 16;
+		sh2->peripherals[address | 2] = sh2->scratch1 >> 8;
+		sh2->peripherals[address | 3] = sh2->scratch1;
+	} else if (address < 0x28000000) {
+		write_word(address, sh2->scratch1 >> 16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		write_word(address | 2, sh2->scratch1, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	}
+}
+
+void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_chunks)
+{
+	memset(opts, 0, sizeof(*opts));
+	opts->gen.memmap = chunks;
+	opts->gen.memmap_chunks = num_chunks;
+	opts->gen.address_mask = 0x7FFFFFF;
+	opts->gen.max_address = 0x8000000;
+	opts->gen.clock_divider = 7;
+}
+
+sh2_context *init_sh2_context(sh2_options *opts)
+{
+	sh2_context *sh2 = calloc(1, sizeof(sh2_context));
+	sh2->need_reset = 1;
+	return sh2;
+}
+
+void sh2_assert_reset(sh2_context *sh2)
+{
+	sh2->reset = 1;
+}
+
+void sh2_clear_reset(sh2_context *sh2)
+{
+	sh2->need_reset |= sh2->reset;
+	sh2->reset = 0;
+}
+
+void sh2_run(sh2_context *sh2, uint32_t target_cycle)
+{
+	if (sh2->reset) {
+		sh2->cycles = target_cycle;
+		return;
+	}
+	if (target_cycle > sh2->cycles && sh2->need_reset) {
+		sh2_reset(sh2);
+		sh2->need_reset = 0;
+	}
+	sh2_execute(sh2, target_cycle);
+}
