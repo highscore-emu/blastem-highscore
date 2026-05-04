@@ -2,8 +2,18 @@ info
 	prefix sh2_
 	opcode_size 16
 	header sh2.h
+	body sh2_run_op
 	pc_reg pc
+	include sh2_util.c
+	export sh2_reset
 
+declare
+	void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_chunks);
+	sh2_context *init_sh2_context(sh2_options *opts);
+	void sh2_assert_reset(sh2_context *sh2);
+	void sh2_clear_reset(sh2_context *sh2);
+	void sh2_run(sh2_context *sh2, uint32_t target_cycle);
+	
 regs
 	gpr 32 r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
 	sr 32
@@ -22,6 +32,10 @@ regs
 	s 8
 	m 8
 	q 8
+	reset 8
+	need_reset 8
+	mem_pointers ptr8 4
+	peripherals 8 512
 
 flags
 	Z 0 zero t

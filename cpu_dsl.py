@@ -2171,6 +2171,7 @@ class Program:
 		self.includes = info.get('include', [])
 		self.pc_reg = info.get('pc_reg', [None])[0]
 		self.pc_offset = info.get('pc_offset', [0])[0]
+		self.export = info.get('export', [])
 		self.flags = flags
 		self.lastDst = None
 		self.scopes = []
@@ -2186,6 +2187,7 @@ class Program:
 		self.lastSize = None
 		self.mainDispatch = set()
 		self.declaredLocals = {}
+		self.needFlagCoalesce = False
 		
 	def __str__(self):
 		pieces = []
@@ -2224,6 +2226,15 @@ class Program:
 		hFile.write('\n};')
 		hFile.write('\n')
 		hFile.write('\nvoid {pre}execute({type} *context, uint32_t target_cycle);'.format(pre = self.prefix, type = self.context_type))
+		for name in self.export:
+			if not name in self.subroutines:
+				raise Exception(f'Exported function {name} is not defined')
+			hFile.write(f'\nvoid {name}({self.prefix}context *context')
+			argnames = []
+			for (arg, size) in self.subroutines[name].args:
+				hFile.write(f', uint{size}_t {arg}')
+				argnames.append(arg)
+			hFile.write(');')
 		hFile.write('\n#endif //{0}_'.format(macro))
 		hFile.write('\n')
 		hFile.close()
@@ -2396,6 +2407,17 @@ class Program:
 			else:
 				pieces.append('\n\tfatal_error("Unimplemented instruction\\n");')
 			pieces.append('\n}')
+		for name in self.export:
+			if not name in self.subroutines:
+				raise Exception(f'Exported function {name} is not defined')
+			pieces.append(f'\nvoid {name}({self.prefix}context *context')
+			argnames = []
+			for (arg, size) in self.subroutines[name].args:
+				pieces.append(f', uint{size}_t {arg}')
+				argnames.append(arg)
+			pieces.append(')\n{')
+			self.subroutines[name].inline(self, argnames, pieces, otype, None)
+			pieces.append('\n}\n')
 		return ''.join(body) +  ''.join(pieces)
 		
 	def checkBool(self, name):
