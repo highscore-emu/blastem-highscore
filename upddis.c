@@ -298,7 +298,7 @@ int main(int argc, char ** argv)
 				break;
 			}
 		}
-loop_end:
+loop_end: ;
 	}
 	if (labels) {
 		tern_foreach(context->labels, print_label_def, &rom);
