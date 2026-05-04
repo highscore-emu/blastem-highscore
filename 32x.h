@@ -60,11 +60,20 @@ typedef struct {
 } s32x;
 
 s32x *alloc_32x(system_media *media, uint8_t force_region);
+void s32x_run(s32x *mars, uint32_t target);
+void s32x_adjust_cycles(s32x *mars, uint32_t deduction);
 uint16_t s32x_68k_read(uint32_t address, void *vcontext);
 void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value);
 uint8_t s32x_68k_read_b(uint32_t address, void *vcontext);
 void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value);
 uint16_t s32x_read_68k_vector(uint32_t address, void *vcontext);
 uint8_t s32x_read_68k_vector_b(uint32_t address, void *vcontext);
+void *s32x_fb_write_w(uint32_t address, void *vcontext, uint16_t value);
+void *s32x_fb_write_b(uint32_t address, void *vcontext, uint8_t value);
+uint16_t s32x_fb_read_w(uint32_t address, void *vcontext);
+uint8_t s32x_fb_read_b(uint32_t address, void *vcontext);
+void *s32x_overwrite_write_w(uint32_t address, void *vcontext, uint16_t value);
+void *s32x_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value);
+
 
 #endif //S32X_H_

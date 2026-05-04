@@ -14,6 +14,20 @@ s32x *alloc_32x(system_media *media, uint8_t force_region)
 	return ret;
 }
 
+void s32x_run(s32x *mars, uint32_t target)
+{
+	s32x_video_run(&mars->video, target);
+}
+
+void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
+{
+	if (deduction > mars->video.cycle) {
+		mars->video.cycle -= deduction;
+	} else {
+		mars->video.cycle = 0;
+	}
+}
+
 uint16_t s32x_68k_read(uint32_t address, void *vcontext)
 {
 	m68k_context *m68k = vcontext;
@@ -143,7 +157,25 @@ void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value)
 		uint16_t changes = old ^ new;
 		check_cart_map_change(reg, m68k, changes);
 	} else if (address >= 0xA15180) {
-		s32x_video_68k_write(address, &mars->video, value);
+		s32x_video_run(&mars->video, m68k->cycles);
+		for (;;)
+		{
+			uint32_t wait_cycles = s32x_video_68k_write(address, &mars->video, value);
+			if (wait_cycles) {
+				uint32_t target = m68k->cycles + wait_cycles;
+				if (target > m68k->sync_cycle) {
+					target = m68k->sync_cycle;
+				}
+				m68k->cycles = target;
+#ifdef NEW_CORE
+				m68k->sync_components(m68k, 0);
+#else
+				m68k->opts->sync_components(m68k, 0);
+#endif
+			} else {
+				break;
+			}
+		}
 	}
 	return vcontext;
 }
@@ -171,7 +203,25 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 		uint16_t changes = old ^ new;
 		check_cart_map_change(reg, m68k, changes);
 	} else if (address >= 0xA15180) {
-		s32x_video_68k_write_b(address, &mars->video, value);
+		s32x_video_run(&mars->video, m68k->cycles);
+		for (;;)
+		{
+			uint32_t wait_cycles = s32x_video_68k_write_b(address, &mars->video, value);
+			if (wait_cycles) {
+				uint32_t target = m68k->cycles + wait_cycles;
+				if (target > m68k->sync_cycle) {
+					target = m68k->sync_cycle;
+				}
+				m68k->cycles = target;
+#ifdef NEW_CORE
+				m68k->sync_components(m68k, 0);
+#else
+				m68k->opts->sync_components(m68k, 0);
+#endif
+			} else {
+				break;
+			}
+		}
 	}
 	return vcontext;
 }
@@ -202,5 +252,63 @@ uint8_t s32x_read_68k_vector_b(uint32_t address, void *vcontext)
 		return ret;
 	}
 	return ret >> 8;
+}
+
+void *s32x_fb_write_w(uint32_t address, void *vcontext, uint16_t value)
+{
+	m68k_context *m68k = vcontext;
+	genesis_context *gen = m68k->system;
+	s32x *mars = gen->mars;
+	s32x_video_run(&mars->video, m68k->cycles);
+	s32x_video_fb_write_w(address, &mars->video, value);
+	return vcontext;
+}
+
+void *s32x_fb_write_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	m68k_context *m68k = vcontext;
+	genesis_context *gen = m68k->system;
+	s32x *mars = gen->mars;
+	s32x_video_run(&mars->video, m68k->cycles);
+	s32x_video_fb_write_b(address, &mars->video, value);
+	return vcontext;
+}
+
+uint16_t s32x_fb_read_w(uint32_t address, void *vcontext)
+{
+	m68k_context *m68k = vcontext;
+	genesis_context *gen = m68k->system;
+	s32x *mars = gen->mars;
+	s32x_video_run(&mars->video, m68k->cycles);
+	return s32x_video_fb_read_w(address, &mars->video);
+}
+
+uint8_t s32x_fb_read_b(uint32_t address, void *vcontext)
+{
+	m68k_context *m68k = vcontext;
+	genesis_context *gen = m68k->system;
+	s32x *mars = gen->mars;
+	s32x_video_run(&mars->video, m68k->cycles);
+	return s32x_video_fb_read_b(address, &mars->video);
+}
+
+void *s32x_overwrite_write_w(uint32_t address, void *vcontext, uint16_t value)
+{
+	m68k_context *m68k = vcontext;
+	genesis_context *gen = m68k->system;
+	s32x *mars = gen->mars;
+	s32x_video_run(&mars->video, m68k->cycles);
+	s32x_video_overwrite_write_w(address, &mars->video, value);
+	return vcontext;
+}
+
+void *s32x_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	m68k_context *m68k = vcontext;
+	genesis_context *gen = m68k->system;
+	s32x *mars = gen->mars;
+	s32x_video_run(&mars->video, m68k->cycles);
+	s32x_video_overwrite_write_b(address, &mars->video, value);
+	return vcontext;
 }
 

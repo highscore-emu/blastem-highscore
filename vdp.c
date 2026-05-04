@@ -3048,6 +3048,10 @@ static void advance_output_line(vdp_context *context)
 	//This function is kind of gross because of the need to deal with vertical border busting via mode changes
 	uint16_t lines_max = context->inactive_start + context->border_bot + context->border_top;
 	uint32_t output_line = context->vcounter;
+	if (context->s32x_vid && context->output && output_line < context->inactive_start) {
+		s32x_video_run(context->s32x_vid, context->cycles);
+		s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT, context->compositebuf + BORDER_LEFT, output_line, (context->regs[REG_MODE_4] & BIT_H40) != 0);
+	}
 	if (!(context->regs[REG_MODE_2] & BIT_MODE_5)) {
 		//vcounter increment occurs much later in Mode 4
 		output_line++;
@@ -5480,6 +5484,7 @@ static void vdp_inactive(vdp_context *context, uint32_t target_cycles, uint8_t i
 				*(dst++) = context->colors[pixel];
 				if ((dst - context->output) == (context->done_composite - context->compositebuf)) {
 					context->done_composite = NULL;
+					//TODO: mix 32X output before clear
 					memset(context->compositebuf, 0, sizeof(context->compositebuf));
 				}
 			} else {
@@ -5495,6 +5500,7 @@ static void vdp_inactive(vdp_context *context, uint32_t target_cycles, uint8_t i
 					*(dst++) = context->colors[pixel];
 					if ((dst - context->output) == (context->done_composite - context->compositebuf)) {
 						context->done_composite = NULL;
+						//TODO: mix 32X output before clear
 						memset(context->compositebuf, 0, sizeof(context->compositebuf));
 					}
 				} else {

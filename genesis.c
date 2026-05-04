@@ -582,6 +582,9 @@ static m68k_context *sync_components(m68k_context * context, uint32_t address)
 	if (gen->expansion) {
 		scd_run(gen->expansion, gen_cycle_to_scd(mclks, gen));
 	}
+	if (gen->mars) {
+		s32x_run(gen->mars, mclks);
+	}
 	if (mclks >= gen->reset_cycle) {
 		gen->reset_requested = 1;
 		context->should_return = 1;
@@ -636,6 +639,9 @@ static m68k_context *sync_components(m68k_context * context, uint32_t address)
 			event_cycle_adjust(mclks, deduction);
 			if (gen->expansion) {
 				scd_adjust_cycle(gen->expansion, deduction);
+			}
+			if (gen->mars) {
+				s32x_adjust_cycles(gen->mars, deduction);
 			}
 			gen->last_flush_cycle -= deduction;
 			gen->last_sync_cycle -= deduction;
@@ -910,6 +916,9 @@ static m68k_context* sync_components_pico(m68k_context * context, uint32_t addre
 			event_cycle_adjust(mclks, deduction);
 			if (gen->expansion) {
 				scd_adjust_cycle(gen->expansion, deduction);
+			}
+			if (gen->mars) {
+				s32x_adjust_cycles(gen->mars, deduction);
 			}
 			gen->last_flush_cycle -= deduction;
 		}
@@ -3224,6 +3233,10 @@ static memmap_chunk base_map_32x[] = {
 	{0xE00000, 0x1000000, 0xFFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
 	{0xC00000, 0xE00000,  0x1FFFFF, .read_16 = (read_16_fun)vdp_port_read,  .write_16 =(write_16_fun)vdp_port_write,
 			   .read_8 = (read_8_fun)vdp_port_read_b, .write_8 = (write_8_fun)vdp_port_write_b},
+	{0x840000, 0x860000, 0xFFFFFF, .read_16 = s32x_fb_read_w, .write_16 = s32x_fb_write_w,
+			   .read_8 = s32x_fb_read_b, .write_8 = s32x_fb_write_b},
+	{0x860000, 0x880000, 0xFFFFFF, .read_16 = s32x_fb_read_w, .write_16 = s32x_overwrite_write_w,
+			   .read_8 = s32x_fb_read_b, .write_8 = s32x_overwrite_write_b},
 	{0xA15100, 0xA15400, 0xFFFFFF, .read_16 = s32x_68k_read, .write_16 = s32x_68k_write,
 			   .read_8 = s32x_68k_read_b, .write_8 = s32x_68k_write_b},
 	{0xA00000, 0xA12000,  0x1FFFF,  .read_16 = (read_16_fun)io_read_w, .write_16 = (write_16_fun)io_write_w,
