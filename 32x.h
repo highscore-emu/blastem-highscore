@@ -45,6 +45,10 @@ enum {
 };
 
 #define BIT_ADEN_M68K  0x0001
+#define BIT_ADEN_FM    0x8000
+#define BIT_CART_SH2   0x0100
+#define BIT_ADEN_SH2   0x0200
+#define BIT_SH2_RESET  0x0002
 #define BIT_DREQ_RV    0x0001
 #define S32X_BANK_MASK 0x0003
 
@@ -57,9 +61,11 @@ typedef struct {
 	s32x_video  video;
 	uint16_t    regs[S32X_NUM_REGS];
 	uint16_t    sh2_regs[S32X_NUM_SH2_REGS];
+	uint8_t     main_enter_debugger;
+	uint8_t     sub_enter_debugger;
 } s32x;
 
-s32x *alloc_32x(system_media *media, uint8_t force_region);
+s32x *alloc_32x(system_media *media, uint8_t pal);
 void s32x_run(s32x *mars, uint32_t target);
 void s32x_adjust_cycles(s32x *mars, uint32_t deduction);
 uint16_t s32x_68k_read(uint32_t address, void *vcontext);

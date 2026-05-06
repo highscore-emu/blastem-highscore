@@ -7,6 +7,7 @@
 #include "blastem.h"
 #include "bindings.h"
 #include "upd78k2_dis.h"
+#include "sh2_decode.h"
 #include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
@@ -3968,6 +3969,64 @@ static uint8_t cmd_main(debug_root *root, parsed_command *cmd)
 	}
 }
 
+static uint8_t cmd_mainsh2(debug_root *root, parsed_command *cmd)
+{
+	char *param = cmd->raw;
+	while (param && *param && isblank(*param))
+	{
+		++param;
+	}
+	m68k_context *m68k = root->cpu_context;
+	genesis_context *gen = m68k->system;
+
+	if (param && *param && !isspace(*param)) {
+		parsed_command cmd = {0};
+		debug_root *main_root = find_sh2_root(gen->mars->main);
+		if (!main_root) {
+			fputs("Failed to get debug root for Main SH2\n", stderr);
+			return 1;
+		}
+		if (!parse_command(main_root, param, &cmd)) {
+			return 1;
+		}
+		uint8_t ret = run_command(main_root, &cmd);
+		free_parsed_command(&cmd);
+		return ret;
+	} else {
+		gen->mars->main_enter_debugger = 1;
+		return 0;
+	}
+}
+
+static uint8_t cmd_subsh2(debug_root *root, parsed_command *cmd)
+{
+	char *param = cmd->raw;
+	while (param && *param && isblank(*param))
+	{
+		++param;
+	}
+	m68k_context *m68k = root->cpu_context;
+	genesis_context *gen = m68k->system;
+
+	if (param && *param && !isspace(*param)) {
+		parsed_command cmd = {0};
+		debug_root *sub_root = find_sh2_root(gen->mars->sub);
+		if (!sub_root) {
+			fputs("Failed to get debug root for Sub SH2\n", stderr);
+			return 1;
+		}
+		if (!parse_command(sub_root, param, &cmd)) {
+			return 1;
+		}
+		uint8_t ret = run_command(sub_root, &cmd);
+		free_parsed_command(&cmd);
+		return ret;
+	} else {
+		gen->mars->sub_enter_debugger = 1;
+		return 0;
+	}
+}
+
 static uint8_t cmd_gen_z80(debug_root *root, parsed_command *cmd)
 {
 	char *param = cmd->raw;
@@ -4449,6 +4508,33 @@ command_def scd_sub_commands[] = {
 };
 
 #define NUM_SCD_SUB (sizeof(scd_main_commands)/sizeof(*scd_main_commands))
+
+command_def s32x_68k_commands[] = {
+	{
+		.names = (const char *[]){
+			"mainsh2", NULL
+		},
+		.usage = "mainsh2 [COMMAND]",
+		.desc = "Run a Main SH2 debugger command or switch to Main SH2 context when no command is given",
+		.impl = cmd_mainsh2,
+		.min_args = 0,
+		.max_args = -1,
+		.raw_args = 1
+	},
+	{
+		.names = (const char *[]){
+			"subsh2", NULL
+		},
+		.usage = "subsh2 [COMMAND]",
+		.desc = "Run a Sub SH2 debugger command or switch to Sub SH2 context when no command is given",
+		.impl = cmd_subsh2,
+		.min_args = 0,
+		.max_args = -1,
+		.raw_args = 1
+	}
+};
+
+#define NUM_32X_68K (sizeof(s32x_68k_commands)/sizeof(*s32x_68k_commands))
 
 #ifndef NO_Z80
 #ifndef NEW_CORE
@@ -5023,6 +5109,11 @@ debug_root *find_m68k_root(m68k_context *context)
 					add_commands(root, scd_main_commands, NUM_SCD_MAIN);
 					segacd_context *scd = gen->expansion;
 					root->other_roots = tern_insert_ptr(root->other_roots, "sub", find_m68k_root(scd->m68k));
+				}
+				if (current_system->type == SYSTEM_32X) {
+					root->other_roots = tern_insert_ptr(root->other_roots, "mainsh2", find_sh2_root(gen->mars->main));
+					root->other_roots = tern_insert_ptr(root->other_roots, "subsh2", find_sh2_root(gen->mars->sub));
+					add_commands(root, s32x_68k_commands, NUM_32X_68K);
 				}
 				break;
 			} else {
@@ -5910,6 +6001,330 @@ debug_root *find_z80_root(z80_context *context)
 	return root;
 }
 
+static uint8_t cmd_breakpoint_sh2(debug_root *root, parsed_command *cmd)
+{
+	uint32_t address;
+	if (!debug_cast_int(cmd->args[0].value, &address)) {
+		fprintf(stderr, "Argument to breakpoint must be an integer\n");
+		return 1;
+	}
+	sh2_insert_breakpoint(root->cpu_context, address, sh2_debugger);
+	bp_def *new_bp = calloc(1, sizeof(bp_def));
+	new_bp->next = root->breakpoints;
+	new_bp->address = address;
+	new_bp->mask = 0x7FFFFFF;
+	new_bp->index = root->bp_index++;
+	new_bp->type = BP_TYPE_CPU;
+	root->breakpoints = new_bp;
+	printf("SH2 Breakpoint %d set at $%X\n", new_bp->index, address);
+	return 1;
+}
+
+static uint8_t cmd_advance_sh2(debug_root *root, parsed_command *cmd)
+{
+	uint32_t address;
+	if (!debug_cast_int(cmd->args[0].value, &address)) {
+		fprintf(stderr, "Argument to advance must be an integer\n");
+		return 1;
+	}
+	sh2_insert_breakpoint(root->cpu_context, address, sh2_debugger);
+	return 0;
+}
+
+static uint8_t cmd_step_sh2(debug_root *root, parsed_command *cmd)
+{
+	sh2_inst *inst = root->inst;
+	sh2_context *sh2 = root->cpu_context;
+	uint32_t after = root->after;
+	//TODO: fix after based on current instruction
+	sh2_insert_breakpoint(sh2, after, sh2_debugger);
+	return 0;
+}
+
+static uint8_t cmd_next_sh2(debug_root *root, parsed_command *cmd)
+{
+	sh2_inst *inst = root->inst;
+	sh2_context *sh2 = root->cpu_context;
+	uint32_t after = root->after;
+	//TODO: fix after based on current instruction
+	sh2_insert_breakpoint(sh2, after, sh2_debugger);
+	return 0;
+}
+
+static uint8_t cmd_over_sh2(debug_root *root, parsed_command *cmd)
+{
+	sh2_inst *inst = root->inst;
+	sh2_context *sh2 = root->cpu_context;
+	uint32_t after = root->after;
+	//TODO: fix after based on current instruction
+	sh2_insert_breakpoint(sh2, after, sh2_debugger);
+	return 0;
+}
+
+static uint8_t cmd_delete_sh2(debug_root *root, parsed_command *cmd)
+{
+	uint32_t index;
+	if (!debug_cast_int(cmd->args[0].value, &index)) {
+		fprintf(stderr, "Argument to delete must be an integer\n");
+		return 1;
+	}
+	bp_def **this_bp = find_breakpoint_idx(&root->breakpoints, index);
+	if (!*this_bp) {
+		fprintf(stderr, "Breakpoint %d does not exist\n", index);
+		return 1;
+	}
+	bp_def *tmp = *this_bp;
+	if (tmp->type == BP_TYPE_CPU) {
+		sh2_remove_breakpoint(root->cpu_context, tmp->address);
+	} else if (tmp->type == BP_TYPE_CPU_WATCH) {
+		//TODO: implement watchpoints for SH2
+		//sh2_remove_watchpoint(root->cpu_context, tmp->address, tmp->mask);
+	}
+	*this_bp = (*this_bp)->next;
+	if (tmp->commands) {
+		for (uint32_t i = 0; i < tmp->num_commands; i++)
+		{
+			free_parsed_command(tmp->commands + i);
+		}
+		free(tmp->commands);
+	}
+	free(tmp);
+	return 1;
+}
+
+command_def sh2_commands[] = {
+	{
+		.names = (const char *[]){
+			"breakpoint", "b", NULL
+		},
+		.usage = "breakpoint ADDRESSS",
+		.desc = "Set a breakpoint at ADDRESS",
+		.impl = cmd_breakpoint_sh2,
+		.min_args = 1,
+		.max_args = 1
+	},
+	/*{
+		.names = (const char *[]){
+			"watchpoint", NULL
+		},
+		.usage = "watchpoint ADDRESS [SIZE]",
+		.desc = "Set a watchpoint at ADDRESS with an optional SIZE in bytes. SIZE defaults to 1",
+		.impl = cmd_watchpoint_sh2,
+		.min_args = 1,
+		.max_args = 2
+	},*/
+	{
+		.names = (const char *[]){
+			"advance", NULL
+		},
+		.usage = "advance ADDRESS",
+		.desc = "Advance to ADDRESS",
+		.impl = cmd_advance_sh2,
+		.min_args = 1,
+		.max_args = 1
+	},
+	{
+		.names = (const char *[]){
+			"step", "s", NULL
+		},
+		.usage = "step",
+		.desc = "Advance to the next instruction, stepping into subroutines",
+		.impl = cmd_step_sh2,
+		.min_args = 0,
+		.max_args = 0
+	},
+	{
+		.names = (const char *[]){
+			"over", NULL
+		},
+		.usage = "over",
+		.desc = "Advance to the next instruction, ignoring branches to lower addresses",
+		.impl = cmd_over_sh2,
+		.min_args = 0,
+		.max_args = 0
+	},
+	{
+		.names = (const char *[]){
+			"next", NULL
+		},
+		.usage = "next",
+		.desc = "Advance to the next instruction",
+		.impl = cmd_next_sh2,
+		.min_args = 0,
+		.max_args = 0
+	},/*
+	{
+		.names = (const char *[]){
+			"backtrace", "bt", NULL
+		},
+		.usage = "backtrace",
+		.desc = "Print a backtrace",
+		.impl = cmd_backtrace_sh2,
+		.min_args = 0,
+		.max_args = 0
+	},*/
+	{
+		.names = (const char *[]){
+			"delete", "d", NULL
+		},
+		.usage = "delete BREAKPOINT",
+		.desc = "Remove breakpoint identified by BREAKPOINT",
+		.impl = cmd_delete_sh2,
+		.min_args = 1,
+		.max_args = 1
+	}/*,
+	{
+		.names = (const char *[]){
+			"disassemble", "disasm", NULL
+		},
+		.usage = "disassemble [ADDRESS]",
+		.desc = "Disassemble code starting at ADDRESS if provided or the current address if not",
+		.impl = cmd_disassemble_sh2,
+		.min_args = 0,
+		.max_args = 1
+	}*/,
+	{
+		.names = (const char *[]){
+			"m68k", NULL
+		},
+		.usage = "m68k [COMMAND]",
+		.desc = "Run a M68K debugger command or switch to M68K context when no command is given",
+		.impl = cmd_gen_m68k,
+		.min_args = 0,
+		.max_args = -1,
+		.raw_args = 1
+	}
+};
+
+#define NUM_SH2 (sizeof(sh2_commands)/sizeof(*sh2_commands))
+
+static uint8_t read_sh2(debug_root *root, uint32_t *out, char size)
+{
+	sh2_context *sh2 = root->cpu_context;
+	uint32_t address = *out;
+	switch (size)
+	{
+	case 'b':
+		*out = read_byte(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		break;
+	case 'w':
+		*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		break;
+	case 'l':
+		*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
+		*out |= read_word(address | 2, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		break;
+	}
+	return 1;
+}
+
+static uint8_t write_sh2(debug_root *root, uint32_t address, uint32_t value, char size)
+{
+	sh2_context *sh2 = root->cpu_context;
+	switch (size)
+	{
+	case 'b':
+		write_byte(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		break;
+	case 'w':
+		write_word(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		break;
+	case 'l':
+		write_word(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		write_word(address | 2, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		break;
+	}
+	return 1;
+}
+
+static uint32_t sh2_chunk_end(debug_root *root, uint32_t start_address)
+{
+	sh2_context *sh2 = root->cpu_context;
+	memmap_chunk const *chunk = find_map_chunk(start_address, &sh2->opts->gen, 0, NULL);
+	if (!chunk) {
+		return start_address;
+	}
+	if (chunk->mask == sh2->opts->gen.address_mask) {
+		return chunk->end;
+	}
+	return (start_address & ~chunk->mask) + chunk->mask + 1;
+}
+
+static debug_val sh2_reg_get(debug_var *var)
+{
+	sh2_context *sh2 = var->ptr;
+	uint32_t val;
+	if (var->val.v.u32 < 16) {
+		val = sh2->gpr[var->val.v.u32];
+	} else {
+		switch(var->val.v.u32)
+		{
+		//TODO: flags
+		case 16: val = sh2->sr; break;
+		case 17: val = sh2->gbr; break;
+		case 18: val = sh2->vbr; break;
+		case 19: val = sh2->mach; break;
+		case 20: val = sh2->macl; break;
+		case 21: val = sh2->pr; break;
+		case 22: val = sh2->pc; break;
+		default: val = 0;
+		}
+	}
+	return debug_int(val);
+}
+
+static void sh2_reg_set(debug_var *var, debug_val val)
+{
+	sh2_context *sh2 = var->ptr;
+	uint32_t ival;
+	if (!debug_cast_int(val, &ival)) {
+		static const char regs[] = "xacbedlh";
+		fprintf(stderr, "uPD78K/II register %c can only be set to an integer\n", regs[var->val.v.u32]);
+		return;
+	}
+	if (var->val.v.u32 < 16) {
+		sh2->gpr[var->val.v.u32] = ival;
+	} else {
+		switch(var->val.v.u32)
+		{
+		case 16: sh2->sr = ival; break;
+		case 17: sh2->gbr = ival; break;
+		case 18: sh2->vbr = ival; break;
+		case 19: sh2->mach = ival; break;
+		case 20: sh2->macl = ival; break;
+		case 21: sh2->pr = ival; break;
+		}
+	}
+}
+
+debug_root *find_sh2_root(sh2_context *context)
+{
+	debug_root *root = find_root(context);
+	if (root && !root->commands) {
+		add_commands(root, common_commands, NUM_COMMON);
+		add_commands(root, sh2_commands, NUM_SH2);
+		root->read_mem = read_sh2;
+		root->write_mem = write_sh2;
+		root->chunk_end = sh2_chunk_end;
+		root->disasm = create_sh2_disasm();
+		static const char *regs[] = {
+			"r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12",
+			"r13", "r14", "sp", "sr", "gbr", "vbr", "mach", "macl", "pr", "pc"
+		};
+		static size_t num_regs = sizeof(regs)/sizeof(*regs);
+		for (int i = 0; i < num_regs; i++)
+		{
+			debug_var *var = calloc(1, sizeof(debug_var));
+			var->get = sh2_reg_get;
+			var->set = sh2_reg_set;
+			var->ptr = context;
+			var->val.v.u32 = i;
+			root->variables = tern_insert_ptr(root->variables, regs[i], var);
+		}
+	}
+	return root;
+}
+
 z80_context * zdebugger(z80_context * context, uint16_t address)
 {
 	static char last_cmd[1024];
@@ -6206,4 +6621,76 @@ void upd_debugger(upd78k2_context *upd)
 	printf("%X: %s\n", root->address, input_buf);
 	debugger_repl(root);
 	return;
+}
+
+void sh2_debugger(sh2_context *sh2)
+{
+	static char last_cmd[1024];
+	char input_buf[1024];
+
+	init_terminal();
+
+	debug_root *root = find_sh2_root(sh2);
+	if (!root) {
+		return;
+	}
+	if (sh2->pc == root->branch_t) {
+		bp_def ** f_bp = find_breakpoint(&root->breakpoints, root->branch_f, BP_TYPE_CPU);
+		if (!*f_bp) {
+			sh2_remove_breakpoint(sh2, root->branch_f);
+		}
+		root->branch_t = root->branch_f = 0;
+	} else if(sh2->pc == root->branch_f) {
+		bp_def ** t_bp = find_breakpoint(&root->breakpoints, root->branch_t, BP_TYPE_CPU);
+		if (!*t_bp) {
+			sh2_remove_breakpoint(sh2, root->branch_t);
+		}
+		root->branch_t = root->branch_f = 0;
+	}
+
+	root->address = sh2->pc;
+	int debugging = 1;
+	//Check if this is a user set breakpoint, or just a temporary one
+	bp_def ** this_bp = find_breakpoint(&root->breakpoints, sh2->pc, BP_TYPE_CPU);
+	if (*this_bp) {
+		if ((*this_bp)->condition) {
+			debug_val condres;
+			if (eval_expr(root, (*this_bp)->condition, &condres)) {
+				if (!condres.v.u32) {
+					return;
+				}
+			} else {
+				fprintf(stderr, "Failed to eval condition for uPD78K/II breakpoint %u\n", (*this_bp)->index);
+				free_expr((*this_bp)->condition);
+				(*this_bp)->condition = NULL;
+			}
+		}
+		for (uint32_t i = 0; debugging && i < (*this_bp)->num_commands; i++)
+		{
+			debugging = run_command(root, (*this_bp)->commands + i);
+		}
+		if (debugging) {
+			printf("SH2 Breakpoint %d hit\n", (*this_bp)->index);
+		} else {
+			fflush(stdout);
+			return;
+		}
+	} else {
+		sh2_remove_breakpoint(sh2, root->address);
+	}
+	sh2_inst inst = sh2_decode(sh2->prefetch_cur);
+	sh2_disasm(input_buf, inst, sh2->pc, root->disasm);
+	root->after = root->address + 2;
+	root->inst = &inst;
+	for (disp_def * cur = root->displays; cur; cur = cur->next) {
+		char format_str[8];
+		make_format_str(format_str, cur->format);
+		for (int i = 0; i < cur->num_args; i++)
+		{
+			eval_expr(root, cur->args[i].parsed, &cur->args[i].value);
+			do_print(root, format_str, cur->args[i].raw, cur->args[i].value);
+		}
+	}
+	printf("%X: %s\n", root->address, input_buf);
+	debugger_repl(root);
 }

@@ -22,6 +22,10 @@ void sh2_read_16(sh2_context *sh2)
 	} else if (address < 0x28000000) {
 		sh2->scratch1 = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 	}
+	/*if (address == sh2->pc) {
+		uint8_t is_main = sh2 == ((sh2_context **)sh2->system)[1];
+		printf("%s SH2 fetch16: %06X: %04X\n", is_main ? "Main" : "Sub", address, sh2->scratch1);
+	}*/
 }
 
 void sh2_read_32(sh2_context *sh2)
@@ -36,6 +40,10 @@ void sh2_read_32(sh2_context *sh2)
 		sh2->scratch1 = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
 		sh2->scratch1 |= read_word(address | 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 	}
+	/*if (address == sh2->pc) {
+		uint8_t is_main = sh2 == ((sh2_context **)sh2->system)[1];
+		printf("%s SH2 fetch32: %06X: %04X %04X\n", is_main ? "Main" : "Sub", address, sh2->scratch1 >> 16, sh2->scratch1 & 0xFFFF);
+	}*/
 }
 
 void sh2_write_8(sh2_context *sh2)
@@ -91,6 +99,7 @@ void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_c
 sh2_context *init_sh2_context(sh2_options *opts)
 {
 	sh2_context *sh2 = calloc(1, sizeof(sh2_context));
+	sh2->opts = opts;
 	sh2->need_reset = 1;
 	return sh2;
 }
@@ -117,4 +126,18 @@ void sh2_run(sh2_context *sh2, uint32_t target_cycle)
 		sh2->need_reset = 0;
 	}
 	sh2_execute(sh2, target_cycle);
+}
+
+void sh2_insert_breakpoint(sh2_context *sh2, uint32_t address, sh2_fun *handler)
+{
+	char buf[MAX_INT_KEY_SIZE];
+	address &= sh2->opts->gen.address_mask;
+	sh2->breakpoints = tern_insert_ptr(sh2->breakpoints, tern_int_key(address, buf), handler);
+}
+
+void sh2_remove_breakpoint(sh2_context *sh2, uint32_t address)
+{
+	char buf[MAX_INT_KEY_SIZE];
+	address &= sh2->opts->gen.address_mask;
+	tern_delete(&sh2->breakpoints, tern_int_key(address, buf), NULL);
 }

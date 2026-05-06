@@ -21,6 +21,7 @@ enum {
 #define S32X_VID_BIT_VBLK  0x8000
 #define S32X_VID_BIT_HBLK  0x4000
 #define S32X_VID_BIT_PEN   0x2000
+#define S32X_VID_BIT_FEN   0x0002
 #define S32X_VID_BIT_FS    0x0001
 
 enum {
@@ -40,12 +41,15 @@ typedef struct {
 	uint16_t    palette[256];
 } s32x_video;
 
-void s32x_video_init(s32x_video *vid);
+void s32x_video_init(s32x_video *vid, uint8_t pal);
 void s32x_video_run(s32x_video *vid, uint32_t target);
 void s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line, uint8_t is_h40);
 uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video);
+uint16_t s32x_video_sh2_read(uint32_t address, s32x_video *video);
 uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t value);
 uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t value);
+uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t value);
+uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t value);
 void s32x_video_fb_write_w(uint32_t address, s32x_video *video, uint16_t value);
 void s32x_video_fb_write_b(uint32_t address, s32x_video *video, uint8_t value);
 uint16_t s32x_video_fb_read_w(uint32_t address, s32x_video *video);

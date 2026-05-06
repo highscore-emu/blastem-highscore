@@ -4,10 +4,14 @@
 #include "vdp.h"
 #include "render.h"
 
-void s32x_video_init(s32x_video *vid)
+void s32x_video_init(s32x_video *vid, uint8_t pal)
 {
 	vid->front = calloc(256*1024, sizeof(uint8_t));
 	vid->back = vid->front + 128*1024;
+	memset(vid->regs, 0, sizeof(vid->regs));
+	if (!pal) {
+		vid->regs[S32X_VID_MODE] |= S32X_VID_BIT_PAL;
+	}
 }
 
 #define MCLKS_PIXEL 8
@@ -23,6 +27,11 @@ static uint32_t mclks_pixel[] = {
 	9, 9, 10, 10, 10, 10, 10, 10,
 	10, 9
 };
+
+//manual says 3, but they must mean SH2 clocks and not MCLKS
+//3 SH2 clocks = 1 68K clock = 7 MCLKs
+#define MCLKS_FILL_WORD 7
+#define MCLKS_FILL_LAST (MCLKS_FILL_WORD+16)
 
 void s32x_video_run(s32x_video *vid, uint32_t target)
 {
@@ -91,8 +100,34 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 		} else {
 			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_HBLK;
 		}
-		//TODO: run fill
-		//TODO: update FEN based on fill
+		//run fill
+		delta = target - rest - vid->cycle;
+		if (vid->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_FEN) {
+			uint8_t count = vid->regs[S32X_VID_FILL_LEN];
+			uint32_t address = vid->regs[S32X_VID_FILL_START] << 1;
+			uint8_t data_hi = vid->regs[S32X_VID_FILL_DATA] >> 8;
+			uint8_t data_lo = vid->regs[S32X_VID_FILL_DATA];
+			uint32_t min_delta = count ? MCLKS_FILL_WORD : MCLKS_FILL_LAST;
+			while (delta >= min_delta)
+			{
+				vid->back[address] = data_hi;
+				vid->back[address|1] = data_lo;
+				if (count) {
+					--count;
+					address = (address & 0x1FE00) | ((address + 2) & 0x1FE);
+					delta -= MCLKS_FILL_WORD;
+					if (!count) {
+						min_delta = MCLKS_FILL_LAST;
+					}
+				} else {
+					vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_FEN;
+					delta -= MCLKS_FILL_LAST;
+				}
+			}
+			//TODO: test whether final value for this reg should be 0 or FF
+			vid->regs[S32X_VID_FILL_LEN] = count;
+			vid->regs[S32X_VID_FILL_START] = address >> 1;
+		}
 		if (
 			(vid->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK) == 0 
 			|| (vid->regs[S32X_VID_FB_CTRL] & (S32X_VID_BIT_VBLK|S32X_VID_BIT_HBLK))
@@ -183,10 +218,24 @@ void s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebu
 
 uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video)
 {
+	//TODO: check FM
 	if (address < 0xA15180 + S32X_NUM_VID_REGS * 2) {
 		printf("32X VDP Read: %06X: %04X\n", address, video->regs[(address & 0xF) >> 1]);
 		return video->regs[(address & 0xF) >> 1];
 	} else if (address >= 0xA15200 && address < 0xA15400) {
+		printf("32X Palette Read: %06X: %04X\n", address, video->palette[(address & 0x1FF) >> 1]);
+		return video->palette[(address & 0x1FF) >> 1];
+	}
+	return 0xFFFF;
+}
+
+uint16_t s32x_video_sh2_read(uint32_t address, s32x_video *video)
+{
+	//TODO: check FM
+	if (address < 0x0004100 + S32X_NUM_VID_REGS * 2) {
+		printf("32X VDP Read: %06X: %04X\n", address, video->regs[(address & 0xF) >> 1]);
+		return video->regs[(address & 0xF) >> 1];
+	} else if (address >= 0x0004200 && address < 0x0004400) {
 		printf("32X Palette Read: %06X: %04X\n", address, video->palette[(address & 0x1FF) >> 1]);
 		return video->palette[(address & 0x1FF) >> 1];
 	}
@@ -242,6 +291,9 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 		}
 		printf("32X VDP Write: %06X: %04X\n", address, value);
 		video->regs[reg] = new;
+		if (reg == S32X_VID_FILL_DATA) {
+			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
+		}
 	} else if (address >= 0xA15200 && address < 0xA15400) {
 		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
 			return cycles_to_pen(video);
@@ -266,7 +318,7 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 			mask &= 0xFF00;
 		}
 		uint16_t old = video->regs[reg];
-		uint16_t new = (old & ~mask) | (value & mask);
+		uint16_t new = (old & ~mask) | (extended & mask);
 		uint16_t changed = old ^ new;
 		if (reg == S32X_VID_FB_CTRL && (changed & S32X_VID_BIT_FS)) {
 			if (old & S32X_VID_BIT_VBLK) {
@@ -279,19 +331,87 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 		}
 		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
 		video->regs[reg] = new;
+		if (reg == S32X_VID_FILL_DATA) {
+			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
+		}
 	} else if (address >= 0xA15200 && address < 0xA15400) {
 		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
 			return cycles_to_pen(video);
 		}
 		printf("32X Palette Write (byte): %06X: %04X\n", address, value);
-		uint32_t index = (address & 0x1FF) >> 1;
-		if (address & 1) {
-			video->palette[index] &= 0xFF00;
-			video->palette[index] |= value;
-		} else {
-			video->palette[index] &= 0x00FF;
-			video->palette[index] |= value << 8;
+		//manual says this isn't allowed, what actually happens here?
+	}
+	return 0;
+}
+
+uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t value)
+{
+	if (address < 0x0004100 + S32X_NUM_VID_REGS * 2) {
+		uint32_t reg = (address & 0xF) >> 1;
+		uint16_t mask = video_write_mask[reg];
+		uint16_t old = video->regs[reg];
+		uint16_t new = (old & ~mask) | (value & mask);
+		uint16_t changed = old ^ new;
+		if (reg == S32X_VID_FB_CTRL && (changed & S32X_VID_BIT_FS)) {
+			if (old & S32X_VID_BIT_VBLK) {
+				uint8_t *tmp = video->front;
+				video->front = video->back;
+				video->back = tmp;
+			} else {
+				return cycles_to_vblank(video) * 3;
+			}
 		}
+		printf("32X VDP Write: %06X: %04X\n", address, value);
+		video->regs[reg] = new;
+		if (reg == S32X_VID_FILL_DATA) {
+			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
+		}
+	} else if (address >= 0x0004200 && address < 0x0004400) {
+		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
+			return cycles_to_pen(video) * 3;
+		}
+		printf("32X Palette Write: %06X: %04X\n", address, value);
+		video->palette[(address & 0x1FF) >> 1] = value;
+	}
+	return 0;
+}
+
+uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t value)
+{
+	if (address < 0x0004100 + S32X_NUM_VID_REGS * 2) {
+		uint32_t reg = (address & 0xF) >> 1;
+		uint16_t mask = video_write_mask[reg];
+		uint16_t extended;
+		if (address & 1) {
+			extended = value;
+			mask &= 0x00FF;;
+		} else {
+			extended = value << 8;
+			mask &= 0xFF00;
+		}
+		uint16_t old = video->regs[reg];
+		uint16_t new = (old & ~mask) | (extended & mask);
+		uint16_t changed = old ^ new;
+		if (reg == S32X_VID_FB_CTRL && (changed & S32X_VID_BIT_FS)) {
+			if (old & S32X_VID_BIT_VBLK) {
+				uint8_t *tmp = video->front;
+				video->front = video->back;
+				video->back = tmp;
+			} else {
+				return cycles_to_vblank(video) * 3;
+			}
+		}
+		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
+		video->regs[reg] = new;
+		if (reg == S32X_VID_FILL_DATA) {
+			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
+		}
+	} else if (address >= 0x0004200 && address < 0x0004400) {
+		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
+			return cycles_to_pen(video) * 3;
+		}
+		printf("32X Palette Write (byte): %06X: %04X\n", address, value);
+		//manual says this isn't allowed, what actually happens here?
 	}
 	return 0;
 }

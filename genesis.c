@@ -3254,7 +3254,7 @@ genesis_context *alloc_genesis_32x(system_media *media, uint32_t opts, uint8_t f
 		media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, base_map_32x, s32x_base_chunks
 	);
 	genesis_context *gen = shared_init_gen(info, media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, opts, force_region);
-	gen->mars = alloc_32x(media, force_region);
+	gen->mars = alloc_32x(media, gen->version_reg & HZ50);
 	gen->header.type = SYSTEM_32X;
 	gen->vdp->s32x_vid = &gen->mars->video;
 	gen->m68k->mem_pointers[2] = gen->m68k->mem_pointers[3] = NULL;

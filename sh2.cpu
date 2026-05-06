@@ -13,6 +13,9 @@ declare
 	void sh2_assert_reset(sh2_context *sh2);
 	void sh2_clear_reset(sh2_context *sh2);
 	void sh2_run(sh2_context *sh2, uint32_t target_cycle);
+	typedef void (sh2_fun)(sh2_context *sh2);
+	void sh2_insert_breakpoint(sh2_context *sh2, uint32_t address, sh2_fun *handler);
+	void sh2_remove_breakpoint(sh2_context *sh2, uint32_t address);
 	
 regs
 	gpr 32 r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
@@ -25,7 +28,8 @@ regs
 	pc 32
 	scratch1 32
 	scratch2 32
-	prefetch 32
+	prefetch_cur 16
+	prefetch_next 16
 	prefetch_full 8
 	did_mem 8
 	t 8
@@ -34,6 +38,7 @@ regs
 	q 8
 	reset 8
 	need_reset 8
+	system ptrvoid
 	mem_pointers ptr8 4
 	peripherals 8 512
 
@@ -108,20 +113,21 @@ sh2_vector_read
 sh2_fetch
 	pc += 2
 	if prefetch_full
-		prefetch = prefetch >> 16
+		prefetch_cur = prefetch_next
 		prefetch_full = 0
 	else
 		if did_mem
 			#pipeline bubble to to MA/IF conflict
 			cycles 1
 		end
-		scratch1 = pc & 1
+		scratch1 = pc & 2
 		if scratch1
 			sh2_read16 pc
-			prefetch = scratch1
+			prefetch_cur = scratch1
 		else
 			sh2_read32 pc
-			prefetch = scratch1
+			prefetch_cur = scratch1 >> 16
+			prefetch_next = scratch1
 			prefetch_full = 1
 		end
 	end
@@ -130,7 +136,8 @@ sh2_fetch
 sh2_fetch_delay_slot
 	pc += 2
 	if prefetch_full
-		prefetch = prefetch >> 16
+		prefetch_cur = prefetch_next
+		prefetch_full = 0
 		prefetch_full = 0
 	else
 		if did_mem
@@ -138,7 +145,7 @@ sh2_fetch_delay_slot
 			cycles 1
 		end
 		sh2_read16 pc
-		prefetch = scratch1
+		prefetch_cur = scratch1
 	end
 	did_mem = 0
 	
@@ -146,7 +153,7 @@ sh2_reset
 	sr = 0xF0
 	vbr = 0
 	sh2_vector_read 0
-	pc = scratch1
+	pc = scratch1 - 2
 	sh2_vector_read 1
 	r15 = scratch1
 	sh2_fetch
@@ -163,6 +170,7 @@ sh2_reset
 	cycles 1
 	scratch1 = D << 1
 	scratch1 += pc
+	scratch1 += 4
 	sh2_read16_data scratch1
 	gpr.N = sext 32 scratch1
 	sh2_fetch
@@ -172,6 +180,8 @@ sh2_reset
 	cycles 1
 	scratch1 = D << 2
 	scratch1 += pc
+	scratch1 += 4
+	scratch1 &= 0xFFFFFFFC
 	sh2_read32_data scratch1
 	gpr.N = scratch1
 	sh2_fetch
@@ -250,7 +260,7 @@ sh2_reset
 
 0110NNNNMMMM0110 load_postinc_rm_rn_l
 	cycles 1
-	sh2_read8_data gpr.M
+	sh2_read32_data gpr.M
 	gpr.N = scratch1
 	gpr.M += 4
 	sh2_fetch
@@ -273,7 +283,7 @@ sh2_reset
 	cycles 1
 	scratch2 = D << 2
 	scratch2 += gpr.N
-	sh2_write8 scratch2 gpr.M
+	sh2_write32 scratch2 gpr.M
 	sh2_fetch
 
 10000100MMMMDDDD load_disp_rm_r0_b
@@ -395,6 +405,7 @@ sh2_reset
 	cycles 1
 	scratch1 = D << 2
 	scratch1 += pc
+	scratch1 += 4
 	sh2_read32_data scratch1
 	r0 = scratch1
 	sh2_fetch
@@ -442,7 +453,7 @@ sh2_reset
 	local imm 32
 	cycles 1
 	imm = sext 16 I
-	imm = sext 32 scratch1
+	imm = sext 32 imm
 	gpr.N += imm
 	sh2_fetch
 
@@ -463,7 +474,7 @@ sh2_reset
 	local imm 32
 	cycles 1
 	imm = sext 16 I
-	imm = sext 32 scratch1
+	imm = sext 32 imm
 	cmp imm r0
 	update_flags Z
 	sh2_fetch
@@ -775,12 +786,10 @@ sh2_reset
 11001101IIIIIIII andi_r0_gbr
 	nospecialize I
 	cycles 1
-	local imm 8
-	imm = I
 	scratch1 = r0 + gbr
 	sh2_read8_data scratch1
 	cycles 2
-	scratch1 &= imm
+	scratch1 &= I
 	scratch2 = r0 + gbr
 	sh2_write8 scratch2 scratch1
 	sh2_fetch
@@ -803,12 +812,10 @@ sh2_reset
 11001111IIIIIIII or_imm_r0_gbr
 	nospecialize I
 	cycles 1
-	local imm 8
-	imm = I
 	scratch1 = r0 + gbr
 	sh2_read8_data scratch1
 	cycles 2
-	scratch1 |= imm
+	scratch1 |= I
 	scratch2 = r0 + gbr
 	sh2_write8 scratch2 scratch1
 	sh2_fetch
@@ -839,14 +846,12 @@ sh2_reset
 
 11001100IIIIIIII tst_imm_r0_gbr
 	nospecialize I
-	local imm 32
 	cycles 1
-	imm = I
 	scratch1 = r0 + gbr
 	sh2_read8_data scratch1
 	cycles 2
-	imm &= scratch1
-	t = !imm
+	scratch1 &= I
+	t = !scratch1
 	sh2_fetch
 
 0010NNNNMMMM1010 xor_rm_rn
@@ -863,12 +868,10 @@ sh2_reset
 11001110IIIIIIII xor_imm_r0_gbr
 	nospecialize I
 	cycles 1
-	local imm 8
-	imm = I
 	scratch1 = r0 + gbr
 	sh2_read8_data scratch1
 	cycles 2
-	scratch1 ^= imm
+	scratch1 ^= I
 	scratch2 = r0 + gbr
 	sh2_write8 scratch2 scratch1
 	sh2_fetch
@@ -956,7 +959,7 @@ sh2_reset
 	cycles 1
 	if t = 0
 		disp = sext 16 D
-		disp = sext 32 D
+		disp = sext 32 disp
 		disp <<= 1
 		pc += disp
 		pc += 2
@@ -970,7 +973,7 @@ sh2_reset
 	cycles 1
 	if t
 		disp = sext 16 D
-		disp = sext 32 D
+		disp = sext 32 disp
 		disp <<= 1
 		pc += disp
 		pc += 2
@@ -984,11 +987,10 @@ sh2_reset
 	cycles 1
 	if t = 0
 		disp = sext 16 D
-		disp = sext 32 D
+		disp = sext 32 disp
 		disp <<= 1
 		sh2_fetch_delay_slot
 		pc += disp
-		pc += 2
 		cycles 1
 	else
 		sh2_fetch
@@ -999,11 +1001,10 @@ sh2_reset
 	cycles 1
 	if t
 		disp = sext 16 D
-		disp = sext 32 D
+		disp = sext 32 disp
 		disp <<= 1
 		sh2_fetch_delay_slot
 		pc += disp
-		pc += 2
 		cycles 1
 	else
 		sh2_fetch
@@ -1022,7 +1023,6 @@ sh2_reset
 	disp <<= 1
 	sh2_fetch_delay_slot
 	pc += disp
-	pc += 2
 	cycles 1
 
 0000MMMM00100011 braf
@@ -1045,7 +1045,6 @@ sh2_reset
 	pr = pc
 	sh2_fetch_delay_slot
 	pc += disp
-	pc += 2
 	cycles 1
 
 0000MMMM00000011 bsrf
@@ -1058,20 +1057,20 @@ sh2_reset
 0100MMMM00101011 jmp
 	cycles 1
 	sh2_fetch_delay_slot
-	pc = gpr.M
+	pc = gpr.M - 2
 	cycles 1
 
 0100MMMM00001011 jsr
 	cycles 1
 	pr = pc
 	sh2_fetch_delay_slot
-	pc = gpr.M
+	pc = gpr.M - 2
 	cycles 1
 
 0000000000001011 sh2_rts
 	cycles 1
 	sh2_fetch_delay_slot
-	pc = pr + 4
+	pc = pr
 	cycles 1
 
 0000000000001000 clrt
@@ -1269,22 +1268,19 @@ sh2_reset
 	cycles 1
 
 11000011IIIIIIII trapa
-	local imm 32
 	nospecialize I
 	cycles 2
 	r15 -= 4
-	imm = I
 	sh2_write32 r15 sr
 	cycles 2
 	r15 -= 4
 	scratch1 = pc - 2
 	sh2_write32 r15 scratch1
-	sh2_vector_read imm
+	sh2_vector_read I
 	pc = scratch1 + 4
 	cycles 3
 	prefetch_full = 0
 	sh2_fetch
 
 sh2_run_op
-	scratch1 = prefetch & 0xFFFF
-	dispatch scratch1
+	dispatch prefetch_cur
