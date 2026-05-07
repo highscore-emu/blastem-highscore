@@ -54,6 +54,17 @@ void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
 	} else {
 		mars->video.cycle = 0;
 	}
+	deduction *= 3;
+	if (deduction > mars->main->cycles) {
+		mars->main->cycles -= deduction;
+	} else {
+		mars->main->cycles = 0;
+	}
+	if (deduction > mars->sub->cycles) {
+		mars->sub->cycles -= deduction;
+	} else {
+		mars->sub->cycles = 0;
+	}
 }
 
 uint16_t s32x_68k_read(uint32_t address, void *vcontext)

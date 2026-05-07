@@ -617,7 +617,7 @@ static m68k_context *sync_components(m68k_context * context, uint32_t address)
 				exit_after -= elapsed;
 			}
 		}
-		if (context->cycles > MAX_NO_ADJUST) {
+		if (context->cycles > MAX_NO_ADJUST || (gen->mars && gen->mars->main->cycles > MAX_NO_ADJUST)) {
 			uint32_t deduction = mclks - ADJUST_BUFFER;
 			vdp_adjust_cycles(v_context, deduction);
 			io_adjust_cycles(gen->io.ports, context->cycles, deduction);
