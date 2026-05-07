@@ -10,7 +10,7 @@ deferred_addr * defer_address(deferred_addr * old_head, uint32_t address, uint8_
 {
 	deferred_addr * new_head = malloc(sizeof(deferred_addr));
 	new_head->next = old_head;
-	new_head->address = address & 0xFFFFFF;
+	new_head->address = address;
 	new_head->dest = dest;
 	return new_head;
 }

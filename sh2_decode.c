@@ -375,7 +375,7 @@ sh2_inst sh2_decode(uint16_t inst)
 		case 0xD: return (sh2_inst){.opcode = SH2_BTS, .src = SH2_REL, .immed = sign_extend8(inst & 0xFF) << 1};
 		case 0xF: return (sh2_inst){.opcode = SH2_BFS, .src = SH2_REL, .immed = sign_extend8(inst & 0xFF) << 1};
 		}
-	case 0x9: return (sh2_inst){.opcode = SH2_MOVW, .src = SH2_DISP_PC, .dst = rn, .immed = (inst & 0xFF) << 1};
+	case 0x9: return (sh2_inst){.opcode = SH2_MOVW, .src = SH2_DISP_PC, .dst = SH2_R0 + rn, .immed = (inst & 0xFF) << 1};
 	case 0xA: return (sh2_inst){.opcode = SH2_BRA, .src = SH2_REL, .immed = sign_extend12(inst & 0xFFF) << 1};
 	case 0xB: return (sh2_inst){.opcode = SH2_BSR, .src = SH2_REL, .immed = sign_extend12(inst & 0xFFF) << 1};
 	case 0xC:
@@ -390,13 +390,13 @@ sh2_inst sh2_decode(uint16_t inst)
 		case 0x6: return (sh2_inst){.opcode = SH2_MOVB + (rn & 3), .src = SH2_DISP_GBR, .dst = SH2_R0, .immed = (inst & 0xFF) << rn};
 		case 0x7: return (sh2_inst){.opcode = SH2_MOVA, .src = SH2_DISP_PC, .dst = SH2_R0, .immed = (inst & 0xFF) << 2};
 		case 0x8: return immed8_zext(SH2_TST, inst & 0xFF, SH2_R0);
-		case 0x9: return immed8_zext(SH2_TST, inst & 0xFF, SH2_R0);
-		case 0xA: return immed8_zext(SH2_TST, inst & 0xFF, SH2_R0);
-		case 0xB: return immed8_zext(SH2_TST, inst & 0xFF, SH2_R0);
+		case 0x9: return immed8_zext(SH2_AND, inst & 0xFF, SH2_R0);
+		case 0xA: return immed8_zext(SH2_XOR, inst & 0xFF, SH2_R0);
+		case 0xB: return immed8_zext(SH2_OR, inst & 0xFF, SH2_R0);
 		case 0xC: return immed8_zext(SH2_TST, inst & 0xFF, SH2_IDX_R0_GBR);
-		case 0xD: return immed8_zext(SH2_TST, inst & 0xFF, SH2_IDX_R0_GBR);
-		case 0xE: return immed8_zext(SH2_TST, inst & 0xFF, SH2_IDX_R0_GBR);
-		case 0xF: return immed8_zext(SH2_TST, inst & 0xFF, SH2_IDX_R0_GBR);
+		case 0xD: return immed8_zext(SH2_AND, inst & 0xFF, SH2_IDX_R0_GBR);
+		case 0xE: return immed8_zext(SH2_XOR, inst & 0xFF, SH2_IDX_R0_GBR);
+		case 0xF: return immed8_zext(SH2_OR, inst & 0xFF, SH2_IDX_R0_GBR);
 		}
 	case 0xD: return (sh2_inst){.opcode = SH2_MOVL, .src = SH2_DISP_PC, .dst = SH2_R0 + rn, .immed = (inst & 0xFF) << 2};
 	case 0xE: return immed8_sext(SH2_MOV, inst & 0xFF, SH2_R0 + rn);

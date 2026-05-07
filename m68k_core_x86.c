@@ -837,7 +837,7 @@ void translate_m68k_bcc(m68k_options * opts, m68kinst * inst)
 		cycles(&opts->gen, 10);
 		code_ptr dest_addr = get_native_address(opts, after + disp);
 		if (!dest_addr) {
-			opts->gen.deferred = defer_address(opts->gen.deferred, after + disp, code->cur + 1);
+			opts->gen.deferred = defer_address(opts->gen.deferred, (after + disp) & 0xFFFFFF, code->cur + 1);
 			//dummy address to be replaced later, make sure it generates a 4-byte displacement
 			dest_addr = code->cur + 256;
 		}

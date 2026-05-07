@@ -191,7 +191,7 @@ void jump_m68k_abs(m68k_options * opts, uint32_t address)
 	code_info *code = &opts->gen.code;
 	code_ptr dest_addr = get_native_address(opts, address);
 	if (!dest_addr) {
-		opts->gen.deferred = defer_address(opts->gen.deferred, address, code->cur + 1);
+		opts->gen.deferred = defer_address(opts->gen.deferred, address & 0xFFFFFF, code->cur + 1);
 		//dummy address to be replaced later, make sure it generates a 4-byte displacement
 		dest_addr = code->cur + 256;
 	}
