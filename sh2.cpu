@@ -650,23 +650,23 @@ sh2_reset
 
 0110NNNNMMMM1110 exts_b
 	cycles 1
-	gpr.M = sext 16 gpr.N
-	gpr.M = sext 32 gpr.M
+	gpr.N = sext 16 gpr.M
+	gpr.N = sext 32 gpr.N
 	sh2_fetch
 
 0110NNNNMMMM1111 exts_w
 	cycles 1
-	gpr.M = sext 32 gpr.N
+	gpr.N = sext 32 gpr.M
 	sh2_fetch
 
 0110NNNNMMMM1100 extu_b
 	cycles 1
-	gpr.M = gpr.N & 0xFF
+	gpr.N = gpr.M & 0xFF
 	sh2_fetch
 
 0110NNNNMMMM1101 extu_w
 	cycles 1
-	gpr.M = gpr.N & 0xFFFF
+	gpr.N = gpr.M & 0xFFFF
 	sh2_fetch
 
 0000NNNNMMMM1111 mac_l
