@@ -306,8 +306,8 @@ sh2_reset
 	cycles 1
 	scratch1 = D << 2
 	scratch1 += gpr.M
-	sh2_read16_data scratch1
-	gpr.N = sext 32 scratch1
+	sh2_read32_data scratch1
+	gpr.N = scratch1
 	sh2_fetch
 
 0000NNNNMMMM0100 store_rm_r0_rn_indexed_b
@@ -530,6 +530,7 @@ sh2_reset
 	else
 		t = 0
 	end
+	sh2_fetch
 
 0100NNNN00010001 cmppz_rn
 	cycles 1
@@ -538,6 +539,7 @@ sh2_reset
 	else
 		t = 0
 	end
+	sh2_fetch
 
 0010NNNNMMMM1100 cmpstr_rm_rn
 	local temp 32
@@ -654,8 +656,7 @@ sh2_reset
 
 0110NNNNMMMM1111 exts_w
 	cycles 1
-	gpr.M = sext 16 gpr.N
-	gpr.M = sext 32 gpr.M
+	gpr.M = sext 32 gpr.N
 	sh2_fetch
 
 0110NNNNMMMM1100 extu_b
@@ -1019,7 +1020,7 @@ sh2_reset
 	temp = disp & 0x800
 	if temp
 		disp |= 0xFFFFF000
-	else
+	end
 	disp <<= 1
 	sh2_fetch_delay_slot
 	pc += disp
@@ -1040,7 +1041,7 @@ sh2_reset
 	temp = disp & 0x800
 	if temp
 		disp |= 0xFFFFF000
-	else
+	end
 	disp <<= 1
 	pr = pc
 	sh2_fetch_delay_slot
