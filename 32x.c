@@ -65,6 +65,10 @@ uint16_t s32x_68k_read(uint32_t address, void *vcontext)
 	if (address < 0xA15100 + (S32X_NUM_REGS * 2)) {
 		uint32_t reg = (address & 0xFE) >> 1;
 		printf("32X 68K Read: %06X: %04X\n", address, mars->regs[reg]);
+		if (reg == S32X_PWM_WIDTH_M) {
+			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
+			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
+		}
 		return mars->regs[reg];
 	} else if (address >= 0xA15180) {
 		return s32x_video_68k_read(address, &mars->video);
@@ -95,6 +99,10 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 			return mars->sh2_regs[reg];
 		} else {
 			printf("32X SH2 Read: %06X: %04X\n", address, mars->regs[reg]);
+			if (reg == S32X_PWM_WIDTH_M) {
+				//TODO: test what happens when reading the FIFO status bits here when L & R don't match
+				return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
+			}
 			return mars->regs[reg];
 		}
 	} else if (address >= 0x0004100) {
@@ -129,10 +137,7 @@ static uint16_t reg_write_masks[] = {
 	0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
 	0xFFFF, 0xFFFF,
 	0x090F,
-	0x0FFF,
-	0x0FFF,
-	0x0FFF,
-	0x0FFF,
+	0x0FFF
 };
 
 static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t changes)
@@ -147,10 +152,10 @@ static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t cha
 		if (cart_mapped_high) {
 			mars->main->mem_pointers[0] = (uint8_t *)gen->cart;
 			mars->sub->mem_pointers[0] = (uint8_t *)gen->cart;
-			m68k->mem_pointers[0] = NULL;
+			m68k->mem_pointers[0] = mars->vector_rom;
 			m68k->mem_pointers[1] = gen->cart;
 			// This is either for SRAM with the cart mapped low or unused
-			m68k->mem_pointers[3] = NULL;
+			m68k->mem_pointers[3] = mars->vector_rom;
 			uint32_t bank_start = (mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) << 20;
 			const memmap_chunk *chunk = find_map_chunk(bank_start, &m68k->opts->gen, 0, NULL);
 			if (!chunk) {
@@ -218,10 +223,10 @@ void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value)
 		printf("32X 68K Write: %06X: %04X\n", address, value);
 		uint16_t old = mars->regs[reg];
 		uint16_t new = (old & ~mask) | (value & mask);
-		mars->regs[reg] = new;
 		uint16_t changes = old ^ new;
-		check_cart_map_change(reg, m68k, changes);
-		if (reg == S32X_ADAPT_CTRL) {
+		switch(reg)
+		{
+		case S32X_ADAPT_CTRL:
 			if (changes & BIT_SH2_RESET) {
 				if (new & BIT_SH2_RESET) {
 					sh2_clear_reset(mars->main);
@@ -242,7 +247,38 @@ void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value)
 				mars->sh2_regs[S32X_SH2_INT_CTRL] &= ~BIT_ADEN_FM;
 				mars->sh2_regs[S32X_SH2_INT_CTRL] |= new & BIT_ADEN_FM;
 			}
+			break;
+		case S32X_PWM_WIDTH_M:
+		case S32X_PWM_WIDTH_L:
+			mars->fifo_left[mars->fifo_left_write++] = value & 0xFFF;
+			mars->fifo_left_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_left_read++;
+				mars->fifo_left_read %= 3;
+			} else  if (mars->fifo_left_read == mars->fifo_left_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			if (reg == S32X_PWM_WIDTH_M) {
+				mars->regs[reg++] = new;
+				new = mars->regs[reg];
+			} else {
+				break;
+			}
+		case S32X_PWM_WIDTH_R:
+			mars->fifo_right[mars->fifo_right_write++] = value & 0xFFF;
+			mars->fifo_right_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_right_read++;
+				mars->fifo_right_read %= 3;
+			} else  if (mars->fifo_right_read == mars->fifo_right_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			break;
 		}
+		mars->regs[reg] = new;
+		check_cart_map_change(reg, m68k, changes);
 	} else if (address >= 0xA15180) {
 		for (;;)
 		{
@@ -287,10 +323,10 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 		}
 		uint16_t old = mars->regs[reg];
 		uint16_t new = (old & ~mask) | (extended & mask);
-		mars->regs[reg] = new;
 		uint16_t changes = old ^ new;
-		check_cart_map_change(reg, m68k, changes);
-		if (reg == S32X_ADAPT_CTRL) {
+		switch(reg)
+		{
+		case S32X_ADAPT_CTRL:
 			if (changes & BIT_SH2_RESET) {
 				if (new & BIT_SH2_RESET) {
 					sh2_clear_reset(mars->main);
@@ -307,7 +343,42 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 					mars->sh2_regs[S32X_SH2_INT_CTRL] &= ~BIT_ADEN_SH2;
 				}
 			}
+			if (changes & BIT_ADEN_FM) {
+				mars->sh2_regs[S32X_SH2_INT_CTRL] &= ~BIT_ADEN_FM;
+				mars->sh2_regs[S32X_SH2_INT_CTRL] |= new & BIT_ADEN_FM;
+			}
+			break;
+		case S32X_PWM_WIDTH_M:
+		case S32X_PWM_WIDTH_L:
+			mars->fifo_left[mars->fifo_left_write++] = value & 0xFFF;
+			mars->fifo_left_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_left_read++;
+				mars->fifo_left_read %= 3;
+			} else  if (mars->fifo_left_read == mars->fifo_left_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			if (reg == S32X_PWM_WIDTH_M) {
+				mars->regs[reg++] = new;
+				new = mars->regs[reg];
+			} else {
+				break;
+			}
+		case S32X_PWM_WIDTH_R:
+			mars->fifo_right[mars->fifo_right_write++] = value & 0xFFF;
+			mars->fifo_right_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_right_read++;
+				mars->fifo_right_read %= 3;
+			} else  if (mars->fifo_right_read == mars->fifo_right_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			break;
 		}
+		mars->regs[reg] = new;
+		check_cart_map_change(reg, m68k, changes);
 	} else if (address >= 0xA15180) {
 		for (;;)
 		{
@@ -362,12 +433,45 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 		printf("32X SH2 Write: %06X: %04X\n", address, value);
 		uint16_t old = base[reg];
 		uint16_t new = (old & ~mask) | (value & mask);
-		base[reg] = new;
 		uint16_t changes = old ^ new;
-		if (reg == S32X_SH2_INT_CTRL && (changes & BIT_ADEN_FM)) {
-			mars->regs[S32X_ADAPT_CTRL] &= ~BIT_ADEN_FM;
-			mars->regs[S32X_ADAPT_CTRL] |= new & BIT_ADEN_FM;
+		switch (reg)
+		{
+		case S32X_SH2_INT_CTRL:
+			if (changes & BIT_ADEN_FM) {
+				mars->regs[S32X_ADAPT_CTRL] &= ~BIT_ADEN_FM;
+				mars->regs[S32X_ADAPT_CTRL] |= new & BIT_ADEN_FM;
+			}
+			break;
+		case S32X_PWM_WIDTH_M:
+		case S32X_PWM_WIDTH_L:
+			mars->fifo_left[mars->fifo_left_write++] = value & 0xFFF;
+			mars->fifo_left_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_left_read++;
+				mars->fifo_left_read %= 3;
+			} else  if (mars->fifo_left_read == mars->fifo_left_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			if (reg == S32X_PWM_WIDTH_M) {
+				mars->regs[reg++] = new;
+				new = base[reg];
+			} else {
+				break;
+			}
+		case S32X_PWM_WIDTH_R:
+			mars->fifo_right[mars->fifo_right_write++] = value & 0xFFF;
+			mars->fifo_right_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_right_read++;
+				mars->fifo_right_read %= 3;
+			} else  if (mars->fifo_right_read == mars->fifo_right_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			break;
 		}
+		base[reg] = new;
 	} else if (address >= 0x0004100) {
 		for (;;)
 		{
@@ -406,8 +510,45 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 		printf("32X SH2 Write: %06X: %04X\n", address, value);
 		uint16_t old = base[reg];
 		uint16_t new = (old & ~mask) | (extended & mask);
-		base[reg] = new;
 		uint16_t changes = old ^ new;
+		switch (reg)
+		{
+		case S32X_SH2_INT_CTRL:
+			if (changes & BIT_ADEN_FM) {
+				mars->regs[S32X_ADAPT_CTRL] &= ~BIT_ADEN_FM;
+				mars->regs[S32X_ADAPT_CTRL] |= new & BIT_ADEN_FM;
+			}
+			break;
+		case S32X_PWM_WIDTH_M:
+		case S32X_PWM_WIDTH_L:
+			mars->fifo_left[mars->fifo_left_write++] = value & 0xFFF;
+			mars->fifo_left_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_left_read++;
+				mars->fifo_left_read %= 3;
+			} else  if (mars->fifo_left_read == mars->fifo_left_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			if (reg == S32X_PWM_WIDTH_M) {
+				mars->regs[reg++] = new;
+				new = base[reg];
+			} else {
+				break;
+			}
+		case S32X_PWM_WIDTH_R:
+			mars->fifo_right[mars->fifo_right_write++] = value & 0xFFF;
+			mars->fifo_right_write %= 3;
+			if (new & BIT_PWM_FULL) {
+				mars->fifo_right_read++;
+				mars->fifo_right_read %= 3;
+			} else  if (mars->fifo_right_read == mars->fifo_right_write) {
+				new |= BIT_PWM_FULL;
+			}
+			new &= ~BIT_PWM_EMPTY;
+			break;
+		}
+		base[reg] = new;
 	} else if (address >= 0x0004100) {
 		for (;;)
 		{
@@ -424,32 +565,69 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 	return vcontext;
 }
 
-uint16_t s32x_read_68k_vector(uint32_t address, void *vcontext)
+static uint16_t *get_68K_vector_rom(uint32_t size)
 {
-	address &= 0xFF;
-	if (!address) {
-		return 0;
+	if (size < 0x100) {
+		size = 0x100;
 	}
-	if (address >= 0xC0) {
-		//TODO: there's a bit of non-vector stuff here
-		return 0xFFFF;
+	uint16_t *ret = calloc(1, size);
+	char *m68k_path = tern_find_path_default(config, "system\0s32x_68k_bios\0", (tern_val){.ptrval = "32X_G_BIOS.bin"}, TVAL_PTR).ptrval;
+	FILE *f = fopen(m68k_path, "rb");
+	if (f) {
+		fread(ret, 1, 0x100, f);
+		byteswap_rom(0x100, ret);
+		fclose(f);
+	} else {
+		warning("32X 68K BIOS not found at %s. Some games may function without it, but it is needed for full compatibility\n", m68k_path);
+		ret[0] = ret[1] = 0;
+		uint32_t vector = 0x880200;
+		for (int i = 0; i < 47; i++)
+		{
+			ret[i * 2] = vector >> 16;
+			ret[i * 2 + 1] = vector;
+			vector += 6;
+		}
+		//TODO: fake the subroutines maybe?
 	}
-	uint32_t vector =  0x880200 + (((address & 0xFC) - 0x4) >> 1) * 3;
-	if (address & 2) {
-		printf("68K Vector table read %03X: %04X\n", address, vector & 0xFFFF);
-		return vector;
+	for (uint32_t i = 0x100; i < size - 0xFF; i += 0x100)
+	{
+		memcpy(ret + i / 2, ret, 0x100);
 	}
-	printf("68K Vector table read %03X: %04X\n", address, vector >> 16);
-	return vector >> 16;
+	return ret;
 }
 
-uint8_t s32x_read_68k_vector_b(uint32_t address, void *vcontext)
+void *s32x_write_hint(uint32_t address, void *vcontext, uint16_t value)
 {
-	uint16_t ret = s32x_read_68k_vector(address, vcontext);
-	if (address & 1) {
-		return ret;
+	if (address >= 0x70 && address < 0x74) {
+		m68k_context *m68k = vcontext;
+		genesis_context *gen = m68k->system;
+		s32x *mars = gen->mars;
+		uint8_t cart_mapped_high = (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) && !(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV);
+		if (cart_mapped_high) {
+			mars->vector_rom[address >> 1] = value;
+		}
 	}
-	return ret >> 8;
+	return vcontext;
+}
+
+void *s32x_write_hint_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	if (address >= 0x70 && address < 0x74) {
+		m68k_context *m68k = vcontext;
+		genesis_context *gen = m68k->system;
+		s32x *mars = gen->mars;
+		uint8_t cart_mapped_high = (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) && !(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV);
+		if (cart_mapped_high) {
+			if (address & 1) {
+				mars->vector_rom[address >> 1] &= 0xFF00;
+				mars->vector_rom[address >> 1] |= value;
+			} else {
+				mars->vector_rom[address >> 1] &= 0x00FF;
+				mars->vector_rom[address >> 1] |= value << 8;
+			}
+		}
+	}
+	return vcontext;
 }
 
 void *s32x_fb_write_w(uint32_t address, void *vcontext, uint16_t value)
@@ -642,6 +820,9 @@ s32x *alloc_32x(system_media *media, uint8_t pal)
 	s32x_video_init(&ret->video, pal);
 	ret->rom = media->buffer;
 	ret->regs[S32X_ADAPT_CTRL] = 0x0080;
+	ret->regs[S32X_PWM_WIDTH_L] = BIT_PWM_EMPTY;
+	ret->regs[S32X_PWM_WIDTH_R] = BIT_PWM_EMPTY;
+	ret->vector_rom = get_68K_vector_rom(media->size);
 	//FIXME: 32XCD
 	//ret->sh2_regs[S32X_SH2_INT_CTRL] |= BIT_CART_SH2;
 	return ret;

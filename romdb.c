@@ -504,10 +504,9 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				}
 				//TODO: ROM mirroring
 				info->map[0].mask = 0xFFFFFF;
-				info->map[0].aux_mask = info->map[0].mask;
-				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
-				info->map[0].read_16 = s32x_read_68k_vector;
-				info->map[0].read_8 = s32x_read_68k_vector_b;
+				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX;
+				info->map[0].write_16 = s32x_write_hint;
+				info->map[0].write_8 = s32x_write_hint_b;
 				info->map[0].buffer = rom;
 				info->map[0].ptr_index = 0;
 				
@@ -558,9 +557,9 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				info->map[0].end = 0x200000;
 				info->map[0].mask = 0xFFFFFF;
 				info->map[0].aux_mask = info->map[0].mask;
-				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
-				info->map[0].read_16 = s32x_read_68k_vector;
-				info->map[0].read_8 = s32x_read_68k_vector_b;
+				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX;
+				info->map[0].write_16 = s32x_write_hint;
+				info->map[0].write_8 = s32x_write_hint_b;
 				info->map[0].buffer = rom;
 				info->map[0].ptr_index = 0;
 				
@@ -619,9 +618,9 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 	info->map[0].end = rom_end;
 	info->map[0].mask = rom_end - 1;
 	info->map[0].aux_mask = info->map[0].mask;
-	info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
-	info->map[0].read_16 = s32x_read_68k_vector;
-	info->map[0].read_8 = s32x_read_68k_vector_b;
+	info->map[0].flags = MMAP_READ | MMAP_PTR_IDX;
+	info->map[0].write_16 = s32x_write_hint;
+	info->map[0].write_8 = s32x_write_hint_b;
 	info->map[0].buffer = rom;
 	info->map[0].ptr_index = 0;
 	

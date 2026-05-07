@@ -50,6 +50,8 @@ enum {
 #define BIT_ADEN_SH2   0x0200
 #define BIT_SH2_RESET  0x0002
 #define BIT_DREQ_RV    0x0001
+#define BIT_PWM_FULL   0x8000
+#define BIT_PWM_EMPTY  0x4000
 #define S32X_BANK_MASK 0x0003
 
 typedef struct {
@@ -58,9 +60,16 @@ typedef struct {
 	sh2_context *sub;
 	uint16_t    *sdram;
 	uint16_t    *rom;
+	uint16_t    *vector_rom;
 	s32x_video  video;
 	uint16_t    regs[S32X_NUM_REGS];
 	uint16_t    sh2_regs[S32X_NUM_SH2_REGS];
+	uint16_t    fifo_left[3];
+	uint16_t    fifo_right[3];
+	uint8_t     fifo_left_write;
+	uint8_t     fifo_left_read;
+	uint8_t     fifo_right_write;
+	uint8_t     fifo_right_read;
 	uint8_t     main_enter_debugger;
 	uint8_t     sub_enter_debugger;
 } s32x;
@@ -72,8 +81,8 @@ uint16_t s32x_68k_read(uint32_t address, void *vcontext);
 void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value);
 uint8_t s32x_68k_read_b(uint32_t address, void *vcontext);
 void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value);
-uint16_t s32x_read_68k_vector(uint32_t address, void *vcontext);
-uint8_t s32x_read_68k_vector_b(uint32_t address, void *vcontext);
+void *s32x_write_hint(uint32_t address, void *vcontext, uint16_t value);
+void *s32x_write_hint_b(uint32_t address, void *vcontext, uint8_t value);
 void *s32x_fb_write_w(uint32_t address, void *vcontext, uint16_t value);
 void *s32x_fb_write_b(uint32_t address, void *vcontext, uint8_t value);
 uint16_t s32x_fb_read_w(uint32_t address, void *vcontext);
