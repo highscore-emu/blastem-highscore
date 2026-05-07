@@ -39,24 +39,19 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 		uint32_t delta = target - vid->cycle;
 		uint32_t lines = delta / MCLKS_LINE;
 		uint32_t rest = delta % MCLKS_LINE;
-		if (lines) {
-			uint16_t vblank_start = 224, frame_end;
-			if (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PAL) {
-				frame_end = 313;
-				if (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_V240) {
-					vblank_start = 240;
-				}
-			} else {
-				frame_end = 262;
+		uint16_t vblank_start = 224, frame_end;
+		if (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PAL) {
+			frame_end = 313;
+			if (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_V240) {
+				vblank_start = 240;
 			}
+		} else {
+			frame_end = 262;
+		}
+		if (lines) {
 			vid->vcounter += lines;
 			if (vid->vcounter > frame_end) {
 				vid->vcounter -= 262;
-			}
-			if (vid->vcounter >= vblank_start) {
-				vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_VBLK;
-			} else {
-				vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_VBLK;
 			}
 		}
 		while (rest > MCLKS_PIXEL) {
@@ -74,6 +69,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 				uint16_t new = vid->hcounter + rest / MCLKS_PIXEL;
 				if (new > LINE_END) {
 					new -= LINE_END;
+					vid->vcounter++;
 				}
 				if (new > HSYNC_START) {
 					rest -= (LINE_END - vid->hcounter + HSYNC_START) * MCLKS_PIXEL;
@@ -95,7 +91,12 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 				}
 			}
 		}
-		if (vid->vcounter > HBLANK_START) {
+		if (vid->vcounter >= vblank_start) {
+			vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_VBLK;
+		} else {
+			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_VBLK;
+		}
+		if (vid->hcounter > HBLANK_START) {
 			vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_HBLK;
 		} else {
 			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_HBLK;
