@@ -295,7 +295,7 @@ system_type detect_system_type(system_media *media)
 		if (safe_cmp("SEGADISCSYSTEM", 0, media->buffer, media->size)) {
 			return SYSTEM_SEGACD;
 		}
-		if (safe_cmp(" 32X", 0x104, media->buffer, media->size)) {
+		if (safe_cmp(" 32X", 0x104, media->buffer, media->size) || !strcmp("32x", media->extension)) {
 			return SYSTEM_32X;
 		}
 		return SYSTEM_GENESIS;
@@ -354,6 +354,9 @@ system_type detect_system_type(system_media *media)
 	if (media->extension) {
 		if (!strcmp("md", media->extension) || !strcmp("gen", media->extension)) {
 			return SYSTEM_GENESIS;
+		}
+		if (!strcmp("32x", media->extension)) {
+			return SYSTEM_32X;
 		}
 		if (!strcmp("sms", media->extension)) {
 			return SYSTEM_SMS;
