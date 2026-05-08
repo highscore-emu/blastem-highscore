@@ -6036,7 +6036,35 @@ static uint8_t cmd_step_sh2(debug_root *root, parsed_command *cmd)
 	sh2_inst *inst = root->inst;
 	sh2_context *sh2 = root->cpu_context;
 	uint32_t after = root->after;
-	//TODO: fix after based on current instruction
+	switch (inst->opcode)
+	{
+	case SH2_BF:
+	case SH2_BFS:
+		if (!sh2->t) {
+			after += 2 + inst->immed;
+		}
+		break;
+	case SH2_BT:
+	case SH2_BTS:
+		if (sh2->t) {
+			after += 2 + inst->immed;
+		}
+		break;
+	case SH2_BRA:
+	case SH2_BSR:
+		after += 2 + inst->immed;
+		break;
+	//TODO: SH2_BRAF
+	//TODO: SH2_BSRF
+	case SH2_JMP:
+	case SH2_JSR:
+		after = sh2->gpr[inst->src = SH2_IND_R0];
+		break;
+	case SH2_RTS:
+		after = sh2->pr;
+		break;
+	//TODO: SH2_RTE
+	}
 	sh2_insert_breakpoint(sh2, after, sh2_debugger);
 	return 0;
 }
@@ -6046,7 +6074,37 @@ static uint8_t cmd_next_sh2(debug_root *root, parsed_command *cmd)
 	sh2_inst *inst = root->inst;
 	sh2_context *sh2 = root->cpu_context;
 	uint32_t after = root->after;
-	//TODO: fix after based on current instruction
+	switch (inst->opcode)
+	{
+	case SH2_BF:
+	case SH2_BFS:
+		if (!sh2->t) {
+			after += 2 + inst->immed;
+		}
+		break;
+	case SH2_BT:
+	case SH2_BTS:
+		if (sh2->t) {
+			after += 2 + inst->immed;
+		}
+		break;
+	case SH2_BRA:
+		after += 2 + inst->immed;
+		break;
+	case SH2_BSR:
+	case SH2_JSR:
+		after += 2; //skip over delay slot for now
+		break;
+	//TODO: SH2_BRAF
+	//TODO: SH2_BSRF
+	case SH2_JMP:
+		after = sh2->gpr[inst->src = SH2_IND_R0];
+		break;
+	case SH2_RTS:
+		after = sh2->pr;
+		break;
+	//TODO: SH2_RTE
+	}
 	sh2_insert_breakpoint(sh2, after, sh2_debugger);
 	return 0;
 }
@@ -6056,7 +6114,55 @@ static uint8_t cmd_over_sh2(debug_root *root, parsed_command *cmd)
 	sh2_inst *inst = root->inst;
 	sh2_context *sh2 = root->cpu_context;
 	uint32_t after = root->after;
-	//TODO: fix after based on current instruction
+	switch (inst->opcode)
+	{
+	case SH2_BF:
+		if (!sh2->t && inst->immed >= -2) {
+			after += 2 + inst->immed;
+		}
+		break;
+	case SH2_BFS:
+		if (!sh2->t) {
+			if (inst->immed >= -2) {
+				after += 2 + inst->immed;
+			} else {
+				//skip over delay slot for now
+				after += 2;
+			}
+		}
+		break;
+	case SH2_BT:
+		if (sh2->t && inst->immed >= -2) {
+			after += 2 + inst->immed;
+		}
+		break;
+	case SH2_BTS:
+		if (sh2->t) {
+			if (inst->immed >= -2) {
+				after += 2 + inst->immed;
+			} else {
+				//skip over delay slot for now
+				after += 2;
+			}
+		}
+		break;
+	case SH2_BRA:
+		after += 2 + inst->immed;
+		break;
+	case SH2_BSR:
+	case SH2_JSR:
+		after += 2; //skip over delay slot for now
+		break;
+	//TODO: SH2_BRAF
+	//TODO: SH2_BSRF
+	case SH2_JMP:
+		after = sh2->gpr[inst->src = SH2_IND_R0];
+		break;
+	case SH2_RTS:
+		after = sh2->pr;
+		break;
+	//TODO: SH2_RTE
+	}
 	sh2_insert_breakpoint(sh2, after, sh2_debugger);
 	return 0;
 }
@@ -6260,13 +6366,17 @@ static debug_val sh2_reg_get(debug_var *var)
 		switch(var->val.v.u32)
 		{
 		//TODO: flags
-		case 16: val = sh2->sr; break;
+		case 16:
+			sh2_collect_sr(sh2);
+			val = sh2->sr; 
+			break;
 		case 17: val = sh2->gbr; break;
 		case 18: val = sh2->vbr; break;
 		case 19: val = sh2->mach; break;
 		case 20: val = sh2->macl; break;
 		case 21: val = sh2->pr; break;
 		case 22: val = sh2->pc; break;
+		case 23: val = sh2->cycles; break;
 		default: val = 0;
 		}
 	}
@@ -6287,7 +6397,10 @@ static void sh2_reg_set(debug_var *var, debug_val val)
 	} else {
 		switch(var->val.v.u32)
 		{
-		case 16: sh2->sr = ival; break;
+		case 16:
+			sh2->sr = ival;
+			sh2_disperse_sr(sh2);
+			break;
 		case 17: sh2->gbr = ival; break;
 		case 18: sh2->vbr = ival; break;
 		case 19: sh2->mach = ival; break;
@@ -6309,7 +6422,7 @@ debug_root *find_sh2_root(sh2_context *context)
 		root->disasm = create_sh2_disasm();
 		static const char *regs[] = {
 			"r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12",
-			"r13", "r14", "sp", "sr", "gbr", "vbr", "mach", "macl", "pr", "pc"
+			"r13", "r14", "sp", "sr", "gbr", "vbr", "mach", "macl", "pr", "pc", "cycle"
 		};
 		static size_t num_regs = sizeof(regs)/sizeof(*regs);
 		for (int i = 0; i < num_regs; i++)
