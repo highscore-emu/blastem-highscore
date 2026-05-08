@@ -450,7 +450,18 @@ void add_upd7823x_labels(disasm_context *context)
 	weak_label(context, "IST", 0xFFF8);
 }
 
-void process_sh2_vectors(disasm_context *context, uint16_t *table, uint8_t labels_only)
+static void prefixed_label(disasm_context *context, const char *prefix, const char *name, uint32_t address)
+{
+	if (prefix) {
+		char *tmp = alloc_concat(prefix, name);
+		add_label(context, tmp, address);
+		free(tmp);
+	} else {
+		add_label(context, name, address);
+	}
+}
+
+void process_sh2_vectors(disasm_context *context, uint16_t *table, const char *prefix, uint32_t offset, uint8_t labels_only)
 {
 	static const char* names[] = {
 		"illegal_instruction",
@@ -463,12 +474,12 @@ void process_sh2_vectors(disasm_context *context, uint16_t *table, uint8_t label
 		"user_break"
 	};
 	uint32_t address = table[0] << 16 | table[1];
-	add_label(context, "power_on_reset", address);
+	prefixed_label(context, prefix, "power_on_reset", address);
 	if (!labels_only) {
 		defer_disasm(context, address);
 	}
 	address = table[4] << 16 | table[5];
-	add_label(context, "manual_reset", address);
+	prefixed_label(context, prefix, "manual_reset", address);
 	if (!labels_only) {
 		defer_disasm(context, address);
 	}
@@ -479,14 +490,14 @@ void process_sh2_vectors(disasm_context *context, uint16_t *table, uint8_t label
 			continue;
 		}
 		address = table[i*2+8] << 16 | table[i*2 + 9];
-		add_label(context, names[i], address);
+		prefixed_label(context, prefix, names[i], address);
 		if (!labels_only) {
 			defer_disasm(context, address);
 		}
 	}
 	if (!labels_only) {
-		visit(context, 0);
-		label_def *def = reference(context, 0);
+		visit(context, offset);
+		label_def *def = reference(context, offset);
 		def->data_count = 13;
 		def->data_size = 4;
 		def->is_pointer = 1;
@@ -505,14 +516,14 @@ void process_sh2_vectors(disasm_context *context, uint16_t *table, uint8_t label
 			trap_name[6] = c < 0xA ? '0' + c : 'a' + c - 0xA;
 		}
 		address = table[i*2+64] << 16 | table[i*2 + 65];
-		add_label(context, trap_name, address);
+		prefixed_label(context, prefix, trap_name, address);
 		if (!labels_only) {
 			defer_disasm(context, address);
 		}
 	}
 	if (!labels_only) {
-		visit(context, 0x80);
-		label_def *def = reference(context, 0x80);
+		visit(context, offset + 0x80);
+		label_def *def = reference(context, offset + 0x80);
 		def->data_count = 32;
 		def->data_size = 4;
 		def->is_pointer = 1;
@@ -523,14 +534,14 @@ void process_sh2_vectors(disasm_context *context, uint16_t *table, uint8_t label
 	{
 		int_name[4] = i < 0x9 ? '1' + i : 'a' + i - 0x9;
 		address = table[i*2+128] << 16 | table[i*2 + 129];
-		add_label(context, int_name, address);
+		prefixed_label(context, prefix, int_name, address);
 		if (!labels_only) {
 			defer_disasm(context, address);
 		}
 	}
 	if (!labels_only) {
-		visit(context, 0x100);
-		label_def *def = reference(context, 0x100);
+		visit(context, offset + 0x100);
+		label_def *def = reference(context, offset + 0x100);
 		def->data_count = 15;
 		def->data_size = 4;
 		def->is_pointer = 1;

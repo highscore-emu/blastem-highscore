@@ -128,6 +128,8 @@ int main(int argc, char **argv)
 			// appears to have a valid 32X SH2 code header
 			uint32_t main_sh2_start = filebuf[0x3E0>>1] << 16 | filebuf[0x3E0>>1|1];
 			uint32_t sub_sh2_start = filebuf[0x3E4>>1] << 16 | filebuf[0x3E4>>1|1];
+			uint32_t main_vbr = filebuf[0x3E8>>1] << 16 | filebuf[0x3E8>>1|1];
+			uint32_t sub_vbr = filebuf[0x3EC>>1] << 16 | filebuf[0x3EC>>1|1];
 			address_off = 0x6000000 + sh2_dest;
 			filebuf += sh2_code_offset >> 1;
 			address_end = address_off + sh2_code_size;
@@ -135,11 +137,16 @@ int main(int argc, char **argv)
 			add_label(context, "main_sh2_start", main_sh2_start);
 			defer_disasm(context, sub_sh2_start);
 			add_label(context, "sub_sh2_start", sub_sh2_start);
-			//TODO: process vector table if VBR is nonzero
+			if (main_vbr >= address_off && main_vbr + 0x100 + 15 * 4 <= address_end) {
+				process_sh2_vectors(context, filebuf + ((main_vbr - address_off) >> 1), "main_", main_vbr, only);
+			}
+			if (sub_vbr >= address_off && sub_vbr + 0x100 + 15 * 4 <= address_end) {
+				process_sh2_vectors(context, filebuf + ((sub_vbr - address_off) >> 1), "sub_", sub_vbr, only);
+			}
 		}
 	}
 	if (!address_off) {
-		process_sh2_vectors(context, filebuf, context->deferred && only);
+		process_sh2_vectors(context, filebuf, NULL, 0, context->deferred && only);
 	}
 	uint32_t address;
 	uint8_t valid_address;

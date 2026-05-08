@@ -41,7 +41,7 @@ void defer_disasm_label(disasm_context *context, uint32_t address, label_def *la
 void defer_disasm(disasm_context *context, uint32_t address);
 void process_address_def(disasm_context *context, char *def);
 void process_m68k_vectors(disasm_context *context, uint16_t *table, uint8_t labels_only);
-void process_sh2_vectors(disasm_context *context, uint16_t *table, uint8_t labels_only);
+void process_sh2_vectors(disasm_context *context, uint16_t *table, const char *prefix, uint32_t offset, uint8_t labels_only);
 void add_segacd_maincpu_labels(disasm_context *context);
 void add_segacd_subcpu_labels(disasm_context *context);
 disasm_context *create_68000_disasm(void);
