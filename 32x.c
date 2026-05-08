@@ -179,7 +179,7 @@ static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t cha
 				gen->mapper_temp = ((uint8_t *)chunk->buffer) + offset;
 				m68k->mem_pointers[2] = NULL;
 			} else {
-				m68k->mem_pointers[2] = (uint16_t *)((uint8_t *)chunk->buffer) + offset;
+				m68k->mem_pointers[2] = (uint16_t *)(((uint8_t *)chunk->buffer) + offset);
 				gen->mapper_temp = NULL;
 			}
 		} else {
