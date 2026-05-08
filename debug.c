@@ -6058,7 +6058,7 @@ static uint8_t cmd_step_sh2(debug_root *root, parsed_command *cmd)
 	//TODO: SH2_BSRF
 	case SH2_JMP:
 	case SH2_JSR:
-		after = sh2->gpr[inst->src = SH2_IND_R0];
+		after = sh2->gpr[inst->src - SH2_IND_R0];
 		break;
 	case SH2_RTS:
 		after = sh2->pr;
@@ -6098,7 +6098,7 @@ static uint8_t cmd_next_sh2(debug_root *root, parsed_command *cmd)
 	//TODO: SH2_BRAF
 	//TODO: SH2_BSRF
 	case SH2_JMP:
-		after = sh2->gpr[inst->src = SH2_IND_R0];
+		after = sh2->gpr[inst->src - SH2_IND_R0];
 		break;
 	case SH2_RTS:
 		after = sh2->pr;
