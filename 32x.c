@@ -75,7 +75,6 @@ uint16_t s32x_68k_read(uint32_t address, void *vcontext)
 	s32x_run(mars, m68k->cycles);
 	if (address < 0xA15100 + (S32X_NUM_REGS * 2)) {
 		uint32_t reg = (address & 0xFE) >> 1;
-		printf("32X 68K Read: %06X: %04X\n", address, mars->regs[reg]);
 		if (reg == S32X_PWM_WIDTH_M) {
 			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
 			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
@@ -106,10 +105,8 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 	if (address < 0x0004000 + (S32X_NUM_REGS * 2)) {
 		uint32_t reg = (address & 0xFE) >> 1;
 		if (reg < S32X_NUM_SH2_REGS) {
-			printf("32X SH2 Read: %06X: %04X\n", address, mars->sh2_regs[reg]);
 			return mars->sh2_regs[reg];
 		} else {
-			printf("32X SH2 Read: %06X: %04X\n", address, mars->regs[reg]);
 			if (reg == S32X_PWM_WIDTH_M) {
 				//TODO: test what happens when reading the FIFO status bits here when L & R don't match
 				return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
@@ -825,12 +822,13 @@ s32x *alloc_32x(system_media *media, uint8_t pal)
 	ret->sub = init_sh2_context(sub_opts);
 	ret->sub->system = ret;
 
-	//I think these start in the running state (after power-on reset), but this is simpler for now
 	sh2_assert_reset(ret->main);
 	sh2_assert_reset(ret->sub);
+	sh2_clear_reset(ret->main);
+	sh2_clear_reset(ret->sub);
 	s32x_video_init(&ret->video, pal);
 	ret->rom = media->buffer;
-	ret->regs[S32X_ADAPT_CTRL] = 0x0080;
+	ret->regs[S32X_ADAPT_CTRL] = 0x0082;
 	ret->regs[S32X_PWM_WIDTH_L] = BIT_PWM_EMPTY;
 	ret->regs[S32X_PWM_WIDTH_R] = BIT_PWM_EMPTY;
 	ret->vector_rom = get_68K_vector_rom(media->size);

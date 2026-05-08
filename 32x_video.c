@@ -221,10 +221,8 @@ uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video)
 {
 	//TODO: check FM
 	if (address < 0xA15180 + S32X_NUM_VID_REGS * 2) {
-		printf("32X VDP Read: %06X: %04X\n", address, video->regs[(address & 0xF) >> 1]);
 		return video->regs[(address & 0xF) >> 1];
 	} else if (address >= 0xA15200 && address < 0xA15400) {
-		printf("32X Palette Read: %06X: %04X\n", address, video->palette[(address & 0x1FF) >> 1]);
 		return video->palette[(address & 0x1FF) >> 1];
 	}
 	return 0xFFFF;
@@ -234,10 +232,8 @@ uint16_t s32x_video_sh2_read(uint32_t address, s32x_video *video)
 {
 	//TODO: check FM
 	if (address < 0x0004100 + S32X_NUM_VID_REGS * 2) {
-		printf("32X VDP Read: %06X: %04X\n", address, video->regs[(address & 0xF) >> 1]);
 		return video->regs[(address & 0xF) >> 1];
 	} else if (address >= 0x0004200 && address < 0x0004400) {
-		printf("32X Palette Read: %06X: %04X\n", address, video->palette[(address & 0x1FF) >> 1]);
 		return video->palette[(address & 0x1FF) >> 1];
 	}
 	return 0xFFFF;
