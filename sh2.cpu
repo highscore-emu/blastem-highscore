@@ -678,8 +678,10 @@ sh2_reset
 	local tmp2 64
 	cycles 3 # manual says 3/(2 to 4)
 	sh2_read32_data gpr.N
+	gpr.N += 4
 	tmp1 = scratch1
 	sh2_read32_data gpr.M
+	gpr.M += 4
 	tmp1 *= scratch1
 	tmp2 = mach << 32
 	tmp2 |= macl
@@ -704,8 +706,10 @@ sh2_reset
 	local tmpm 32
 	cycles 3 # manual says 3/(2 to 4)
 	sh2_read32_data gpr.N
+	gpr.N += 2
 	tmpn = sext 16 scratch1
 	sh2_read32_data gpr.M
+	gpr.M += 2
 	tmpm = sext 16 scratch1
 	tmp1 = tmpn * tmpm
 	tmp2 = mach << 32
