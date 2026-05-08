@@ -5,7 +5,7 @@ info
 	body sh2_run_op
 	pc_reg pc
 	include sh2_util.c
-	export sh2_reset
+	export sh2_reset sh2_disperse_sr sh2_collect_sr
 
 declare
 	void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_chunks);
@@ -148,9 +148,35 @@ sh2_fetch_delay_slot
 		prefetch_cur = scratch1
 	end
 	did_mem = 0
+
+sh2_disperse_sr
+	sr &= 0x3F3
+	t = sr & 1
+	s = sr >> 1
+	s &= 1
+	q = sr >> 8
+	q &= 1
+	m = sr >> 9
+	m &= 1
+
+sh2_collect_sr
+	sr &= 0x0F0
+	if t
+		sr |= 1
+	end
+	if s
+		sr |= 2
+	end
+	if q
+		sr |= 0x10
+	end
+	if m
+		sr |= 0x20
+	end
 	
 sh2_reset
 	sr = 0xF0
+	sh2_disperse_sr
 	vbr = 0
 	sh2_vector_read 0
 	pc = scratch1 - 2
@@ -571,43 +597,21 @@ sh2_reset
 	cycles 1
 	
 	old_q = q
-	q = gpr.N >> 31
-	gpr.N <<= 1
-	gpr.N |= t
-	tmp = gpr.N
-	if old_q
-		if m
-			gpr.N -= gpr.M
-			if tmp >=U gpr.N
-				q = !q
-			else
-				#Q unchanged
-			end
-		else
-			gpr.N += gpr.M
-			if gpr.N >=U tmp
-				#Q unchanged
-			else
-				q = !q
-			end
-		end
+	gpr.N = rlc gpr.N 1
+	update_flags C
+	q = !t
+	q = !q
+	if old_q = m
+		gpr.N -= gpr.M
+		update_flags C
 	else
-		if m
-			gpr.N += gpr.M
-			if gpr.N >=U tmp
-				q = !q
-			else
-				#Q unchanged
-			end
-		else
-			gpr.N -= gpr.M
-			if tmp >=U gpr.N
-				#Q unchanged
-			else
-				q = !q
-			end
-		end
+		gpr.N += gpr.M
+		update_flags C
 	end
+	t = !t
+	t = !t
+	q ^= m
+	q ^= t
 	t = q ^ m
 	t = !t
 	sh2_fetch
@@ -1043,14 +1047,14 @@ sh2_reset
 		disp |= 0xFFFFF000
 	end
 	disp <<= 1
-	pr = pc
+	pr = pc + 4
 	sh2_fetch_delay_slot
 	pc += disp
 	cycles 1
 
 0000MMMM00000011 bsrf
 	cycles 1
-	pr = pc
+	pr = pc + 4
 	sh2_fetch_delay_slot
 	pc += gpr.M
 	cycles 1
@@ -1063,7 +1067,7 @@ sh2_reset
 
 0100MMMM00001011 jsr
 	cycles 1
-	pr = pc
+	pr = pc + 4
 	sh2_fetch_delay_slot
 	pc = gpr.M - 2
 	cycles 1
@@ -1071,7 +1075,7 @@ sh2_reset
 0000000000001011 sh2_rts
 	cycles 1
 	sh2_fetch_delay_slot
-	pc = pr
+	pc = pr - 2
 	cycles 1
 
 0000000000001000 clrt
@@ -1088,13 +1092,7 @@ sh2_reset
 0100MMMM00001110 ldc_rm_sr
 	cycles 1
 	sr = gpr.M & 0x3F3
-	t = sr & 1
-	s = sr >> 1
-	s &= 1
-	q = sr >> 8
-	q &= 1
-	m = sr >> 9
-	m &= 1
+	sh2_disperse_sr
 	sh2_fetch
 
 0100MMMM00011110 ldc_rm_gbr
@@ -1113,13 +1111,7 @@ sh2_reset
 	cycles 2
 	sr = scratch1 & 0x3F3
 	gpr.M += 4
-	t = sr & 1
-	s = sr >> 1
-	s &= 1
-	q = sr >> 8
-	q &= 1
-	m = sr >> 9
-	m &= 1
+	sh2_disperse_sr
 	sh2_fetch
 
 0100MMMM00010111 ldc_rm_postinc_gbr
@@ -1185,6 +1177,7 @@ sh2_reset
 
 0000NNNN00000010 stc_sr_rn
 	cycles 1
+	sh2_collect_sr
 	gpr.N = sr
 	sh2_fetch
 
@@ -1259,13 +1252,7 @@ sh2_reset
 	cycles 1
 	sh2_read32_data r15
 	sr = scratch1 & 0x3F3
-	t = sr & 1
-	s = sr >> 1
-	s &= 1
-	q = sr >> 8
-	q &= 1
-	m = sr >> 9
-	m &= 1
+	sh2_disperse_sr
 	cycles 1
 
 11000011IIIIIIII trapa
