@@ -2416,6 +2416,8 @@ class Program:
 				pieces.append(f', uint{size}_t {arg}')
 				argnames.append(arg)
 			pieces.append(')\n{')
+			for var in self.subroutines[name].locals:
+				pieces.append('\n\tuint{sz}_t {sub}_{name};'.format(sz=self.subroutines[name].locals[var], sub=name, name=var))
 			self.subroutines[name].inline(self, argnames, pieces, otype, None)
 			pieces.append('\n}\n')
 		return ''.join(body) +  ''.join(pieces)
