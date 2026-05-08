@@ -28,6 +28,7 @@ regs
 	pc 32
 	scratch1 32
 	scratch2 32
+	int_cycle 32
 	prefetch_cur 16
 	prefetch_next 16
 	prefetch_full 8
@@ -38,6 +39,7 @@ regs
 	q 8
 	reset 8
 	need_reset 8
+	sleeping 8
 	system ptrvoid
 	mem_pointers ptr8 4
 	peripherals 8 512
@@ -1273,6 +1275,15 @@ sh2_reset
 	cycles 3
 	prefetch_full = 0
 	sh2_fetch
+
+0000000000011011 sleep
+	if sleeping
+		cycles 1
+	else
+		cycles 3
+		sleeping = 1
+		pc += 2
+	end
 
 sh2_run_op
 	dispatch prefetch_cur

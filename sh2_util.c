@@ -125,6 +125,15 @@ void sh2_run(sh2_context *sh2, uint32_t target_cycle)
 		sh2_reset(sh2);
 		sh2->need_reset = 0;
 	}
+	if (sh2->sleeping) {
+		if (sh2->int_cycle < target_cycle) {
+			if (sh2->int_cycle > sh2->cycles) {
+				sh2->cycles = sh2->int_cycle;
+			}
+		} else {
+			sh2->cycles = target_cycle;
+		}
+	}
 	sh2_execute(sh2, target_cycle);
 }
 
