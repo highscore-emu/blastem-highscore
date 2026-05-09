@@ -13,6 +13,8 @@
 #include "special_keys_evdev.h"
 #define render_relative_mouse(V)
 #else
+//avoid main getting #defined places we don't want it
+#define SDL_MAIN_HANDLED
 #include <SDL.h>
 #define RENDERKEY_UP       SDLK_UP
 #define RENDERKEY_DOWN     SDLK_DOWN

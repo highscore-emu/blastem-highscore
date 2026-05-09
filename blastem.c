@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#ifndef USE_FBDEV
+// for SDL_main on platforms that need it
+#include <SDL.h>
+#endif
 
 #include "system.h"
 #include "68kinst.h"
