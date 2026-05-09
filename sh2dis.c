@@ -124,7 +124,7 @@ int main(int argc, char **argv)
 		uint32_t sh2_code_offset = filebuf[0x3D4>>1] << 16 | filebuf[0x3D4>>1|1];
 		uint32_t sh2_dest = filebuf[0x3D8>>1] << 16 | filebuf[0x3D8>>1|1];
 		uint32_t sh2_code_size = filebuf[0x3DC>>1] << 16 | filebuf[0x3DC>>1|1];
-		if (sh2_code_offset < filesize && (sh2_code_offset + sh2_code_size) < filesize && sh2_dest < 0x40000) {
+		if (sh2_code_offset < filesize && (sh2_code_offset + sh2_code_size) <= filesize && sh2_dest < 0x40000) {
 			// appears to have a valid 32X SH2 code header
 			uint32_t main_sh2_start = filebuf[0x3E0>>1] << 16 | filebuf[0x3E0>>1|1];
 			uint32_t sub_sh2_start = filebuf[0x3E4>>1] << 16 | filebuf[0x3E4>>1|1];
