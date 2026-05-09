@@ -739,26 +739,30 @@ sh2_reset
 	sh2_fetch
 
 0000NNNNMMMM0111 mul_l
+	local tmp 64
 	cycles 3 # manual says 2-4
-	macl = gpr.N * gpr.M
+	# DSL wants a bigger result, than source
+	# so use a temporary to force a 32x32 multiply
+	tmp = gpr.N * gpr.M
+	macl = tmp
 	sh2_fetch
 
 0010NNNNMMMM1111 muls_w
 	local tmpn 32
 	local tmpm 32
 	cycles 2 # manual says 1-3
-	tmpn = sext 16 gpr.N
-	tmpm = sext 16 gpr.M
-	macl = tmpn *S tmpm
+	# DSL wants a bigger result, than source
+	# so we get a 16x16->32 multiply by default
+	macl = gpr.N *S gpr.M
 	sh2_fetch
 
 0010NNNNMMMM1110 mulu_w
 	local tmpn 32
 	local tmpm 32
 	cycles 2 # manual says 1-3
-	tmpn = gpr.N & 0xFFFF
-	tmpm = gpr.M & 0xFFFF
-	macl = tmpn * tmpm
+	# DSL wants a bigger result, than source
+	# so we get a 16x16->32 multiply by default
+	macl = gpr.N * gpr.M
 	sh2_fetch
 
 0110NNNNMMMM1011 neg
