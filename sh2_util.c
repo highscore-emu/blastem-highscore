@@ -96,11 +96,12 @@ void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_c
 	opts->gen.clock_divider = 7;
 }
 
-sh2_context *init_sh2_context(sh2_options *opts)
+sh2_context *init_sh2_context(sh2_options *opts, sh2_fun *next_int)
 {
 	sh2_context *sh2 = calloc(1, sizeof(sh2_context));
 	sh2->opts = opts;
 	sh2->need_reset = 1;
+	sh2->calc_next_interrupt = next_int;
 	return sh2;
 }
 
@@ -135,6 +136,11 @@ void sh2_run(sh2_context *sh2, uint32_t target_cycle)
 		}
 	}
 	sh2_execute(sh2, target_cycle);
+}
+
+void sh2_sync_cycle(sh2_context *context, uint32_t target_cycle)
+{
+	context->calc_next_interrupt(context);
 }
 
 void sh2_insert_breakpoint(sh2_context *sh2, uint32_t address, sh2_fun *handler)

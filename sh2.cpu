@@ -3,17 +3,19 @@ info
 	opcode_size 16
 	header sh2.h
 	body sh2_run_op
+	interrupt sh2_interrupt
+	sync_cycle sh2_sync_cycle
 	pc_reg pc
 	include sh2_util.c
 	export sh2_reset sh2_disperse_sr sh2_collect_sr
 
 declare
+	typedef void (sh2_fun)(sh2_context *sh2);
 	void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_chunks);
-	sh2_context *init_sh2_context(sh2_options *opts);
+	sh2_context *init_sh2_context(sh2_options *opts, sh2_fun *next_int);
 	void sh2_assert_reset(sh2_context *sh2);
 	void sh2_clear_reset(sh2_context *sh2);
 	void sh2_run(sh2_context *sh2, uint32_t target_cycle);
-	typedef void (sh2_fun)(sh2_context *sh2);
 	void sh2_insert_breakpoint(sh2_context *sh2, uint32_t address, sh2_fun *handler);
 	void sh2_remove_breakpoint(sh2_context *sh2, uint32_t address);
 	
@@ -29,9 +31,11 @@ regs
 	scratch1 32
 	scratch2 32
 	int_cycle 32
+	int_vector 32
 	prefetch_cur 16
 	prefetch_next 16
 	prefetch_full 8
+	int_priority 8
 	did_mem 8
 	t 8
 	s 8
@@ -41,6 +45,7 @@ regs
 	need_reset 8
 	sleeping 8
 	system ptrvoid
+	calc_next_interrupt ptrsh2_fun
 	mem_pointers ptr8 4
 	peripherals 8 512
 
@@ -178,8 +183,10 @@ sh2_collect_sr
 	
 sh2_reset
 	sr = 0xF0
+	int_cycle = 0xFFFFFFFF
 	sh2_disperse_sr
 	vbr = 0
+	sleeping = 0
 	sh2_vector_read 0
 	pc = scratch1 - 2
 	sh2_vector_read 1
@@ -1253,7 +1260,7 @@ sh2_reset
 	sh2_fetch_delay_slot
 	cycles 1
 	sh2_read32_data r15
-	pc = scratch1 + 4
+	pc = scratch1 - 2
 	r15 += 4
 	cycles 1
 	sh2_read32_data r15
@@ -1283,6 +1290,22 @@ sh2_reset
 		cycles 3
 		sleeping = 1
 		pc += 2
+	end
+
+sh2_interrupt
+	if cycles >=U int_cycle
+		cycles 1
+		r15 -= 4
+		sh2_write32 r15 sr
+		cycles 1
+		r15 -= 4
+		sh2_write32 r15 pc
+		sh2_vector_read int_vector
+		pc = scratch1 - 2
+		sr = int_priority << 4
+		prefetch_full = 0
+		sh2_fetch
+		update_sync
 	end
 
 sh2_run_op

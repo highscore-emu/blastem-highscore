@@ -35,24 +35,30 @@ enum {
 	S32X_PWM_WIDTH_R,
 	S32X_PWM_WIDTH_M,
 	S32X_NUM_REGS,
+	S32X_CMD_INT_CLR = S32X_SEGA_TV
 };
 
 enum {
 	S32X_SH2_INT_CTRL,
 	S32X_SH2_STANDBY,
 	S32X_SH2_HINT_COUNT,
-	S32X_NUM_SH2_REGS
+	S32X_SH2_SUB_INT,
+	S32X_NUM_SH2_REGS = S32X_SH2_SUB_INT
 };
 
-#define BIT_ADEN_M68K  0x0001
-#define BIT_ADEN_FM    0x8000
-#define BIT_CART_SH2   0x0100
-#define BIT_ADEN_SH2   0x0200
-#define BIT_SH2_RESET  0x0002
-#define BIT_DREQ_RV    0x0001
-#define BIT_PWM_FULL   0x8000
-#define BIT_PWM_EMPTY  0x4000
-#define S32X_BANK_MASK 0x0003
+#define BIT_ADEN_M68K   0x0001
+#define BIT_ADEN_FM     0x8000
+#define BIT_CART_SH2    0x0100
+#define BIT_ADEN_SH2    0x0200
+#define BIT_MAIN_INT    0x0001
+#define BIT_SUB_INT     0x0002
+#define BIT_CMD_INT_EN  0x0002
+#define BIT_SH2_RESET   0x0002
+#define BIT_DREQ_RV     0x0001
+#define BIT_PWM_FULL    0x8000
+#define BIT_PWM_EMPTY   0x4000
+#define S32X_BANK_MASK  0x0003
+#define S32X_INTEN_MASK 0x000F
 
 typedef struct {
 	void        *gen;
