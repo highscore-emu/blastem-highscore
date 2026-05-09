@@ -2391,11 +2391,19 @@ class Program:
 				pieces.append('\n}')
 			body.append('\nstatic void unimplemented({pre}context *context, uint32_t target_cycle)'.format(pre = self.prefix))
 			body.append('\n{')
+			unimplemented = ['\n\tfatal_error("Unimplemented instruction']
 			if len(self.mainDispatch) == 1:
 				dispatch = self.resolveParam(list(self.mainDispatch)[0], None, {})
-				body.append(f'\n\tfatal_error("Unimplemented instruction: %X\\n", {dispatch});')
-			else:
-				body.append('\n\tfatal_error("Unimplemented instruction\\n");')
+				unimplemented[0] += ': %X'
+				unimplemented.append(dispatch)
+			if self.pc_reg:
+				unimplemented[0] += ', pc=%X'
+				if self.pc_offset:
+					unimplemented.append(f'context->{self.pc_reg} - {self.pc_offset}')
+				else:
+					unimplemented.append(f'context->{self.pc_reg}')
+			unimplemented[0] += '\\n"'
+			body.append(f'{", ".join(unimplemented)});')
 			body.append('\n}\n')
 		elif self.dispatch == 'goto':
 			body.append('\n\t{sync}(context, target_cycle);'.format(sync=self.sync_cycle))
