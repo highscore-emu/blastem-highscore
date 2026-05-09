@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "sh2.h"
 #include "32x_video.h"
+#include "render_audio.h"
 
 enum {
 	S32X_ADAPT_CTRL,
@@ -53,31 +54,46 @@ enum {
 #define BIT_MAIN_INT    0x0001
 #define BIT_SUB_INT     0x0002
 #define BIT_CMD_INT_EN  0x0002
+#define BIT_PWM_INT_EN  0x0001
 #define BIT_SH2_RESET   0x0002
 #define BIT_DREQ_RV     0x0001
 #define BIT_PWM_FULL    0x8000
 #define BIT_PWM_EMPTY   0x4000
 #define S32X_BANK_MASK  0x0003
 #define S32X_INTEN_MASK 0x000F
+#define S32X_PWM_LRMD   0x000F
 
 typedef struct {
-	void        *gen;
-	sh2_context *main;
-	sh2_context *sub;
-	uint16_t    *sdram;
-	uint16_t    *rom;
-	uint16_t    *vector_rom;
-	s32x_video  video;
-	uint16_t    regs[S32X_NUM_REGS];
-	uint16_t    sh2_regs[S32X_NUM_SH2_REGS];
-	uint16_t    fifo_left[3];
-	uint16_t    fifo_right[3];
-	uint8_t     fifo_left_write;
-	uint8_t     fifo_left_read;
-	uint8_t     fifo_right_write;
-	uint8_t     fifo_right_read;
-	uint8_t     main_enter_debugger;
-	uint8_t     sub_enter_debugger;
+	uint16_t fifo[3];
+	uint8_t  write;
+	uint8_t  read;
+} pwm_fifo;
+
+void pwm_fifo_write(pwm_fifo *fifo, uint16_t *status, uint16_t value);
+void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t *out);
+
+typedef struct {
+	void         *gen;
+	sh2_context  *main;
+	sh2_context  *sub;
+	uint16_t     *sdram;
+	uint16_t     *rom;
+	uint16_t     *vector_rom;
+	audio_source *pwm;
+	s32x_video   video;
+	uint32_t     pwm_cycle;
+	uint16_t     regs[S32X_NUM_REGS];
+	uint16_t     sh2_regs[S32X_NUM_SH2_REGS];
+	pwm_fifo     fifo_left;
+	pwm_fifo     fifo_right;
+	int16_t      pwm_left;
+	int16_t      pwm_right;
+	uint16_t     pwm_counter;
+	uint8_t      pwm_timer;
+	uint8_t      pwm_main_int_pending;
+	uint8_t      pwm_sub_int_pending;
+	uint8_t      main_enter_debugger;
+	uint8_t      sub_enter_debugger;
 } s32x;
 
 s32x *alloc_32x(system_media *media, uint8_t pal);

@@ -10,6 +10,74 @@
 
 #define MAX_SH2_CYCLES 1000
 
+void pwm_fifo_write(pwm_fifo *fifo, uint16_t *status, uint16_t value)
+{
+	fifo->fifo[fifo->write++] = value & 0xFFF;
+	fifo->write %= 3;
+	if (*status & BIT_PWM_FULL) {
+		//FIFO was already full, oldest value was overwritten so advance read
+		fifo->read++;
+		fifo->read %= 3;
+	} else  if (fifo->read == fifo->write) {
+		*status |= BIT_PWM_FULL;
+	}
+	*status &= ~BIT_PWM_EMPTY;
+}
+
+void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t *out)
+{
+	if (!(*status & BIT_PWM_EMPTY)) {
+		*out = fifo->fifo[fifo->read++];
+		fifo->read %= 3;
+		if (fifo->read == fifo->write) {
+			*status |= BIT_PWM_EMPTY;
+		} else {
+			*status &= ~BIT_PWM_FULL;
+		}
+	}
+}
+
+static void s32x_pwm_run(s32x *mars, uint32_t target)
+{
+	for (; mars->pwm_cycle < target; mars->pwm_cycle += 7)
+	{
+		if (mars->regs[S32X_PWM_CTRL] & S32X_PWM_LRMD) {
+			if (mars->pwm_counter == 2) {
+				mars->pwm_counter = mars->regs[S32X_PWM_CYCLE];
+				switch (mars->regs[S32X_PWM_CTRL] & 3)
+				{
+				case 1:
+					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, &mars->pwm_left);
+					break;
+				case 2:
+					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, &mars->pwm_left);
+					break;
+				//TODO: what happens if the illegal 3 value is used
+				}
+				switch (mars->regs[S32X_PWM_CTRL] >> 2 & 3)
+				{
+				case 1:
+					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, &mars->pwm_right);
+					break;
+				case 2:
+					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, &mars->pwm_right);
+					break;
+				}
+				mars->pwm_timer--;
+				mars->pwm_timer &= 0xF;
+				//TODO: test where the PWM int mask is applied
+				if (!mars->pwm_timer) {
+					mars->pwm_main_int_pending = mars->pwm_sub_int_pending = 1;
+				}
+			} else if (mars->pwm_counter != 1) {
+				mars->pwm_counter--;
+				mars->pwm_counter &= 0xFFF;
+			}
+		}
+		render_put_stereo_sample(mars->pwm, mars->pwm_left, mars->pwm_right);
+	}
+}
+
 void s32x_run(s32x *mars, uint32_t target)
 {
 	uint32_t sh2_target = target * 3;
@@ -42,9 +110,70 @@ void s32x_run(s32x *mars, uint32_t target)
 			}
 #endif
 			sh2_run(mars->sub, cur_target);
+			s32x_pwm_run(mars, cur_target);
 		}
 	}
 	s32x_video_run(&mars->video, target);
+}
+
+void main_sh2_next_int(sh2_context *sh2)
+{
+	s32x *mars = sh2->system;
+	uint32_t priority_mask = sh2->sr >> 4;
+	sh2->int_cycle = 0xFFFFFFFF;
+	sh2->int_priority = priority_mask;
+	if (priority_mask < 8) { 
+		if ((mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_CMD_INT_EN) && (mars->regs[S32X_INT_CTRL] & BIT_MAIN_INT) ) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_vector = 68;
+			sh2->int_priority = 8;
+		}
+		if (priority_mask < 6) {
+			uint32_t pwm_int_cycle = 0xFFFFFFFF;
+			if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_PWM_INT_EN) {
+				if (mars->pwm_main_int_pending) {
+					pwm_int_cycle = sh2->cycles;
+				} else {
+					//TODO: predict PWM interrupt time
+				}
+			}
+			if (pwm_int_cycle < sh2->int_cycle) {
+				sh2->int_cycle = pwm_int_cycle;
+				sh2->int_vector = 67;
+				sh2->int_priority = 6;
+			}
+		}
+	}
+}
+
+void sub_sh2_next_int(sh2_context *sh2)
+{
+	s32x *mars = sh2->system;
+	uint32_t priority_mask = sh2->sr >> 4;
+	sh2->int_cycle = 0xFFFFFFFF;
+	sh2->int_priority = priority_mask;
+	if (priority_mask < 8) {
+		if ((mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_CMD_INT_EN) && mars->regs[S32X_INT_CTRL] & BIT_SUB_INT) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_vector = 68;
+			sh2->int_priority = 8;
+		}
+		if (priority_mask < 6) {
+			uint32_t pwm_int_cycle = 0xFFFFFFFF;
+			if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_PWM_INT_EN) {
+				if (mars->pwm_sub_int_pending) {
+					pwm_int_cycle = sh2->cycles;
+				} else {
+					//TODO: predict PWM interrupt time
+				}
+			}
+			if (pwm_int_cycle < sh2->int_cycle) {
+				sh2->int_cycle =pwm_int_cycle;
+				sh2->int_vector = 67;
+				sh2->int_priority = 6;
+			}
+		}
+	}
 }
 
 void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
@@ -65,36 +194,13 @@ void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
 	} else {
 		mars->sub->cycles = 0;
 	}
-}
-
-void main_sh2_next_int(sh2_context *sh2)
-{
-	s32x *mars = sh2->system;
-	uint32_t priority_mask = sh2->sr >> 4;
-	sh2->int_cycle = 0xFFFFFFFF;
-	sh2->int_priority = priority_mask;
-	if (priority_mask < 8 && mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_CMD_INT_EN
-		&& mars->regs[S32X_INT_CTRL] & BIT_MAIN_INT
-	) {
-		sh2->int_cycle = sh2->cycles;
-		sh2->int_vector = 68;
-		sh2->int_priority = 8;
+	if (deduction > mars->pwm_cycle) {
+		mars->pwm_cycle -= deduction;
+	} else {
+		mars->pwm_cycle = 0;
 	}
-}
-
-void sub_sh2_next_int(sh2_context *sh2)
-{
-	s32x *mars = sh2->system;
-	uint32_t priority_mask = sh2->sr >> 4;
-	sh2->int_cycle = 0xFFFFFFFF;
-	sh2->int_priority = priority_mask;
-	if (priority_mask < 8 && mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_CMD_INT_EN
-		&& mars->regs[S32X_INT_CTRL] & BIT_SUB_INT
-	) {
-		sh2->int_cycle = sh2->cycles;
-		sh2->int_vector = 68;
-		sh2->int_priority = 8;
-	}
+	main_sh2_next_int(mars->main);
+	sub_sh2_next_int(mars->sub);
 }
 
 uint16_t s32x_68k_read(uint32_t address, void *vcontext)
@@ -287,32 +393,18 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 		}
 		break;
 	case S32X_PWM_WIDTH_M:
+		new = mars->regs[S32X_PWM_WIDTH_L];
 	case S32X_PWM_WIDTH_L:
-		mars->fifo_left[mars->fifo_left_write++] = value & 0xFFF;
-		mars->fifo_left_write %= 3;
-		if (new & BIT_PWM_FULL) {
-			mars->fifo_left_read++;
-			mars->fifo_left_read %= 3;
-		} else  if (mars->fifo_left_read == mars->fifo_left_write) {
-			new |= BIT_PWM_FULL;
-		}
-		new &= ~BIT_PWM_EMPTY;
+		pwm_fifo_write(&mars->fifo_left, &new, value);
 		if (reg == S32X_PWM_WIDTH_M) {
-			mars->regs[reg++] = new;
+			mars->regs[reg] = new;
+			reg = S32X_PWM_WIDTH_R;
 			new = mars->regs[reg];
 		} else {
 			break;
 		}
 	case S32X_PWM_WIDTH_R:
-		mars->fifo_right[mars->fifo_right_write++] = value & 0xFFF;
-		mars->fifo_right_write %= 3;
-		if (new & BIT_PWM_FULL) {
-			mars->fifo_right_read++;
-			mars->fifo_right_read %= 3;
-		} else  if (mars->fifo_right_read == mars->fifo_right_write) {
-			new |= BIT_PWM_FULL;
-		}
-		new &= ~BIT_PWM_EMPTY;
+		pwm_fifo_write(&mars->fifo_right, &new, value);
 		break;
 	}
 	mars->regs[reg] = new;
@@ -453,33 +545,28 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			sub_sh2_next_int(sh2);
 		}
 		break;
-	case S32X_PWM_WIDTH_M:
-	case S32X_PWM_WIDTH_L:
-		mars->fifo_left[mars->fifo_left_write++] = value & 0xFFF;
-		mars->fifo_left_write %= 3;
-		if (new & BIT_PWM_FULL) {
-			mars->fifo_left_read++;
-			mars->fifo_left_read %= 3;
-		} else  if (mars->fifo_left_read == mars->fifo_left_write) {
-			new |= BIT_PWM_FULL;
+	case S32X_PWM_INT_CLR:
+		if (sh2 == mars->main) {
+			mars->pwm_main_int_pending = 0;
+			main_sh2_next_int(sh2);
+		} else {
+			mars->pwm_sub_int_pending = 0;
+			sub_sh2_next_int(sh2);
 		}
-		new &= ~BIT_PWM_EMPTY;
+		break;
+	case S32X_PWM_WIDTH_M:
+		new = base[S32X_PWM_WIDTH_L];
+	case S32X_PWM_WIDTH_L:
+		pwm_fifo_write(&mars->fifo_left, &new, value);
 		if (reg == S32X_PWM_WIDTH_M) {
-			mars->regs[reg++] = new;
+			base[reg] = new;
+			reg = S32X_PWM_WIDTH_R;
 			new = base[reg];
 		} else {
 			break;
 		}
 	case S32X_PWM_WIDTH_R:
-		mars->fifo_right[mars->fifo_right_write++] = value & 0xFFF;
-		mars->fifo_right_write %= 3;
-		if (new & BIT_PWM_FULL) {
-			mars->fifo_right_read++;
-			mars->fifo_right_read %= 3;
-		} else  if (mars->fifo_right_read == mars->fifo_right_write) {
-			new |= BIT_PWM_FULL;
-		}
-		new &= ~BIT_PWM_EMPTY;
+		pwm_fifo_write(&mars->fifo_right, &new, value);
 		break;
 	}
 	base[reg] = new;
@@ -739,6 +826,10 @@ void *s32x_sh2_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value
 	return vcontext;
 }
 
+//TODO: share these with genesis.c
+#define MCLKS_NTSC 53693175
+#define MCLKS_PAL  53203395
+
 s32x *alloc_32x(system_media *media, uint8_t pal)
 {
 	static const memmap_chunk base_sh2_map[] = {
@@ -812,6 +903,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal)
 	ret->vector_rom = get_68K_vector_rom(media->size);
 	//FIXME: 32XCD
 	//ret->sh2_regs[S32X_SH2_INT_CTRL] |= BIT_CART_SH2;
+	ret->pwm = render_audio_source("PWM", (pal ? MCLKS_PAL : MCLKS_NTSC) * 3, 7, 2);
 	return ret;
 }
 
