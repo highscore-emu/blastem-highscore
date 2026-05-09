@@ -14,7 +14,7 @@ enum {
 	S32X_DREQ_SRC_LO,
 	S32X_DREQ_DST_HI,
 	S32X_DREQ_DST_LO,
-	S32X_DREG_LEN,
+	S32X_DREQ_LEN,
 	S32X_DREQ_FIFO,
 	S32X_VRES_INT_CLR,
 	S32X_VINT_CLR,
@@ -48,7 +48,7 @@ enum {
 };
 
 #define BIT_ADEN_M68K   0x0001
-#define BIT_ADEN_FM     0x8000
+#define BIT_ADCT_FM     0x8000
 #define BIT_CART_SH2    0x0100
 #define BIT_ADEN_SH2    0x0200
 #define BIT_MAIN_INT    0x0001
@@ -56,6 +56,8 @@ enum {
 #define BIT_CMD_INT_EN  0x0002
 #define BIT_PWM_INT_EN  0x0001
 #define BIT_SH2_RESET   0x0002
+#define BIT_DREQ_FULL   0x0080
+#define BIT_DREQ_68S    0x0004
 #define BIT_DREQ_RV     0x0001
 #define BIT_PWM_FULL    0x8000
 #define BIT_PWM_EMPTY   0x4000
@@ -83,7 +85,8 @@ typedef struct {
 	s32x_video   video;
 	uint32_t     pwm_cycle;
 	uint16_t     regs[S32X_NUM_REGS];
-	uint16_t     sh2_regs[S32X_NUM_SH2_REGS];
+	uint16_t     sh2_regs[S32X_SH2_SUB_INT+1];
+	uint16_t     dreq_fifo[8];
 	pwm_fifo     fifo_left;
 	pwm_fifo     fifo_right;
 	int16_t      pwm_left;
@@ -92,6 +95,8 @@ typedef struct {
 	uint8_t      pwm_timer;
 	uint8_t      pwm_main_int_pending;
 	uint8_t      pwm_sub_int_pending;
+	uint8_t      dreq_fifo_write;
+	uint8_t      dreq_fifo_read;
 	uint8_t      main_enter_debugger;
 	uint8_t      sub_enter_debugger;
 } s32x;

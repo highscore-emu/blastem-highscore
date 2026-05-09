@@ -214,6 +214,10 @@ uint16_t s32x_68k_read(uint32_t address, void *vcontext)
 		if (reg == S32X_PWM_WIDTH_M) {
 			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
 			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
+		} else if (reg == S32X_DREQ_LEN) {
+			//supposedly the low two bits are always 0 here
+			//but it's convenient to use them to track trasnfer progress, so we just mask them here
+			return mars->regs[S32X_DREQ_LEN] & 0xFFFC;
 		}
 		return mars->regs[reg];
 	} else if (address >= 0xA15180) {
@@ -240,13 +244,36 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 	}
 	if (address < 0x0004000 + (S32X_NUM_REGS * 2)) {
 		uint32_t reg = (address & 0xFE) >> 1;
-		if (reg < S32X_NUM_SH2_REGS) {
-			return mars->sh2_regs[reg];
-		} else {
-			if (reg == S32X_PWM_WIDTH_M) {
-				//TODO: test what happens when reading the FIFO status bits here when L & R don't match
-				return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
+		switch (reg)
+		{
+		case S32X_SH2_INT_CTRL:
+			if (sh2 != mars->main) {
+				return (mars->sh2_regs[reg] & 0xFFF0) | mars->sh2_regs[S32X_SH2_SUB_INT];
 			}
+		case S32X_SH2_STANDBY:
+		case S32X_SH2_HINT_COUNT:
+			return mars->sh2_regs[reg];
+		case S32X_DREQ_LEN:
+			//supposedly the low two bits are always 0 here
+			//but it's convenient to use them to track trasnfer progress, so we just mask them here
+			return mars->regs[S32X_DREQ_LEN] & 0xFFFC;
+		case S32X_DREQ_FIFO:
+			//TODO: test what happens if you read from an empty FIFO
+			//TODO: test what happens if you read from the FIFO with 68S=0
+			if (mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_68S) {
+				if ((mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_FULL) || mars->dreq_fifo_write != mars->dreq_fifo_read) {
+					uint16_t value = mars->dreq_fifo[mars->dreq_fifo_read++];
+					mars->dreq_fifo_read &= 0x7;
+					mars->regs[S32X_DREQ_CTRL] &= ~BIT_DREQ_FULL;
+					mars->regs[S32X_DREQ_LEN]--;
+					return value;
+				}
+			}
+			return 0;
+		case S32X_PWM_WIDTH_M:
+			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
+			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
+		default:
 			return mars->regs[reg];
 		}
 	} else if (address >= 0x0004100) {
@@ -379,9 +406,9 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 				mars->sh2_regs[S32X_SH2_INT_CTRL] &= ~BIT_ADEN_SH2;
 			}
 		}
-		if (changes & BIT_ADEN_FM) {
-			mars->sh2_regs[S32X_SH2_INT_CTRL] &= ~BIT_ADEN_FM;
-			mars->sh2_regs[S32X_SH2_INT_CTRL] |= new & BIT_ADEN_FM;
+		if (changes & BIT_ADCT_FM) {
+			mars->sh2_regs[S32X_SH2_INT_CTRL] &= ~BIT_ADCT_FM;
+			mars->sh2_regs[S32X_SH2_INT_CTRL] |= new & BIT_ADCT_FM;
 		}
 		break;
 	case S32X_INT_CTRL:
@@ -390,6 +417,35 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 		}
 		if (changes & BIT_SUB_INT) {
 			sub_sh2_next_int(mars->main);
+		}
+		break;
+	case S32X_DREQ_CTRL:
+		//RV changes handled below
+		if (changes & BIT_DREQ_68S) {
+			if (old & BIT_DREQ_68S) {
+				//unclear if FIFO is emptied, or if the full bit is just suppressed
+				new &= ~BIT_DREQ_FULL;
+				mars->dreq_fifo_write = mars->dreq_fifo_read = 0;
+			}
+		}
+		break;
+	case S32X_DREQ_LEN:	
+		//force low bits to 0 on write
+		new &= 0xFFFC;
+		break;
+	case S32X_DREQ_FIFO:
+		//TODO: test what happens when you write to a full FIFO
+		//TODO: test what happens if you write to this when 68S is 0
+		if (mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_68S) {
+			mars->dreq_fifo[mars->dreq_fifo_write++] = value;
+			mars->dreq_fifo_write &= 0x7;
+			if (mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_FULL) {
+				//treating this like the PWM FIFO and evicting the oldest word for now
+				mars->dreq_fifo_read++;
+				mars->dreq_fifo_read &= 0x7;
+			} else if (mars->dreq_fifo_write == mars->dreq_fifo_read) {
+				mars->regs[S32X_DREQ_CTRL] |= BIT_DREQ_FULL;
+			}
 		}
 		break;
 	case S32X_PWM_WIDTH_M:
@@ -514,9 +570,9 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 	switch (reg)
 	{
 	case S32X_SH2_INT_CTRL:
-		if (changes & BIT_ADEN_FM) {
-			mars->regs[S32X_ADAPT_CTRL] &= ~BIT_ADEN_FM;
-			mars->regs[S32X_ADAPT_CTRL] |= new & BIT_ADEN_FM;
+		if (changes & BIT_ADCT_FM) {
+			mars->regs[S32X_ADAPT_CTRL] &= ~BIT_ADCT_FM;
+			mars->regs[S32X_ADAPT_CTRL] |= new & BIT_ADCT_FM;
 		}
 		if (sh2 == mars->main) {
 			if (changes & S32X_INTEN_MASK) {
@@ -525,8 +581,8 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			}
 		} else {
 			uint16_t old_int = mars->sh2_regs[S32X_SH2_SUB_INT];
-			uint16_t mask_int = mask &= 0xF;
-			uint16_t new_int = (old_int & ~mask) | (value & mask);
+			uint16_t mask_int = mask & 0xF;
+			uint16_t new_int = (old_int & ~mask_int) | (value & mask_int);
 			changes = old_int ^ new_int;
 			if (changes) {
 				mars->sh2_regs[S32X_SH2_SUB_INT] = new_int;
