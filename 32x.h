@@ -53,6 +53,8 @@ enum {
 #define BIT_ADEN_SH2    0x0200
 #define BIT_MAIN_INT    0x0001
 #define BIT_SUB_INT     0x0002
+#define BIT_VERT_INT_EN 0x0008
+#define BIT_HORZ_INT_EN 0x0004
 #define BIT_CMD_INT_EN  0x0002
 #define BIT_PWM_INT_EN  0x0001
 #define BIT_SH2_RESET   0x0002

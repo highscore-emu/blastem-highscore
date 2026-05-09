@@ -122,25 +122,45 @@ void main_sh2_next_int(sh2_context *sh2)
 	uint32_t priority_mask = sh2->sr >> 4;
 	sh2->int_cycle = 0xFFFFFFFF;
 	sh2->int_priority = priority_mask;
-	if (priority_mask < 8) { 
-		if ((mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_CMD_INT_EN) && (mars->regs[S32X_INT_CTRL] & BIT_MAIN_INT) ) {
-			sh2->int_cycle = sh2->cycles;
-			sh2->int_vector = 68;
-			sh2->int_priority = 8;
-		}
-		if (priority_mask < 6) {
-			uint32_t pwm_int_cycle = 0xFFFFFFFF;
-			if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_PWM_INT_EN) {
-				if (mars->pwm_main_int_pending) {
-					pwm_int_cycle = sh2->cycles;
-				} else {
-					//TODO: predict PWM interrupt time
-				}
+	if (priority_mask < 12) {
+		uint32_t vint_cycle = 0xFFFFFFFF;
+		if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_VERT_INT_EN) {
+			if (mars->video.main_vint_pending) {
+				vint_cycle = sh2->cycles;
+			} else {
+				vint_cycle = sh2->cycles + s32x_cycles_to_vblank(&mars->video) * 3;
 			}
-			if (pwm_int_cycle < sh2->int_cycle) {
-				sh2->int_cycle = pwm_int_cycle;
-				sh2->int_vector = 67;
-				sh2->int_priority = 6;
+		}
+		if (vint_cycle < sh2->int_cycle) {
+			sh2->int_cycle = vint_cycle;
+			sh2->int_vector = 70;
+			sh2->int_priority = 12;
+		}
+		if (priority_mask < 8) {
+			uint32_t cmd_int_cycle = 0xFFFFFFFF;
+			if ((mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_CMD_INT_EN) && (mars->regs[S32X_INT_CTRL] & BIT_MAIN_INT) ) {
+				cmd_int_cycle = sh2->cycles;
+			}
+			if (cmd_int_cycle < sh2->int_cycle) {
+				sh2->int_cycle = cmd_int_cycle;
+				sh2->int_vector = 68;
+				sh2->int_priority = 8;
+			}
+			if (priority_mask < 6) {
+				uint32_t pwm_int_cycle = 0xFFFFFFFF;
+				if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_PWM_INT_EN) {
+					s32x_pwm_run(mars, sh2->cycles);
+					if (mars->pwm_main_int_pending) {
+						pwm_int_cycle = sh2->cycles;
+					} else {
+						//TODO: predict PWM interrupt time
+					}
+				}
+				if (pwm_int_cycle < sh2->int_cycle) {
+					sh2->int_cycle = pwm_int_cycle;
+					sh2->int_vector = 67;
+					sh2->int_priority = 6;
+				}
 			}
 		}
 	}
@@ -152,25 +172,48 @@ void sub_sh2_next_int(sh2_context *sh2)
 	uint32_t priority_mask = sh2->sr >> 4;
 	sh2->int_cycle = 0xFFFFFFFF;
 	sh2->int_priority = priority_mask;
-	if (priority_mask < 8) {
-		if ((mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_CMD_INT_EN) && mars->regs[S32X_INT_CTRL] & BIT_SUB_INT) {
-			sh2->int_cycle = sh2->cycles;
-			sh2->int_vector = 68;
-			sh2->int_priority = 8;
-		}
-		if (priority_mask < 6) {
-			uint32_t pwm_int_cycle = 0xFFFFFFFF;
-			if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_PWM_INT_EN) {
-				if (mars->pwm_sub_int_pending) {
-					pwm_int_cycle = sh2->cycles;
-				} else {
-					//TODO: predict PWM interrupt time
-				}
+	if (priority_mask < 12) {
+		uint64_t vint_cycle = 0xFFFFFFFF;
+		if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_VERT_INT_EN) {
+			if (mars->video.sub_vint_pending) {
+				vint_cycle = sh2->cycles;
+			} else {
+				vint_cycle = sh2->cycles + ((uint64_t)s32x_cycles_to_vblank(&mars->video)) * 3;
 			}
-			if (pwm_int_cycle < sh2->int_cycle) {
-				sh2->int_cycle =pwm_int_cycle;
-				sh2->int_vector = 67;
-				sh2->int_priority = 6;
+			if (vint_cycle > 0xFFFFFFFFULL) {
+				vint_cycle = 0xFFFFFFFF;
+			}
+		}
+		if (vint_cycle < sh2->int_cycle) {
+			sh2->int_cycle = vint_cycle;
+			sh2->int_vector = 70;
+			sh2->int_priority = 12;
+		}
+		if (priority_mask < 8) {
+			uint32_t cmd_int_cycle = 0xFFFFFFFF;
+			if ((mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_CMD_INT_EN) && mars->regs[S32X_INT_CTRL] & BIT_SUB_INT) {
+				cmd_int_cycle = sh2->cycles;
+			}
+			if (cmd_int_cycle < sh2->int_cycle) {
+				sh2->int_cycle = cmd_int_cycle;
+				sh2->int_vector = 68;
+				sh2->int_priority = 8;
+			}
+			if (priority_mask < 6) {
+				uint32_t pwm_int_cycle = 0xFFFFFFFF;
+				if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_PWM_INT_EN) {
+					s32x_pwm_run(mars, sh2->cycles);
+					if (mars->pwm_sub_int_pending) {
+						pwm_int_cycle = sh2->cycles;
+					} else {
+						//TODO: predict PWM interrupt time
+					}
+				}
+				if (pwm_int_cycle < sh2->int_cycle) {
+					sh2->int_cycle =pwm_int_cycle;
+					sh2->int_vector = 67;
+					sh2->int_priority = 6;
+				}
 			}
 		}
 	}
@@ -271,8 +314,12 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 			}
 			return 0;
 		case S32X_PWM_WIDTH_M:
+			s32x_pwm_run(mars, sh2->cycles);
 			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
 			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
+		case S32X_PWM_WIDTH_L:
+		case S32X_PWM_WIDTH_R:
+			s32x_pwm_run(mars, sh2->cycles);
 		default:
 			return mars->regs[reg];
 		}
@@ -592,6 +639,16 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			new = (old & ~mask) | (value & mask);
 		}
 		break;
+	case S32X_VINT_CLR:
+		s32x_video_run(&mars->video, sh2->cycles / 3);
+		if (sh2 == mars->main) {
+			mars->video.main_vint_pending = 0;
+			main_sh2_next_int(sh2);
+		} else {
+			mars->video.sub_vint_pending = 0;
+			sub_sh2_next_int(sh2);
+		}
+		break;
 	case S32X_CMD_INT_CLR:
 		if (sh2 == mars->main) {
 			mars->regs[S32X_INT_CTRL] &= ~BIT_MAIN_INT;
@@ -613,6 +670,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 	case S32X_PWM_WIDTH_M:
 		new = base[S32X_PWM_WIDTH_L];
 	case S32X_PWM_WIDTH_L:
+		s32x_pwm_run(mars, sh2->cycles);
 		pwm_fifo_write(&mars->fifo_left, &new, value);
 		if (reg == S32X_PWM_WIDTH_M) {
 			base[reg] = new;
@@ -622,7 +680,12 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			break;
 		}
 	case S32X_PWM_WIDTH_R:
+		s32x_pwm_run(mars, sh2->cycles);
 		pwm_fifo_write(&mars->fifo_right, &new, value);
+		break;
+	case S32X_PWM_CTRL:
+	case S32X_PWM_CYCLE:
+		s32x_pwm_run(mars, sh2->cycles);
 		break;
 	}
 	base[reg] = new;

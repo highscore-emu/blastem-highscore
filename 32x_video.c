@@ -40,7 +40,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 		uint32_t lines = delta / MCLKS_LINE;
 		uint32_t rest = delta % MCLKS_LINE;
 		uint16_t vblank_start = 224, frame_end;
-		if (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PAL) {
+		if (!(vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PAL)) {
 			frame_end = 313;
 			if (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_V240) {
 				vblank_start = 240;
@@ -48,13 +48,8 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 		} else {
 			frame_end = 262;
 		}
-		if (lines) {
-			vid->vcounter += lines;
-			if (vid->vcounter > frame_end) {
-				vid->vcounter -= 262;
-			}
-		}
-		while (rest > MCLKS_PIXEL) {
+		uint16_t line_start = vid->vcounter;
+		while (rest >= MCLKS_PIXEL) {
 			if (vid->hcounter < HSYNC_START) {
 				uint16_t new = vid->hcounter + rest / MCLKS_PIXEL;
 
@@ -62,21 +57,18 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 					rest -= (HSYNC_START - vid->hcounter) * MCLKS_PIXEL;
 					vid->hcounter = HSYNC_START;
 				} else {
+					rest -= (new - vid->hcounter) * MCLKS_PIXEL;
 					vid->hcounter = new;
-					rest = 0;
 				}
 			} else if (vid->hcounter >= HSYNC_END) {
 				uint16_t new = vid->hcounter + rest / MCLKS_PIXEL;
-				if (new > LINE_END) {
-					new -= LINE_END;
-					vid->vcounter++;
-				}
-				if (new > HSYNC_START) {
-					rest -= (LINE_END - vid->hcounter + HSYNC_START) * MCLKS_PIXEL;
-					vid->hcounter = HSYNC_START;
+				if (new >= LINE_END) {
+					rest -= (LINE_END - vid->hcounter) * MCLKS_PIXEL;
+					vid->hcounter = 0;
+					lines++;
 				} else {
+					rest -= (new - vid->hcounter) * MCLKS_PIXEL;
 					vid->hcounter = new;
-					rest = 0;
 				}
 			} else {
 				uint16_t old = vid->hcounter;
@@ -91,10 +83,25 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 				}
 			}
 		}
-		if (vid->vcounter >= vblank_start) {
-			vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_VBLK;
-		} else {
-			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_VBLK;
+		if (lines) {
+			vid->vcounter += lines;
+			if (vid->vcounter >= frame_end) {
+				vid->vcounter -= frame_end;
+			}
+			if (vid->vcounter >= vblank_start) {
+				if (!(vid->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_VBLK)) {
+					vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_VBLK;
+					vid->main_vint_pending = 1;
+					vid->sub_vint_pending = 1;
+				}
+			} else {
+				vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_VBLK;
+				if (line_start < vblank_start && lines >= frame_end - line_start) {
+					//passed through vblank and wrapped around
+					vid->main_vint_pending = 1;
+					vid->sub_vint_pending = 1;
+				}
+			}
 		}
 		if (vid->hcounter > HBLANK_START) {
 			vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_HBLK;
@@ -239,9 +246,23 @@ uint16_t s32x_video_sh2_read(uint32_t address, s32x_video *video)
 	return 0xFFFF;
 }
 
-static uint32_t cycles_to_vblank(s32x_video *video)
+uint32_t s32x_cycles_to_vblank(s32x_video *video)
 {
-	uint32_t cycles = (223 - video->vcounter) * MCLKS_LINE;
+	uint32_t cycles;
+	uint16_t vblank_start = 224, frame_end;
+	if (!(video->regs[S32X_VID_MODE] & S32X_VID_BIT_PAL)) {
+		frame_end = 313;
+		if (video->regs[S32X_VID_MODE] & S32X_VID_BIT_V240) {
+			vblank_start = 240;
+		}
+	} else {
+		frame_end = 262;
+	}
+	if (video->vcounter < vblank_start) {
+		cycles = (vblank_start - 1 - video->vcounter) * MCLKS_LINE;
+	} else {
+		cycles = (vblank_start - 1 + frame_end - video->vcounter) * MCLKS_LINE;
+	}
 	if (video->hcounter <= HSYNC_START) {
 		cycles += 3420 - video->hcounter * MCLKS_PIXEL;
 	} else if (video->hcounter >= HSYNC_END) {
@@ -283,7 +304,7 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 				video->front = video->back;
 				video->back = tmp;
 			} else {
-				return cycles_to_vblank(video);
+				return s32x_cycles_to_vblank(video);
 			}
 		}
 		printf("32X VDP Write: %06X: %04X\n", address, value);
@@ -323,7 +344,7 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 				video->front = video->back;
 				video->back = tmp;
 			} else {
-				return cycles_to_vblank(video);
+				return s32x_cycles_to_vblank(video);
 			}
 		}
 		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
@@ -355,7 +376,7 @@ uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t valu
 				video->front = video->back;
 				video->back = tmp;
 			} else {
-				return cycles_to_vblank(video) * 3;
+				return s32x_cycles_to_vblank(video) * 3;
 			}
 		}
 		printf("32X VDP Write: %06X: %04X\n", address, value);
@@ -395,7 +416,7 @@ uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t val
 				video->front = video->back;
 				video->back = tmp;
 			} else {
-				return cycles_to_vblank(video) * 3;
+				return s32x_cycles_to_vblank(video) * 3;
 			}
 		}
 		printf("32X VDP Write (byte): %06X: %04X\n", address, value);

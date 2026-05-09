@@ -39,11 +39,15 @@ typedef struct {
 	uint16_t    hcounter;
 	uint16_t    regs[S32X_NUM_VID_REGS];
 	uint16_t    palette[256];
+	//TODO: FIFO
+	uint8_t     main_vint_pending;
+	uint8_t     sub_vint_pending;
 } s32x_video;
 
 void s32x_video_init(s32x_video *vid, uint8_t pal);
 void s32x_video_run(s32x_video *vid, uint32_t target);
 void s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line, uint8_t is_h40);
+uint32_t s32x_cycles_to_vblank(s32x_video *video);
 uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video);
 uint16_t s32x_video_sh2_read(uint32_t address, s32x_video *video);
 uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t value);
