@@ -438,11 +438,10 @@ sh2_reset
 11000111DDDDDDDD mova
 	nospecialize D
 	cycles 1
-	scratch1 = D << 2
-	scratch1 += pc
-	scratch1 += 4
-	sh2_read32_data scratch1
-	r0 = scratch1
+	r0 = D << 2
+	r0 += pc
+	r0 += 4
+	r0 &= 0xFFFFFFFC
 	sh2_fetch
 
 0000NNNN00101001 movt
@@ -1266,6 +1265,7 @@ sh2_reset
 	sh2_read32_data r15
 	sr = scratch1 & 0x3F3
 	sh2_disperse_sr
+	r15 += 4
 	cycles 1
 
 11000011IIIIIIII trapa
