@@ -48,6 +48,7 @@ regs
 	calc_next_interrupt ptrsh2_fun
 	mem_pointers ptr8 4
 	peripherals 8 512
+	delay_slot 8
 
 flags
 	Z 0 zero t
@@ -138,6 +139,7 @@ sh2_fetch
 			prefetch_full = 1
 		end
 	end
+	delay_slot = 0
 	did_mem = 0
 
 sh2_fetch_delay_slot
@@ -154,6 +156,7 @@ sh2_fetch_delay_slot
 		sh2_read16 pc
 		prefetch_cur = scratch1
 	end
+	delay_slot = 1
 	did_mem = 0
 
 sh2_disperse_sr
@@ -1297,19 +1300,23 @@ sh2_reset
 	end
 
 sh2_interrupt
-	if cycles >=U int_cycle
-		cycles 1
-		r15 -= 4
-		sh2_write32 r15 sr
-		cycles 1
-		r15 -= 4
-		sh2_write32 r15 pc
-		sh2_vector_read int_vector
-		pc = scratch1 - 2
-		sr = int_priority << 4
-		prefetch_full = 0
-		sh2_fetch
-		update_sync
+	if delay_slot
+		#interrupts not accepted here
+	else
+		if cycles >=U int_cycle
+			cycles 1
+			r15 -= 4
+			sh2_write32 r15 sr
+			cycles 1
+			r15 -= 4
+			sh2_write32 r15 pc
+			sh2_vector_read int_vector
+			pc = scratch1 - 2
+			sr = int_priority << 4
+			prefetch_full = 0
+			sh2_fetch
+			update_sync
+		end
 	end
 
 sh2_run_op
