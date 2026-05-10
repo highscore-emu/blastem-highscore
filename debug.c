@@ -3976,8 +3976,7 @@ static uint8_t cmd_mainsh2(debug_root *root, parsed_command *cmd)
 	{
 		++param;
 	}
-	m68k_context *m68k = root->cpu_context;
-	genesis_context *gen = m68k->system;
+	genesis_context *gen = (genesis_context *)current_system;
 
 	if (param && *param && !isspace(*param)) {
 		parsed_command cmd = {0};
@@ -4005,8 +4004,7 @@ static uint8_t cmd_subsh2(debug_root *root, parsed_command *cmd)
 	{
 		++param;
 	}
-	m68k_context *m68k = root->cpu_context;
-	genesis_context *gen = m68k->system;
+	genesis_context *gen = (genesis_context *)current_system;
 
 	if (param && *param && !isspace(*param)) {
 		parsed_command cmd = {0};
