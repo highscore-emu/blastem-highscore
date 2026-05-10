@@ -414,7 +414,7 @@ int sh2_disasm(char *dst, sh2_inst inst, uint32_t address, disasm_context *conte
 			ret += sprintf(dst + ret, sh2_regnames[inst.src], inst.immed);
 		} else if (inst.src == SH2_DISP_PC) {
 			dst[ret++] = ' ';
-			if (inst.opcode == SH2_MOVL) {
+			if (inst.opcode == SH2_MOVL || inst.opcode == SH2_MOVA) {
 				address &= ~3;
 			}
 			address += inst.immed + 4;

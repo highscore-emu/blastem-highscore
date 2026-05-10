@@ -1330,6 +1330,7 @@ sh2_reset
 0100NNNN00000011 stc_sr_rn_predec
 	cycles 2
 	gpr.N -= 4
+	sh2_collect_sr
 	sh2_write32 gpr.N sr
 	sh2_fetch
 
@@ -1396,6 +1397,7 @@ sh2_reset
 	nospecialize I
 	cycles 2
 	r15 -= 4
+	sh2_collect_sr
 	sh2_write32 r15 sr
 	cycles 2
 	r15 -= 4
@@ -1423,6 +1425,7 @@ sh2_interrupt
 		if cycles >=U int_cycle
 			cycles 1
 			r15 -= 4
+			sh2_collect_sr
 			sh2_write32 r15 sr
 			cycles 1
 			r15 -= 4
