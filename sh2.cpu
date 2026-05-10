@@ -47,6 +47,7 @@ regs
 	system ptrvoid
 	calc_next_interrupt ptrsh2_fun
 	mem_pointers ptr8 4
+	cache 32 1024
 	peripherals 8 512
 	delay_slot 8
 
@@ -57,21 +58,73 @@ flags
 
 sh2_read32
 	arg addr 32
-	#TODO: cache
-	scratch1 = addr
-	ocall read_32
+	if addr >=U 0xC0000000
+		if addr >=U 0xC0001000
+			scratch1 = addr
+			ocall read_32
+		else
+			scratch1 = addr >> 2
+			scratch1 &= 0x3FF
+			scratch1 = cache.scratch1
+		end
+	else
+		#TODO: cache
+		scratch1 = addr
+		ocall read_32
+	end
 
 sh2_read16
 	arg addr 32
-	#TODO: cache
-	scratch1 = addr
-	ocall read_16
+	local tmp 32
+	if addr >=U 0xC0000000
+		if addr >=U 0xC0001000
+			scratch1 = addr
+			ocall read_16
+		else
+			tmp = addr & 2
+			scratch1 = addr >> 2
+			scratch1 &= 0x3FF
+			if tmp
+				scratch1 = cache.scratch1 & 0xFFFF
+			else
+				scratch1 = cache.scratch1 >> 16
+			end
+		end
+	else
+		#TODO: cache
+		scratch1 = addr
+		ocall read_16
+	end
 
 sh2_read8
 	arg addr 32
-	#TODO: cache
-	scratch1 = addr
-	ocall read_8
+	local tmp 32
+	local tmp2 32
+	if addr >=U 0xC0000000
+		if addr >=U 0xC0001000
+			scratch1 = addr
+			ocall read_8
+		else
+			tmp = addr & 2
+			tmp2 = addr & 1
+			scratch1 = addr >> 2
+			scratch1 &= 0x3FF
+			if tmp
+				scratch1 = cache.scratch1 & 0xFFFF
+			else
+				scratch1 = cache.scratch1 >> 16
+			end
+			if tmp2
+				scratch1 &= 0xFF
+			else
+				scratch1 >>= 8
+			end
+		end
+	else
+		#TODO: cache
+		scratch1 = addr
+		ocall read_8
+	end
 
 sh2_read32_data
 	arg addr 32
@@ -91,26 +144,90 @@ sh2_read8_data
 sh2_write8
 	arg addr 32
 	arg value 8
+	local tmp 32
 	did_mem = 1
-	scratch2 = addr
-	scratch1 = value
-	ocall write_8
+	if addr >=U 0xC0000000
+		if addr >=U 0xC0001000
+			scratch2 = addr
+			scratch1 = value
+			ocall write_8
+		else
+			tmp = addr & 3
+			scratch2 = addr >> 2
+			scratch2 &= 0x3FF
+			switch tmp
+			case 0
+				cache.scratch2 &= 0x00FFFFFF
+				tmp = value << 24
+			case 1
+				cache.scratch2 &= 0xFF00FFFF
+				tmp = value << 16
+				tmp &= 0x00FF0000
+			case 2
+				cache.scratch2 &= 0xFFFF00FF
+				tmp = value << 8
+				tmp &= 0x0000FF00
+			case 3
+				cache.scratch2 &= 0xFFFFFF00
+				tmp = value & 0x000000FF
+			end
+			cache.scratch2 |= tmp
+		end
+	else
+		scratch2 = addr
+		scratch1 = value
+		ocall write_8
+	end
 
 sh2_write16
 	arg addr 32
 	arg value 16
+	local tmp 32
 	did_mem = 1
-	scratch2 = addr
-	scratch1 = value
-	ocall write_16
+	if addr >=U 0xC0000000
+		if addr >=U 0xC0001000
+			scratch2 = addr
+			scratch1 = value
+			ocall write_16
+		else
+			tmp = addr & 2
+			scratch2 = addr >> 2
+			scratch2 &= 0x3FF
+			if tmp
+				cache.scratch2 &= 0xFFFF0000
+				tmp = value & 0xFFFF
+			else
+				cache.scratch2 &= 0x0000FFFF
+				tmp = value << 16
+			end
+			cache.scratch2 |= tmp
+		end
+	else
+		scratch2 = addr
+		scratch1 = value
+		ocall write_16
+	end
 
 sh2_write32
 	arg addr 32
 	arg value 32
+	local tmp 32
 	did_mem = 1
-	scratch2 = addr
-	scratch1 = value
-	ocall write_32
+	if addr >=U 0xC0000000
+		if addr >=U 0xC0001000
+			scratch2 = addr
+			scratch1 = value
+			ocall write_32
+		else
+			scratch2 = addr >> 2
+			scratch2 &= 0x3FF
+			cache.scratch2 = value
+		end
+	else
+		scratch2 = addr
+		scratch1 = value
+		ocall write_32
+	end
 
 sh2_vector_read
 	arg vector 32

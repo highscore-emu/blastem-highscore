@@ -2424,9 +2424,12 @@ class Program:
 				pieces.append(f', uint{size}_t {arg}')
 				argnames.append(arg)
 			pieces.append(')\n{')
-			for var in self.subroutines[name].locals:
-				pieces.append('\n\tuint{sz}_t {sub}_{name};'.format(sz=self.subroutines[name].locals[var], sub=name, name=var))
-			self.subroutines[name].inline(self, argnames, pieces, otype, None)
+			export_body = []
+			self.declaredLocals.clear()
+			self.subroutines[name].inline(self, argnames, export_body, otype, None)
+			for name in self.declaredLocals:
+				pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
+			pieces += export_body
 			pieces.append('\n}\n')
 		return ''.join(body) +  ''.join(pieces)
 		
@@ -2518,7 +2521,7 @@ class Program:
 				ret = 'context->{0}[{1}]'.format(arr, idx)
 			else:
 				ret = 'context->' + name
-		if regName == self.flags.flagReg:
+		if regName is not None and regName == self.flags.flagReg:
 			if isDst:
 				self.needFlagDisperse = True
 			else:
