@@ -188,7 +188,7 @@ void process_m68k_vectors(disasm_context *context, uint16_t *table, uint8_t labe
 	for (int i = 0; i < 7; i++)
 	{
 		int_name[4] = '1' + i;
-		address = table[i*2+50] << 16 | table[i*2 + 51];
+		address = table[i*2+(0x64>>1)] << 16 | table[i*2 + (0x64>>1|1)];
 		add_label(context, int_name, address);
 		if (!labels_only) {
 			defer_disasm(context, address);
@@ -199,7 +199,7 @@ void process_m68k_vectors(disasm_context *context, uint16_t *table, uint8_t labe
 	for (int i = 0; i < 16; i++)
 	{
 		trap_name[5] = i < 0xA ? '0' + i : 'a' + i - 0xA;
-		address = table[i*2+50] << 16 | table[i*2 + 51];
+		address = table[i*2+(0x80>>1)] << 16 | table[i*2 + (0x80>>1|1)];
 		add_label(context, trap_name, address);
 		if (!labels_only) {
 			defer_disasm(context, address);
