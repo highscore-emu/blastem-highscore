@@ -100,6 +100,7 @@ void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_c
 	opts->gen.address_mask = 0x7FFFFFF;
 	opts->gen.max_address = 0x8000000;
 	opts->gen.clock_divider = 7;
+	opts->gen.byte_swap = 1;
 }
 
 sh2_context *init_sh2_context(sh2_options *opts, sh2_fun *next_int)
