@@ -316,9 +316,11 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 		case S32X_PWM_WIDTH_M:
 			s32x_pwm_run(mars, sh2->cycles);
 			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
+			printf("SH2 PWM Read %04X: %04X\n", address, mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R]);
 			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
 		case S32X_PWM_WIDTH_L:
 		case S32X_PWM_WIDTH_R:
+			printf("SH2 PWM Read %04X: %04X\n", address, mars->regs[reg]);
 			s32x_pwm_run(mars, sh2->cycles);
 		default:
 			return mars->regs[reg];
@@ -533,7 +535,11 @@ void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value)
 			if (wait_cycles) {
 				uint32_t target = m68k->cycles + wait_cycles;
 				if (target > m68k->sync_cycle) {
-					target = m68k->sync_cycle;
+					if (m68k->sync_cycle <= m68k->cycles) {
+						target = m68k->sync_cycle + 1;
+					} else {
+						target = m68k->sync_cycle;
+					}
 				}
 				m68k->cycles = target;
 #ifdef NEW_CORE
@@ -576,7 +582,11 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 			if (wait_cycles) {
 				uint32_t target = m68k->cycles + wait_cycles;
 				if (target > m68k->sync_cycle) {
-					target = m68k->sync_cycle;
+					if (m68k->sync_cycle <= m68k->cycles) {
+						target = m68k->sync_cycle + 1;
+					} else {
+						target = m68k->sync_cycle;
+					}
 				}
 				m68k->cycles = target;
 #ifdef NEW_CORE
@@ -701,7 +711,7 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 	if (address < 0x0004000 + (S32X_NUM_REGS * 2)) {
 		uint32_t reg = (address & 0xFE) >> 1;
 		uint16_t mask = sh2_write_masks[reg];
-		printf("32X SH2 Write: %06X: %04X\n", address, value);
+		printf("32X SH2 %c Write: %06X: %04X\n", sh2 == mars->main ? 'M' : 'S', address, value);
 		s32x_sh2_sysreg_write(reg, sh2, mars, mask, value);
 	} else if (address >= 0x0004100) {
 		for (;;)
@@ -949,7 +959,7 @@ void *s32x_sh2_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value
 #define MCLKS_NTSC 53693175
 #define MCLKS_PAL  53203395
 
-s32x *alloc_32x(system_media *media, uint8_t pal)
+s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 {
 	static const memmap_chunk base_sh2_map[] = {
 		{0x6000000, 0x6040000, .mask = 0x3FFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
@@ -969,9 +979,13 @@ s32x *alloc_32x(system_media *media, uint8_t pal)
 	memmap_chunk *main_map = calloc(num_chunks, sizeof(memmap_chunk));
 	memcpy(main_map, base_sh2_map, sizeof(base_sh2_map));
 	main_map[0].buffer = ret->sdram;
-	//FIXME: 32XCD
-	main_map[3].buffer = media->buffer;
-	main_map[3].mask &= nearest_pow2(media->size) - 1;
+	if (cd_boot) {
+		//TODO: BRAM cart support?
+		main_map[3].flags &= ~MMAP_AUX_BUFF;
+	} else {
+		main_map[3].buffer = media->buffer;
+		main_map[3].mask &= nearest_pow2(media->size) - 1;
+	}
 	main_map[5].buffer = calloc(1, main_map[5].end);
 	char *main_path = tern_find_path_default(config, "system\0s32x_main_bios\0", (tern_val){.ptrval = "32X_M_BIOS.bin"}, TVAL_PTR).ptrval;
 	FILE *f = fopen(main_path, "rb");
@@ -991,9 +1005,14 @@ s32x *alloc_32x(system_media *media, uint8_t pal)
 	memmap_chunk *sub_map = calloc(num_chunks, sizeof(memmap_chunk));
 	memcpy(sub_map, base_sh2_map, sizeof(base_sh2_map));
 	sub_map[0].buffer = ret->sdram;
-	//FIXME: 32XCD
-	sub_map[3].buffer = media->buffer;
-	sub_map[3].mask &= nearest_pow2(media->size) - 1;
+	if (cd_boot) {
+		//TODO: BRAM cart support?
+		sub_map[3].flags &= ~MMAP_AUX_BUFF;
+	} else {
+		sub_map[3].buffer = media->buffer;
+		sub_map[3].mask &= nearest_pow2(media->size) - 1;
+	
+	}
 	sub_map[5].buffer = calloc(1, sub_map[5].end);
 	char *sub_path = tern_find_path_default(config, "system\0s32x_sub_bios\0", (tern_val){.ptrval = "32X_S_BIOS.bin"}, TVAL_PTR).ptrval;
 	f = fopen(sub_path, "rb");
@@ -1020,8 +1039,9 @@ s32x *alloc_32x(system_media *media, uint8_t pal)
 	ret->regs[S32X_PWM_WIDTH_L] = BIT_PWM_EMPTY;
 	ret->regs[S32X_PWM_WIDTH_R] = BIT_PWM_EMPTY;
 	ret->vector_rom = get_68K_vector_rom(media->size);
-	//FIXME: 32XCD
-	//ret->sh2_regs[S32X_SH2_INT_CTRL] |= BIT_CART_SH2;
+	if (cd_boot) {
+		ret->sh2_regs[S32X_SH2_INT_CTRL] |= BIT_CART_SH2;
+	}
 	ret->pwm = render_audio_source("PWM", (pal ? MCLKS_PAL : MCLKS_NTSC) * 3, 7, 2);
 	return ret;
 }

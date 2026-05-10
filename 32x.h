@@ -103,7 +103,7 @@ typedef struct {
 	uint8_t      sub_enter_debugger;
 } s32x;
 
-s32x *alloc_32x(system_media *media, uint8_t pal);
+s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot);
 void s32x_run(s32x *mars, uint32_t target);
 void s32x_adjust_cycles(s32x *mars, uint32_t deduction);
 uint16_t s32x_68k_read(uint32_t address, void *vcontext);

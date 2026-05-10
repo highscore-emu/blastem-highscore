@@ -5084,6 +5084,7 @@ debug_root *find_m68k_root(m68k_context *context)
 		case SYSTEM_PICO:
 		case SYSTEM_COPERA:
 		case SYSTEM_32X:
+		case SYSTEM_32XCD:
 			//check if this is the main CPU
 			if (context->system == current_system) {
 				genesis_context *gen = context->system;
@@ -5104,13 +5105,13 @@ debug_root *find_m68k_root(m68k_context *context)
 				var->get = debug_frame_get;
 				var->ptr = gen->vdp;
 				root->variables = tern_insert_ptr(root->variables, "frame", var);
-				if (current_system->type == SYSTEM_SEGACD) {
+				if (current_system->type == SYSTEM_SEGACD || current_system->type == SYSTEM_32XCD) {
 					add_segacd_maincpu_labels(root->disasm);
 					add_commands(root, scd_main_commands, NUM_SCD_MAIN);
 					segacd_context *scd = gen->expansion;
 					root->other_roots = tern_insert_ptr(root->other_roots, "sub", find_m68k_root(scd->m68k));
 				}
-				if (current_system->type == SYSTEM_32X) {
+				if (current_system->type == SYSTEM_32X || current_system->type == SYSTEM_32XCD) {
 					root->other_roots = tern_insert_ptr(root->other_roots, "mainsh2", find_sh2_root(gen->mars->main));
 					root->other_roots = tern_insert_ptr(root->other_roots, "subsh2", find_sh2_root(gen->mars->sub));
 					add_commands(root, s32x_68k_commands, NUM_32X_68K);
@@ -6416,6 +6417,12 @@ debug_root *find_sh2_root(sh2_context *context)
 	if (root && !root->commands) {
 		add_commands(root, common_commands, NUM_COMMON);
 		add_commands(root, sh2_commands, NUM_SH2);
+		s32x *mars = context->system;
+		if (mars->main == context) {
+			add_commands(root, s32x_68k_commands + 1, 1);
+		} else {
+			add_commands(root, s32x_68k_commands, 1);
+		}
 		root->read_mem = read_sh2;
 		root->write_mem = write_sh2;
 		root->chunk_end = sh2_chunk_end;

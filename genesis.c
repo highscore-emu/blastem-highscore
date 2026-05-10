@@ -3165,7 +3165,7 @@ genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_o
 	return shared_init_gen(info, lock_on, lock_on_size, ym_opts, force_region);
 }
 
-genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region)
+genesis_context *alloc_gen_cdboot_shared(system_media *media, uint32_t system_opts, uint8_t force_region)
 {
 	tern_node *rom_db = get_rom_db();
 	rom_info info = configure_rom(rom_db, media->buffer, media->size, NULL, 0, base_map, base_chunks);
@@ -3200,6 +3200,13 @@ genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t syste
 	cd->genesis = gen;
 	setup_io_devices(config, &info, &gen->io);
 
+	set_audio_config(gen);
+	return gen;
+}
+
+genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region)
+{
+	genesis_context *gen = alloc_gen_cdboot_shared(media, system_opts, force_region);
 	uint32_t cd_chunks;
 	memmap_chunk *cd_map = segacd_main_cpu_map(gen->expansion, 0, &cd_chunks);
 	memmap_chunk *map = malloc(sizeof(memmap_chunk) * (cd_chunks + base_chunks));
@@ -3224,8 +3231,6 @@ genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t syste
 		}
 	}
 	gen->header.type = SYSTEM_SEGACD;
-
-	set_audio_config(gen);
 	return gen;
 }
 
@@ -3254,10 +3259,43 @@ genesis_context *alloc_genesis_32x(system_media *media, uint32_t opts, uint8_t f
 		media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, base_map_32x, s32x_base_chunks
 	);
 	genesis_context *gen = shared_init_gen(info, media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, opts, force_region);
-	gen->mars = alloc_32x(media, gen->version_reg & HZ50);
+	gen->mars = alloc_32x(media, gen->version_reg & HZ50, 0);
 	gen->header.type = SYSTEM_32X;
 	gen->vdp->s32x_vid = &gen->mars->video;
 	gen->m68k->mem_pointers[2] = gen->m68k->mem_pointers[3] = NULL;
+	return gen;
+}
+
+genesis_context *alloc_genesis_32x_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region)
+{
+	genesis_context *gen = alloc_gen_cdboot_shared(media, system_opts, force_region);
+	uint32_t cd_chunks;
+	memmap_chunk *cd_map = segacd_main_cpu_map(gen->expansion, 0, &cd_chunks);
+	uint32_t num_chunks = cd_chunks + s32x_base_chunks;
+	memmap_chunk *map = calloc(num_chunks, sizeof(memmap_chunk));
+	memcpy(map, cd_map, sizeof(memmap_chunk) * cd_chunks);
+	memcpy(map + cd_chunks, base_map_32x, sizeof(memmap_chunk) * s32x_base_chunks);
+	map[cd_chunks].buffer = gen->work_ram;
+
+	m68k_options *opts = malloc(sizeof(m68k_options));
+	init_m68k_opts(opts, map, num_chunks, MCLKS_PER_68K, sync_components, int_ack);
+	//TODO: make this configurable
+	opts->gen.flags |= M68K_OPT_BROKEN_READ_MODIFY;
+	gen->m68k = init_68k_context(opts, NULL);
+	gen->m68k->system = gen;
+	opts->address_log = (system_opts & OPT_ADDRESS_LOG) ? fopen("address.log", "w") : NULL;
+
+	gen->mars = alloc_32x(media, gen->version_reg & HZ50, 1);
+	gen->vdp->s32x_vid = &gen->mars->video;
+	
+	//This must happen after the 68K context has been allocated
+	for (int i = 0; i < num_chunks; i++)
+	{
+		if (map[i].flags & MMAP_PTR_IDX) {
+			gen->m68k->mem_pointers[map[i].ptr_index] = map[i].buffer;
+		}
+	}
+	gen->header.type = SYSTEM_32XCD;
 	return gen;
 }
 

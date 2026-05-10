@@ -159,6 +159,12 @@ uint32_t load_media_zip(const char *filename, system_media *dst)
 }
 #endif
 
+uint8_t safe_cmp(const char *str, long offset, const uint8_t *buffer, long filesize)
+{
+	long len = strlen(str);
+	return filesize >= offset+len && !memcmp(str, buffer + offset, len);
+}
+
 uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 {
 	uint8_t header[10];
@@ -252,14 +258,22 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 		if (parse_cue(dst)) {
 			ret = dst->size;
 			if (stype) {
-				*stype = SYSTEM_SEGACD;
+				if (safe_cmp("SEGA 32X", 0x100, dst->buffer, dst->size)) {
+					*stype = SYSTEM_32XCD;
+				} else {
+					*stype = SYSTEM_SEGACD;
+				}
 			}
 		}
 	} else if (!strcasecmp(dst->extension, "toc")) {
 		if (parse_toc(dst)) {
 			ret = dst->size;
 			if (stype) {
-				*stype = SYSTEM_SEGACD;
+				if (safe_cmp("SEGA 32X", 0x100, dst->buffer, dst->size)) {
+					*stype = SYSTEM_32XCD;
+				} else {
+					*stype = SYSTEM_SEGACD;
+				}
 			}
 		}
 	}
@@ -270,12 +284,6 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 #endif
 
 	return ret;
-}
-
-uint8_t safe_cmp(char *str, long offset, uint8_t *buffer, long filesize)
-{
-	long len = strlen(str);
-	return filesize >= offset+len && !memcmp(str, buffer + offset, len);
 }
 
 system_type detect_system_type(system_media *media)
@@ -293,9 +301,15 @@ system_type detect_system_type(system_media *media)
 	if (safe_cmp("SEGA", 0x100, media->buffer, media->size)) {
 		//TODO: support other bootable identifiers
 		if (safe_cmp("SEGADISCSYSTEM", 0, media->buffer, media->size)) {
+			if (safe_cmp(" 32X", 0x104, media->buffer, media->size)) {
+				return SYSTEM_32XCD;
+			}
 			return SYSTEM_SEGACD;
 		}
-		if (safe_cmp(" 32X", 0x104, media->buffer, media->size) || !strcmp("32x", media->extension)) {
+		//This string is part of the "security" block so is more reliable than checking for "SEGA 32X"
+		//in the system type header field
+		static const char *mars_security = "MARS Initial & Security Program          Cartridge Version";
+		if (safe_cmp(mars_security, 0x512, media->buffer, media->size) || !strcmp("32x", media->extension)) {
 			return SYSTEM_32X;
 		}
 		return SYSTEM_GENESIS;
@@ -426,6 +440,8 @@ system_header *alloc_config_system(system_type stype, system_media *media, uint3
 		return &(alloc_laseractive(media, opts))->header;
 	case SYSTEM_32X:
 		return &(alloc_genesis_32x(media, opts, force_region))->header;
+	case SYSTEM_32XCD:
+		return &(alloc_genesis_32x_cdboot(media, opts, force_region))->header;
 	default:
 		return NULL;
 	}

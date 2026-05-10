@@ -491,7 +491,7 @@ int main(int argc, char ** argv)
 			case 'm':
 				i++;
 				if (i >= argc) {
-					fatal_error("-r must be followed by a machine type (sms, gg, sg, sc, gen, 32x, pico, copera, jag or media)\n");
+					fatal_error("-r must be followed by a machine type (sms, gg, sg, sc, gen, 32x, 32xcd, pico, copera, jag or media)\n");
 				}
 				if (!strcmp("sms", argv[i])) {
 					stype = force_stype = SYSTEM_SMS;
@@ -505,6 +505,8 @@ int main(int argc, char ** argv)
 					stype = force_stype = SYSTEM_GENESIS;
 				} else if (!strcmp("32x", argv[i])) {
 					stype = force_stype = SYSTEM_32X;
+				} else if (!strcmp("32xcd", argv[i])) {
+					stype = force_stype = SYSTEM_32XCD;
 				} else if (!strcmp("pico", argv[i])) {
 					stype = force_stype = SYSTEM_PICO;
 				} else if (!strcmp("copera", argv[i])) {
