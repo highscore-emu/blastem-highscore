@@ -638,7 +638,6 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 	info->map[0].start = 0x100;
 	info->map[0].end = rom_end;
 	info->map[0].mask = rom_end - 1;
-	info->map[0].aux_mask = info->map[0].mask;
 	info->map[0].flags = MMAP_READ | MMAP_PTR_IDX;
 	info->map[0].write_16 = s32x_write_hint;
 	info->map[0].write_8 = s32x_write_hint_b;

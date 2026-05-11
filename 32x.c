@@ -383,7 +383,7 @@ static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t cha
 				m68k->mem_pointers[2] = NULL;
 				return;
 			}
-			uint32_t offset = bank_start - chunk->start;
+			uint32_t offset = bank_start - (chunk->start & ~chunk->mask);
 			offset &= chunk->mask;
 			if (chunk->flags & (MMAP_ONLY_ODD | MMAP_ONLY_EVEN)) {
 				offset >>= 1;
