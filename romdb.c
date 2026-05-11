@@ -488,7 +488,7 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 
 		//TODO: handle ram_start on a non-1MB boundary
 		if (info->save_buffer && !(ram_start & 0xFFFFF)) {
-			info->map_chunks = base_chunks + (ram_start >= rom_end ? 4 : 5);
+			info->map_chunks = base_chunks + (ram_start >= rom_end ? 5 : 6);
 			info->map = malloc(sizeof(memmap_chunk) * info->map_chunks);
 			memset(info->map, 0, sizeof(memmap_chunk)*info->map_chunks);
 
@@ -497,12 +497,13 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				//1 -> Fixed 32X ROM bank
 				//2 -> Mappable 32X ROM bank
 				//3 -> SRAM
-				memcpy(info->map+4, base_map, sizeof(memmap_chunk) * base_chunks);
+				memcpy(info->map+5, base_map, sizeof(memmap_chunk) * base_chunks);
 				info->map[0].end = rom_end < 0x400000 ? nearest_pow2(rom_end) - 1 : 0xFFFFFF;
 				if (info->map[0].end > ram_start) {
 					info->map[0].end = ram_start;
 				}
 				//TODO: ROM mirroring
+				info->map[0].start = 0x100;
 				info->map[0].mask = 0xFFFFFF;
 				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX;
 				info->map[0].write_16 = s32x_write_hint;
@@ -533,15 +534,25 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				info->map[3].end = ram_start + info->save_mask + 1;
 				info->map[3].flags = MMAP_READ | MMAP_WRITE | MMAP_PTR_IDX;
 				info->map[3].ptr_index = 3;
+				
+				info->map[4].start = 0;
+				info->map[4].end = 0x100;
+				info->map[4].mask = 0xFFFFFF;
+				info->map[4].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+				info->map[4].ptr_index = 9;
+				info->map[4].write_16 = s32x_write_hint;
+				info->map[4].write_8 = s32x_write_hint_b;
+				info->map[4].buffer = rom;
+				
 
 				if (info->save_type == RAM_FLAG_ODD) {
-					info->map[1].flags |= MMAP_ONLY_ODD;
+					info->map[3].flags |= MMAP_ONLY_ODD;
 				} else if (info->save_type == RAM_FLAG_EVEN) {
-					info->map[1].flags |= MMAP_ONLY_EVEN;
+					info->map[3].flags |= MMAP_ONLY_EVEN;
 				} else {
-					info->map[1].flags |= MMAP_CODE;
+					info->map[3].flags |= MMAP_CODE;
 				}
-				info->map[1].buffer = info->save_buffer;
+				info->map[3].buffer = info->save_buffer;
 			} else {
 				//0 -> fixed ROM
 				//1 -> Fixed 32X ROM bank
@@ -551,12 +562,12 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				//last - 2 -> A130EC "MARS"
 				//last - 1 -> ROM/SRAM switch reg
 				//last -> catch all
-				memcpy(info->map+4, base_map, sizeof(memmap_chunk) * (base_chunks - 1));
+				memcpy(info->map+5, base_map, sizeof(memmap_chunk) * (base_chunks - 1));
 				//Assume the standard Sega mapper
 				info->mapper_type = MAPPER_SEGA_SRAM;
+				info->map[0].start = 0x100;
 				info->map[0].end = 0x200000;
 				info->map[0].mask = 0xFFFFFF;
-				info->map[0].aux_mask = info->map[0].mask;
 				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX;
 				info->map[0].write_16 = s32x_write_hint;
 				info->map[0].write_8 = s32x_write_hint_b;
@@ -593,6 +604,15 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 				info->map[3].write_16 = s32x_write_sram_area_w;//these will be called all writes to the area
 				info->map[3].write_8 = s32x_write_sram_area_b;
 				info->map[3].buffer = rom + 0x200000;
+				
+				info->map[4].start = 0;
+				info->map[4].end = 0x100;
+				info->map[4].mask = 0xFFFFFF;
+				info->map[4].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+				info->map[4].ptr_index = 9;
+				info->map[4].write_16 = s32x_write_hint;
+				info->map[4].write_8 = s32x_write_hint_b;
+				info->map[4].buffer = rom;
 
 				//Last entry in the base map is a catch all one that needs to be
 				//after all the other entries
@@ -608,13 +628,14 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 			return;
 		}
 	}
-	info->map_chunks = base_chunks + 3;
+	info->map_chunks = base_chunks + 4;
 	info->map = malloc(sizeof(memmap_chunk) * info->map_chunks);
 	memset(info->map, 0, sizeof(memmap_chunk)*info->map_chunks);
-	memcpy(info->map+3, base_map, sizeof(memmap_chunk) * base_chunks);
+	memcpy(info->map+4, base_map, sizeof(memmap_chunk) * base_chunks);
 	//0 -> ROM
 	//1 -> Fixed 32X ROM bank
 	//2 -> Mappable 32X ROM bank
+	info->map[0].start = 0x100;
 	info->map[0].end = rom_end;
 	info->map[0].mask = rom_end - 1;
 	info->map[0].aux_mask = info->map[0].mask;
@@ -637,6 +658,15 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 	info->map[2].mask = 0xFFFFF& info->map[0].mask;
 	info->map[2].flags = MMAP_READ | MMAP_PTR_IDX;
 	info->map[2].ptr_index = 2;
+				
+	info->map[3].start = 0;
+	info->map[3].end = 0x100;
+	info->map[3].mask = 0xFFFFFF;
+	info->map[3].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+	info->map[3].ptr_index = 9;
+	info->map[3].write_16 = s32x_write_hint;
+	info->map[3].write_8 = s32x_write_hint_b;
+	info->map[3].buffer = rom;
 }
 
 static rom_info configure_rom_heuristics_shared(uint8_t *rom, uint32_t rom_size)

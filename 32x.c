@@ -426,6 +426,14 @@ static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t cha
 				m68k->mem_pointers[3] = chunk->buffer;
 			}
 		}
+		if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+			m68k->mem_pointers[9] = mars->vector_rom;
+		} else {
+			m68k->mem_pointers[9] = gen->cart;
+		}
+		if (aden_changed) {
+			m68k_invalidate_code_range(m68k, 0x0, 0x100);
+		}
 		if (bank_changed) {
 			m68k_invalidate_code_range(m68k, 0x900000, 0xA00000);
 		}
