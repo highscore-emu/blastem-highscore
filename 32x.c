@@ -316,11 +316,9 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 		case S32X_PWM_WIDTH_M:
 			s32x_pwm_run(mars, sh2->cycles);
 			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
-			printf("SH2 PWM Read %04X: %04X\n", address, mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R]);
 			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
 		case S32X_PWM_WIDTH_L:
-		case S32X_PWM_WIDTH_R:
-			printf("SH2 PWM Read %04X: %04X\n", address, mars->regs[reg]);
+		case S32X_PWM_WIDTH_R:\
 			s32x_pwm_run(mars, sh2->cycles);
 		default:
 			return mars->regs[reg];
@@ -502,7 +500,7 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 	case S32X_PWM_WIDTH_L:
 		pwm_fifo_write(&mars->fifo_left, &new, value);
 		if (reg == S32X_PWM_WIDTH_M) {
-			mars->regs[reg] = new;
+			mars->regs[S32X_PWM_WIDTH_L] = new;
 			reg = S32X_PWM_WIDTH_R;
 			new = mars->regs[reg];
 		} else {
@@ -683,7 +681,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		s32x_pwm_run(mars, sh2->cycles);
 		pwm_fifo_write(&mars->fifo_left, &new, value);
 		if (reg == S32X_PWM_WIDTH_M) {
-			base[reg] = new;
+			base[S32X_PWM_WIDTH_L] = new;
 			reg = S32X_PWM_WIDTH_R;
 			new = base[reg];
 		} else {
