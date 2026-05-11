@@ -1339,7 +1339,7 @@ _opMap = {
 	'cmp': Op().addImplementation('c', None, _cmpCImpl),
 	'sext': Op(_sext).addImplementation('c', 2, _sextCImpl),
 	'ocall': Op().addImplementation('c', None, lambda prog, params: '\n\t{pre}{fun}({args});'.format(
-		pre = prog.prefix, fun = params[0], args = ', '.join(['context'] + [str(p) for p in params[1:]])
+		pre = '' if params[0].startswith('context->') else prog.prefix, fun = params[0], args = ', '.join(['context'] + [str(p) for p in params[1:]])
 	)),
 	'ccall': Op().addImplementation('c', None, lambda prog, params: '\n\t{fun}({args});'.format(
 		pre = prog.prefix, fun = params[0], args = ', '.join([str(p) for p in params[1:]])

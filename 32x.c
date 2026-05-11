@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "32x.h"
+#include "sh7095.h"
 #include "genesis.h"
 #include "sega_mapper.h"
 #include "blastem.h"
@@ -232,11 +233,13 @@ void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
 	} else {
 		mars->main->cycles = 0;
 	}
+	sh7095_adjust_cycles(mars->main, deduction);
 	if (deduction > mars->sub->cycles) {
 		mars->sub->cycles -= deduction;
 	} else {
 		mars->sub->cycles = 0;
 	}
+	sh7095_adjust_cycles(mars->main, deduction);
 	if (deduction > mars->pwm_cycle) {
 		mars->pwm_cycle -= deduction;
 	} else {
@@ -997,6 +1000,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	sh2_options *main_opts = calloc(1, sizeof(sh2_options));
 	init_sh2_opts(main_opts, main_map, num_chunks);
 	ret->main = init_sh2_context(main_opts, main_sh2_next_int);
+	sh7095_setup(ret->main);
 	ret->main->sync_cycle = 0xFFFFFFFF;
 	ret->main->system = ret;
 
@@ -1024,6 +1028,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	sh2_options *sub_opts = calloc(1, sizeof(sh2_options));
 	init_sh2_opts(sub_opts, sub_map, num_chunks);
 	ret->sub = init_sh2_context(sub_opts, sub_sh2_next_int);
+	sh7095_setup(ret->sub);
 	ret->sub->sync_cycle = 0xFFFFFFFF;
 	ret->sub->system = ret;
 
