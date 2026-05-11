@@ -60,11 +60,26 @@ enum {
 	SH_RTCOR = 0x1F8
 };
 
+#define BIT_SCR_TE   0x20
+#define BIT_SCR_RE   0x10
+#define MASK_SCR_CKE 0x03
+
+#define BIT_SSR_TDRE 0x80
+#define BIT_SSR_RDRF 0x40
+#define BIT_SSR_ORER 0x20
+#define BIT_SSR_TEND 0x04
+typedef void (*sci_handler)(void *data, uint32_t cycle, uint8_t byte);
 typedef struct {
-	uint32_t cycle;
+	void        *sci_handler_data;
+	sci_handler transmit_handler;
+	uint32_t    cycle;
+	uint32_t    divide_counter;
+	uint32_t    transmit_counter;
+	uint8_t     tsr;
 } sh7095_periph;
 
 void sh7095_setup(sh2_context *sh2);
 void sh7095_adjust_cycles(sh2_context *sh2, uint32_t deduction);
+void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte);
 
 #endif //SH7095_H_

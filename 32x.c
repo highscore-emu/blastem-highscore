@@ -1031,6 +1031,14 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	sh7095_setup(ret->sub);
 	ret->sub->sync_cycle = 0xFFFFFFFF;
 	ret->sub->system = ret;
+	
+	//hook up main/sub SCI
+	sh7095_periph *p = ret->main->periph_state;
+	p->sci_handler_data = ret->sub;
+	p->transmit_handler = sh7095_sci_to_sh7095_sci;
+	p = ret->sub->periph_state;
+	p->sci_handler_data = ret->main;
+	p->transmit_handler = sh7095_sci_to_sh7095_sci;
 
 	sh2_assert_reset(ret->main);
 	sh2_assert_reset(ret->sub);
