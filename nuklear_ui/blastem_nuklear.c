@@ -2571,7 +2571,7 @@ static void view_freeze_choice(struct nk_context *context)
 	if (nk_begin(context, "Choose Machine Freeze Action", nk_rect(0, 0, render_width(), render_height()), 0)) {
 		nk_layout_row_static(context, context->style.font->height * 1.25f, render_width() - 4 * context->style.font->height, 1);
 		nk_label(context, "Content performed an action that would lock up real hardware.", NK_TEXT_LEFT);
-		nk_label(context, " Choose how to procede. Details of the error below:", NK_TEXT_LEFT);
+		nk_label(context, "Choose how to procede. Details of the error below:", NK_TEXT_LEFT);
 		nk_label(context, machine_freeze_msg, NK_TEXT_LEFT);
 		nk_label(context, "", NK_TEXT_LEFT);
 		nk_label(context, "Perform the chosen action...", NK_TEXT_LEFT);

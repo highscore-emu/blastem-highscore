@@ -746,7 +746,7 @@ void machine_freeze(tern_node *config, debug_callback callback, void *data, char
 					buf = malloc(actual);
 					vsnprintf(buf, actual, format, args);
 				}
-				cur_choice = show_freeze_choice(&freeze_choice, buf);
+				cur_choice = show_freeze_choice(&freeze_choice, strip_ws(buf));
 				va_end(args);
 				keep_going = 1;
 				free(buf);
