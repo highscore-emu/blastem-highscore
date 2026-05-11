@@ -2563,6 +2563,45 @@ void view_settings(struct nk_context *context)
 	}
 }
 
+static uint8_t machine_freeze_choice;
+static uint8_t machine_freeze_choice_remember;
+static const char *machine_freeze_msg;
+static void view_freeze_choice(struct nk_context *context)
+{
+	if (nk_begin(context, "Choose Machine Freeze Action", nk_rect(0, 0, render_width(), render_height()), 0)) {
+		nk_layout_row_static(context, context->style.font->height * 1.25f, render_width() - 4 * context->style.font->height, 1);
+		nk_label(context, "Content performed an action that would lock up real hardware.", NK_TEXT_LEFT);
+		nk_label(context, " Choose how to procede. Details of the error below:", NK_TEXT_LEFT);
+		nk_label(context, machine_freeze_msg, NK_TEXT_LEFT);
+		nk_label(context, "", NK_TEXT_LEFT);
+		nk_label(context, "Perform the chosen action...", NK_TEXT_LEFT);
+		if (nk_option_label(context, "This time only", machine_freeze_choice_remember == 0)) {
+			machine_freeze_choice_remember = 0;
+		}
+		if (nk_option_label(context, "For the rest of this session", machine_freeze_choice_remember == 1)) {
+			machine_freeze_choice_remember = 1;
+		}
+		if (nk_option_label(context, "Always", machine_freeze_choice_remember == 2)) {
+			machine_freeze_choice_remember = 2;
+		}
+		nk_layout_row_static(context, context->style.font->height * 1.25f, (render_width() - 4 * context->style.font->height) / 3, 3);
+		if (nk_button_label(context, "Exit")) {
+			machine_freeze_choice = CHOICE_FATAL;
+			show_play_view();
+		}
+		if (nk_button_label(context, "Enter Debugger")) {
+			machine_freeze_choice = CHOICE_DEBUG;
+			show_play_view();
+		}
+		if (nk_button_label(context, "Ignore & Continue")) {
+			machine_freeze_choice = CHOICE_IGNORE;
+			show_play_view();
+		}
+		
+		nk_end(context);
+	}
+}
+
 void exit_handler(uint32_t index)
 {
 	exit(0);
@@ -2850,6 +2889,48 @@ void show_play_view(void)
 	set_content_binding_state(1);
 	current_view = view_play;
 	context->input.selected_widget = 0;
+}
+
+uint8_t show_freeze_choice(uint8_t *session_default, const char *msg)
+{
+	uint8_t ret;
+#ifdef __EMSCRIPTEN__
+	//TODO: implement this properly for web
+	*session_default = CHOICE_IGNORE;
+	ret = *session_default;
+#else
+	clear_view_stack();
+	context->style.window.background = nk_rgba(45, 45, 45, 255);
+	context->style.window.fixed_background = nk_style_item_color(nk_rgba(45, 45, 45, 255));
+	current_view = view_freeze_choice;
+	context->input.selected_widget = 0;
+	set_content_binding_state(0);
+	ui_enter();
+	machine_freeze_msg = msg;
+	machine_freeze_choice = CHOICE_FATAL;
+	machine_freeze_choice_remember = 0;
+	const uint32_t MIN_UI_DELAY = 15;
+	static uint32_t last;
+	while (current_view != view_play)
+	{
+		uint32_t current = render_elapsed_ms();
+		if ((current - last) < MIN_UI_DELAY) {
+			render_sleep_ms(MIN_UI_DELAY - (current - last) - 1);
+		}
+		last = current;
+		render_update_display();
+	}
+	ui_exit();
+	ret = machine_freeze_choice;
+	if (machine_freeze_choice_remember) {
+		if (machine_freeze_choice_remember == 2) {
+			config = set_machine_feeze_choice(config, ret);
+			config_dirty = 1;
+		}
+		*session_default = ret;
+	}
+#endif
+	return ret;
 }
 
 static uint8_t active;

@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef DISABLE_NUKLEAR
+#include "nuklear_ui/blastem_nuklear.h"
+#endif
 
 #ifdef __MINGW64_VERSION_MAJOR
 #define MINGW_W64_VERSION (__MINGW64_VERSION_MAJOR * 1000 + __MINGW64_VERSION_MINOR)
@@ -662,4 +665,106 @@ tern_node *get_model(tern_node *config, system_type stype)
 {
 	char *model = tern_find_path_default(config, stype == SYSTEM_SMS ? "sms\0system\0model\0" : "system\0model\0", (tern_val){.ptrval = "md1va3"}, TVAL_PTR).ptrval;
 	return tern_find_node(get_systems_config(), model);
+}
+
+tern_node *set_machine_feeze_choice(tern_node *config, uint8_t choice)
+{
+	char *str;
+	switch (choice)
+	{
+	case CHOICE_FATAL: str = "fatal"; break;
+	default:
+	case CHOICE_ASK: str = "ask"; break;
+	case CHOICE_DEBUG: str = "debug"; break;
+	case CHOICE_IGNORE: str = "ignore"; break;
+	}
+	return tern_insert_path(config, "ui\0machine_freeze_action\0", (tern_val){.ptrval = strdup(str)}, TVAL_PTR);
+}
+
+void machine_freeze(tern_node *config, debug_callback callback, void *data, char *format, ...)
+{
+#ifdef ISLIB
+	return;
+#else
+	static uint8_t freeze_choice;
+	if (!freeze_choice) {
+#ifdef DISABLE_NUKLEAR
+		tern_val def = {.ptrval = "fatal"};
+		freeze_choice = CHOICE_FATAL;
+#else
+		tern_val def = {.ptrval = "ask"};
+		freeze_choice = CHOICE_ASK;
+#endif
+		char *choice = tern_find_path_default(config, "ui\0machine_freeze_action\0", def, TVAL_PTR).ptrval;
+		if (!strcmp(choice, "fatal")) {
+			freeze_choice = CHOICE_FATAL;
+#ifndef DISABLE_NUKLEAR
+		} else if (!strcmp(choice, "ask")) {
+			freeze_choice = CHOICE_ASK;
+#endif
+		} else if (!strcmp(choice, "debug")) {
+			freeze_choice = CHOICE_DEBUG;
+		} else if (!strcmp(choice, "ignore")) {
+			freeze_choice = CHOICE_IGNORE;
+		}
+	}
+	uint8_t keep_going = 1;
+	uint8_t cur_choice = freeze_choice;
+	va_list args;
+	while (keep_going)
+	{
+		keep_going = 0;
+		switch (cur_choice)
+		{
+		default:
+		case CHOICE_FATAL:
+			va_start(args, format);
+			log_msg(format, FATAL, args);
+			va_end(args);
+			exit(1);
+			break;
+#ifndef DISABLE_NUKLEAR
+		case CHOICE_ASK:
+			{
+				//take a guess at the final size
+				int32_t size = strlen(format) * 2;
+				char *buf = malloc(size);
+				va_start(args, format);
+				va_list tmp;
+				va_copy(tmp, args);
+				int32_t actual = vsnprintf(buf, size, format, args);
+				va_end(tmp);
+				if (actual >= size || actual < 0) {
+					if (actual < 0) {
+						//seems on windows, vsnprintf is returning -1 when the buffer is too small
+						//since we don't know the proper size, a generous multiplier will hopefully suffice
+						actual = size * 4;
+					} else {
+						actual++;
+					}
+					free(buf);
+					buf = malloc(actual);
+					vsnprintf(buf, actual, format, args);
+				}
+				cur_choice = show_freeze_choice(&freeze_choice, buf);
+				va_end(args);
+				keep_going = 1;
+				free(buf);
+			}
+			break;
+#endif
+		case CHOICE_DEBUG:
+			va_start(args, format);
+			log_msg(format, DEBUG, args);
+			va_end(args);
+			callback(data);
+			break;
+		case CHOICE_IGNORE:
+			va_start(args, format);
+			log_msg(format, DEBUG, args);
+			va_end(args);
+			break;
+		}
+	}
+#endif
 }

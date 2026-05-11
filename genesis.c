@@ -1004,14 +1004,41 @@ static m68k_context *int_ack(m68k_context *context)
 	return context;
 }
 
+static void enter_68k_debugger_immediately(void *context)
+{
+	genesis_context *gen = context;
+	gen->header.enter_debugger = 1;
+	if (gen->m68k->sync_cycle > gen->m68k->cycles + 1) {
+		gen->m68k->sync_cycle = gen->m68k->cycles + 1;
+	}
+	if (gen->m68k->target_cycle > gen->m68k->sync_cycle) {
+		gen->m68k->target_cycle = gen->m68k->sync_cycle;
+	}
+}
+
+static void enter_z80_debugger_immediately(void *context)
+{
+	genesis_context *gen = context;
+	gen->enter_z80_debugger;
+	if (gen->z80->sync_cycle > gen->z80->Z80_CYCLE + 1) {
+		gen->z80->sync_cycle = gen->z80->Z80_CYCLE + 1;
+	}
+#ifndef NEW_CORE
+	if (gen->z80->target_cycle > gen->z80->sync_cycle) {
+		gen->z80->target_cycle = gen->z80->sync_cycle;
+	}
+#endif
+}
+
+
 static m68k_context * vdp_port_write(uint32_t vdp_port, m68k_context * context, uint16_t value)
 {
-	if (vdp_port & 0x2700E0) {
-		fatal_error("machine freeze due to write to address %X\n", 0xC00000 | vdp_port);
-	}
 	genesis_context * gen = context->system;
+	if (vdp_port & 0x2700E0) {
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Write to unmapped part of VDP memory region, address: %X\n", 0xC00000 | vdp_port);
+	}
 	if (!gen->vdp_unlocked) {
-		fatal_error("machine freeze due to VDP write to %X without TMSS unlock\n", 0xC00000 | vdp_port);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "VDP write to %X without TMSS unlock\n", 0xC00000 | vdp_port);
 	}
 	vdp_port &= 0x1F;
 	//printf("vdp_port write: %X, value: %X, cycle: %d\n", vdp_port, value, context->cycles);
@@ -1073,7 +1100,7 @@ static m68k_context * vdp_port_write(uint32_t vdp_port, m68k_context * context, 
 				}
 			}
 		} else {
-			fatal_error("Illegal write to HV Counter port %X\n", vdp_port);
+			machine_freeze(config, enter_68k_debugger_immediately, gen, "Illegal write to HV Counter port %X\n", vdp_port);
 		}
 		if (v_context->cycles != before_cycle) {
 			//printf("68K paused for %d (%d) cycles at cycle %d (%d) for write\n", v_context->cycles - context->cycles, v_context->cycles - before_cycle, context->cycles, before_cycle);
@@ -1129,7 +1156,7 @@ static void * z80_vdp_port_write(uint32_t vdp_port, void * vcontext, uint8_t val
 	genesis_context * gen = context->system;
 	vdp_port &= 0xFF;
 	if (vdp_port & 0xE0) {
-		fatal_error("machine freeze due to write to Z80 address %X\n", 0x7F00 | vdp_port);
+		machine_freeze(config, enter_z80_debugger_immediately, gen, "Z80 write to unmapped part of VDP memory region, address %X\n", 0x7F00 | vdp_port);
 	}
 	if (vdp_port < 0x10) {
 		//These probably won't currently interact well with the 68K accessing the VDP
@@ -1140,7 +1167,7 @@ static void * z80_vdp_port_write(uint32_t vdp_port, void * vcontext, uint8_t val
 			vdp_run_context_full(gen->vdp, context->Z80_CYCLE);
 			vdp_control_port_write(gen->vdp, value << 8 | value, context->Z80_CYCLE);
 		} else {
-			fatal_error("Illegal write to HV Counter port %X\n", vdp_port);
+			machine_freeze(config, enter_z80_debugger_immediately, gen, "Illegal Z80 write to HV Counter port %X\n", vdp_port);
 		}
 	} else if (vdp_port < 0x18) {
 		sync_sound(gen, context->Z80_CYCLE);
@@ -1153,12 +1180,19 @@ static void * z80_vdp_port_write(uint32_t vdp_port, void * vcontext, uint8_t val
 
 static uint16_t vdp_port_read(uint32_t vdp_port, m68k_context * context)
 {
-	if (vdp_port & 0x2700E0) {
-		fatal_error("machine freeze due to read from address %X\n", 0xC00000 | vdp_port);
-	}
 	genesis_context *gen = context->system;
+	if (vdp_port & 0x2700E0) {
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Read from unmapped part of VDP memory region, address %X\n", 0xC00000 | vdp_port);
+		gen->header.enter_debugger = 1;
+		if (gen->m68k->sync_cycle > gen->m68k->cycles + 1) {
+			gen->m68k->sync_cycle = gen->m68k->cycles + 1;
+		}
+		if (gen->m68k->target_cycle > gen->m68k->sync_cycle) {
+			gen->m68k->target_cycle = gen->m68k->sync_cycle;
+		}
+	}
 	if (!gen->vdp_unlocked) {
-		fatal_error("machine freeze due to VDP read from %X without TMSS unlock\n", 0xC00000 | vdp_port);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "VDP read from %X without TMSS unlock\n", 0xC00000 | vdp_port);
 	}
 	vdp_port &= 0x1F;
 	uint16_t value;
@@ -1183,7 +1217,7 @@ static uint16_t vdp_port_read(uint32_t vdp_port, m68k_context * context)
 			//printf("HV Counter: %X at cycle %d\n", value, v_context->cycles);
 		}
 	} else if (vdp_port < 0x18){
-		fatal_error("Illegal read from PSG  port %X\n", vdp_port);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Illegal read from PSG  port %X\n", vdp_port);
 	} else {
 		value = get_open_bus_value(&gen->header);
 	}
@@ -1217,10 +1251,10 @@ static uint8_t vdp_port_read_b(uint32_t vdp_port, m68k_context * context)
 static uint8_t z80_vdp_port_read(uint32_t vdp_port, void * vcontext)
 {
 	z80_context * context = vcontext;
-	if (vdp_port & 0xE0) {
-		fatal_error("machine freeze due to read from Z80 address %X\n", 0x7F00 | vdp_port);
-	}
 	genesis_context * gen = context->system;
+	if (vdp_port & 0xE0) {
+		machine_freeze(config, enter_z80_debugger_immediately, gen, "Z80 read from unmapped part of VDP memory region, address %X\n", 0x7F00 | vdp_port);
+	}
 	//VDP access goes over the 68K bus like a bank area access
 	//typical delay from bus arbitration
 	context->Z80_CYCLE += 3 * MCLKS_PER_Z80;
@@ -1384,7 +1418,7 @@ static m68k_context * io_write(uint32_t location, m68k_context * context, uint8_
 					ym_reset(gen->ym);
 				}
 			} else if (masked != 0x11300 && masked != 0x11000) {
-				fatal_error("Machine freeze due to unmapped write to address %X\n", location | 0xA00000);
+				machine_freeze(config, enter_68k_debugger_immediately, gen, "68K write to unmapped address %X\n", location | 0xA00000);
 			}
 		}
 	}
@@ -1460,7 +1494,7 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 			} else if (location < 0x7F00) {
 				value = 0xFF;
 			} else {
-				fatal_error("Machine freeze due to read of Z80 VDP memory window by 68K: %X\n", location | 0xA00000);
+				machine_freeze(config, enter_68k_debugger_immediately, gen, "Read of Z80 VDP memory window by 68K: %X\n", location | 0xA00000);
 				value = 0xFF;
 			}
 		} else {
@@ -1540,7 +1574,7 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 				return get_open_bus_value(&gen->header);
 			} else {
 				location |= 0xA00000;
-				fatal_error("Machine freeze due to read of unmapped IO location %X\n", location);
+				machine_freeze(config, enter_68k_debugger_immediately, gen, "68K read of unmapped IO location %X\n", location);
 				value = 0xFF;
 			}
 		}
@@ -1828,18 +1862,18 @@ static uint16_t unused_read(uint32_t location, void *vcontext)
 		if (gen->version_reg & 0xF) {
 			return gen->tmss_lock[location >> 1 & 1];
 		} else {
-			fatal_error("Machine freeze due to read from TMSS lock when TMSS is not present %X\n", location);
+			machine_freeze(config, enter_68k_debugger_immediately, gen, "68K read from TMSS lock when TMSS is not present %X\n", location);
 			return 0xFFFF;
 		}
 	} else if (location == 0xA14100) {
 		if (gen->version_reg & 0xF) {
 			return get_open_bus_value(&gen->header);
 		} else {
-			fatal_error("Machine freeze due to read from TMSS control when TMSS is not present %X\n", location);
+			machine_freeze(config, enter_68k_debugger_immediately, gen, "68K read from TMSS control when TMSS is not present %X\n", location);
 			return 0xFFFF;
 		}
 	} else {
-		fatal_error("Machine freeze due to unmapped read from %X\n", location);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Unmapped read from %X\n", location);
 		return 0xFFFF;
 	}
 }
@@ -1897,7 +1931,7 @@ static void *unused_write(uint32_t location, void *vcontext, uint16_t value)
 	} else if (location < 0x800000 || (location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
 		//these writes are ignored when no relevant hardware is present
 	} else {
-		fatal_error("Machine freeze due to unmapped write to %X\n", location);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Unmapped write to %X\n", location);
 	}
 	return vcontext;
 }
@@ -1928,7 +1962,7 @@ static void *unused_write_b(uint32_t location, void *vcontext, uint8_t value)
 	} else if (location < 0x800000 || (location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
 		//these writes are ignored when no relevant hardware is present
 	} else {
-		fatal_error("Machine freeze due to unmapped byte write to %X\n", location);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Unmapped byte write to %X\n", location);
 	}
 	return vcontext;
 }

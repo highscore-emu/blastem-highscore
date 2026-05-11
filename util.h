@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <wchar.h>
+#include <stdarg.h>
 #include "tern.h"
 
 typedef struct {
@@ -85,6 +86,8 @@ void info_message(char *format, ...);
 void warning(char *format, ...);
 //Prints a debug message to stdout
 void debug_message(char *format, ...);
+//Prints a log message of the specified level
+void log_msg(char *format, log_level level, va_list args);
 //Disables output of info and debug messages to stdout
 void disable_stdout_messages(void);
 //Returns stdout disable status
