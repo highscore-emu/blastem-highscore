@@ -441,7 +441,6 @@ sh2_reset
 	cycles 1
 	scratch2 = D + gpr.N
 	sh2_write8 scratch2 r0
-	sh2_write8 scratch2 r0
 	sh2_fetch
 
 10000001NNNNDDDD store_r0_disp_rn_w
@@ -676,9 +675,8 @@ sh2_reset
 
 0011NNNNMMMM0110 cmphi_rm_rn
 	cycles 1
-	cmp gpr.M gpr.N
+	cmp gpr.N gpr.M
 	update_flags C
-	t = !t
 	sh2_fetch
 
 0011NNNNMMMM0111 cmpgt_rm_rn
@@ -963,6 +961,7 @@ sh2_reset
 	sh2_fetch
 
 11001011IIIIIIII or_imm_r0
+	nospecialize I
 	cycles 1
 	r0 |= I
 	sh2_fetch
