@@ -655,7 +655,7 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 	info->map[2].start = 0x900000;
 	info->map[2].end = 0xA00000;
 	info->map[2].mask = 0xFFFFF& info->map[0].mask;
-	info->map[2].flags = MMAP_READ | MMAP_PTR_IDX;
+	info->map[2].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
 	info->map[2].ptr_index = 2;
 				
 	info->map[3].start = 0;
