@@ -529,10 +529,18 @@ void process_sh2_vectors(disasm_context *context, uint16_t *table, const char *p
 		def->is_pointer = 1;
 	}
 
-	char int_name[] = "irl_0";
-	for (int i = 0; i < 15; i++)
+	char int_name[] = "irl_1_0";
+	for (int i = 0; i < 8; i++)
 	{
-		int_name[4] = i < 0x9 ? '1' + i : 'a' + i - 0x9;
+		if (i) {
+			int num = i * 2;
+			int_name[4] = num < 0xA ? '0' + num : 'A' + num - 0xA;
+			int_name[5] = '_';
+			num++;
+			int_name[6] = num < 0xA ? '0' + num : 'A' + num - 0xA;
+		} else {
+			int_name[5] = 0;
+		}
 		address = table[i*2+128] << 16 | table[i*2 + 129];
 		prefixed_label(context, prefix, int_name, address);
 		if (!labels_only) {
