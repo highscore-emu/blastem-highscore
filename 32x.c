@@ -71,7 +71,6 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 					mars->pwm_main_int_pending = mars->pwm_sub_int_pending = 1;
 					mars->pwm_timer = mars->regs[S32X_PWM_CTRL] >> 8 & 0xF;
 				}
-				printf("PWM sample @ %u, int_pending = %d\n", mars->pwm_cycle, mars->pwm_sub_int_pending);
 			} else if (mars->pwm_counter != 1) {
 				mars->pwm_counter--;
 				mars->pwm_counter &= 0xFFF;
