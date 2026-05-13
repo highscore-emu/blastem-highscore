@@ -142,13 +142,11 @@ void sh2_sync_cycle(sh2_context *context, uint32_t target_cycle)
 void sh2_insert_breakpoint(sh2_context *sh2, uint32_t address, sh2_fun *handler)
 {
 	char buf[MAX_INT_KEY_SIZE];
-	address &= sh2->opts->gen.address_mask;
 	sh2->breakpoints = tern_insert_ptr(sh2->breakpoints, tern_int_key(address, buf), handler);
 }
 
 void sh2_remove_breakpoint(sh2_context *sh2, uint32_t address)
 {
 	char buf[MAX_INT_KEY_SIZE];
-	address &= sh2->opts->gen.address_mask;
 	tern_delete(&sh2->breakpoints, tern_int_key(address, buf), NULL);
 }
