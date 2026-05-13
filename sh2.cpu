@@ -582,6 +582,8 @@ sh2_reset
 
 0000NNNN00101001 movt
 	cycles 1
+	t = !t
+	t = !t
 	gpr.N = t
 	sh2_fetch
 
