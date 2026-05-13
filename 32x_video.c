@@ -130,6 +130,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 				} else {
 					vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_FEN;
 					delta -= MCLKS_FILL_LAST;
+					break;
 				}
 			}
 			//TODO: test whether final value for this reg should be 0 or FF
