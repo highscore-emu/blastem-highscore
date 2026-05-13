@@ -107,6 +107,7 @@ genesis_context *alloc_genesis_32x_cdboot(system_media *media, uint32_t system_o
 void genesis_serialize(genesis_context *gen, serialize_buffer *buf, uint32_t m68k_pc, uint8_t all);
 void genesis_deserialize(deserialize_buffer *buf, genesis_context *gen);
 void gen_update_refresh_free_access(m68k_context *context);
+void gen_update_z80_bank_pointer(genesis_context *gen);
 
 #endif //GENESIS_H_
 

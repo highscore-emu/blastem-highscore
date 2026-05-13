@@ -437,6 +437,7 @@ static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t cha
 		if (bank_changed) {
 			m68k_invalidate_code_range(m68k, 0x900000, 0xA00000);
 		}
+		gen_update_z80_bank_pointer(gen);
 	}
 }
 

@@ -191,7 +191,7 @@ static void zram_deserialize(deserialize_buffer *buf, void *vgen)
 	z80_invalidate_code_range(gen->z80, 0, 0x4000);
 }
 
-static void update_z80_bank_pointer(genesis_context *gen)
+void gen_update_z80_bank_pointer(genesis_context *gen)
 {
 	if (gen->z80_bank_reg < 0x140) {
 		gen->z80->mem_pointers[1] = get_native_pointer(gen->z80_bank_reg << 15, (void **)gen->m68k->mem_pointers, &gen->m68k->opts->gen);
@@ -274,7 +274,7 @@ void genesis_deserialize(deserialize_buffer *buf, genesis_context *gen)
 		}
 		check_tmss_lock(gen);
 	}
-	update_z80_bank_pointer(gen);
+	gen_update_z80_bank_pointer(gen);
 	adjust_int_cycle(gen->m68k, gen->vdp);
 #ifndef NEW_CORE
 	//HACK: Fix this once PC/IR is represented in a better way in 68K core
@@ -1798,6 +1798,13 @@ static uint8_t z80_read_bank(uint32_t location, void * vcontext)
 		//Apparently version reg can be read through Z80 banked area
 		//TODO: Check rest of IO region addresses
 		return gen->version_reg;
+	} else if (gen->mars && address >= 0xA15100 && address <= 0xA15400) {
+		uint32_t prev_cycles = gen->m68k->cycles;
+		uint8_t ret = s32x_68k_read_b(address, gen->m68k);
+		if (gen->m68k->cycles != prev_cycles) {
+			context->Z80_CYCLE += gen->m68k->cycles - prev_cycles;
+		}
+		return ret;
 	} else {
 		fprintf(stderr, "Unhandled read by Z80 from address %X through banked memory area (%X)\n", address, gen->z80_bank_reg << 15);
 	}
@@ -1825,6 +1832,12 @@ static void *z80_write_bank(uint32_t location, void * vcontext, uint8_t value)
 		((uint8_t *)gen->work_ram)[address ^ 1] = value;
 	} else if (address >= 0xC00000) {
 		z80_vdp_port_write(location & 0xFF, context, value);
+	} else if (gen->mars && address >= 0xA15100 && address <= 0xA15400) {
+		uint32_t prev_cycles = gen->m68k->cycles;
+		s32x_68k_write_b(address, gen->m68k, value);
+		if (gen->m68k->cycles != prev_cycles) {
+			context->Z80_CYCLE += gen->m68k->cycles - prev_cycles;
+		}
 	} else {
 		fprintf(stderr, "Unhandled write by Z80 to address %X through banked memory area\n", address);
 	}
@@ -1837,7 +1850,7 @@ static void *z80_write_bank_reg(uint32_t location, void * vcontext, uint8_t valu
 	genesis_context *gen = context->system;
 
 	gen->z80_bank_reg = (gen->z80_bank_reg >> 1 | value << 8) & 0x1FF;
-	update_z80_bank_pointer(context->system);
+	gen_update_z80_bank_pointer(context->system);
 
 	return context;
 }
