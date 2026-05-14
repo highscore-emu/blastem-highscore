@@ -14,6 +14,11 @@ static void sh7095_reset(sh2_context *sh2)
 	sh2->peripherals[SH_RSTCSR] = 0x1F;
 	sh2->peripherals[SH_BCR1 + 2] = sh2->main ? 0x03 : 0x83;
 	sh2->peripherals[SH_BCR1 + 3] = 0xF0;
+	sh7095_periph *p = sh2->periph_state;
+	p->ocra = p->ocrb = 0xFFFF;
+	sh2->peripherals[SH_OCRH] = p->ocra >> 8;
+	sh2->peripherals[SH_OCRL] = p->ocra;
+	p->frc_counter = 8;
 }
 
 static uint32_t sh7095_periph32(uint32_t reg, sh2_context *sh2)
@@ -63,6 +68,7 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 	}
 }
 
+static const uint32_t frc_counter_values[] = {8, 32, 128, 0};
 static void sh7095_run(sh2_context *sh2)
 {
 	sh7095_periph *p = sh2->periph_state;
@@ -111,7 +117,9 @@ static void sh7095_run(sh2_context *sh2)
 			}
 		}
 		if (p->transmit_counter) {
-			if (delta >= p->transmit_counter) {
+			uint32_t transmit_delta = delta;
+			while (transmit_delta >= p->transmit_counter && p->transmit_counter)
+			{
 				if (p->transmit_handler) {
 					p->transmit_handler(p->sci_handler_data, p->cycle + p->transmit_counter, p->tsr);
 				}
@@ -129,9 +137,38 @@ static void sh7095_run(sh2_context *sh2)
 					}
 					start_transmit(sh2);
 				}
-			} else {
-				p->transmit_counter -= delta;
+				transmit_delta -= p->transmit_counter;
 			}
+			if (transmit_delta && p->transmit_counter)
+			{
+				p->transmit_counter -= transmit_delta;
+			}
+		}
+		if (p->frc_counter) {
+			uint32_t frc_delta = delta;
+			uint16_t frc = sh2->peripherals[SH_FRCH] << 8 | sh2->peripherals[SH_FRCL];
+			uint32_t cks = frc_counter_values[sh2->peripherals[SH_TCR] & 3];
+			while (frc_delta >= p->frc_counter && p->frc_counter) {
+				frc++;
+				//TODO: FRC interrupts
+				if (!frc) {
+					sh2->peripherals[SH_FTCSR] |= BIT_FTCSR_OVF;
+				}
+				if (frc == p->ocra) {
+					sh2->peripherals[SH_FTCSR] |= BIT_FTCSR_OCFA;
+				}
+				if (frc == p->ocrb) {
+					sh2->peripherals[SH_FTCSR] |= BIT_FTCSR_OCFB;
+				}
+				frc_delta -= p->frc_counter;
+				p->frc_counter = cks;
+			}
+			if (frc_delta && p->frc_counter)
+			{
+				p->frc_counter -= frc_delta;
+			}
+			sh2->peripherals[SH_FRCH] = frc >> 8;
+			sh2->peripherals[SH_FRCL] = frc;
 		}
 		
 		p->cycle = sh2->cycles;
@@ -143,8 +180,44 @@ static uint8_t did_write_mask_setup;
 
 static void sh7095_write_byte(uint32_t reg, sh2_context *sh2, uint8_t value)
 {
+	sh7095_periph *p = sh2->periph_state;
 	uint8_t mask = write_masks[reg];
-	sh2->peripherals[reg] = (sh2->peripherals[reg] & ~mask) | (value & mask);
+	uint8_t old = sh2->peripherals[reg];
+	sh2->peripherals[reg] = (old & ~mask) | (value & mask);
+	switch (reg)
+	{
+	case SH_FRCH:
+		p->frc_temp = value;
+		break;
+	case SH_FRCL:
+		sh2->peripherals[SH_FRCH] = p->frc_temp;
+		break;
+	case SH_OCRH:
+		//keep opra/oprb in sync with reg array
+		if (sh2->peripherals[SH_TOCR] & BIT_TOCR_OCRS) {
+			p->ocrb &= 0xFF;
+			p->ocrb |= value << 8;
+		} else {
+			p->ocra &= 0xFF;
+			p->ocra |= value << 8;
+		}
+		break;
+	case SH_OCRL:
+		//keep opra/oprb in sync with reg array
+		if (sh2->peripherals[SH_TOCR] & BIT_TOCR_OCRS) {
+			p->ocrb &= 0xFF00;
+			p->ocrb |= value;
+		} else {
+			p->ocra &= 0xFF00;
+			p->ocra |= value;
+		}
+		break;
+	case SH_TCR:
+		if (!p->frc_counter) {
+			p->frc_counter = frc_counter_values[sh2->peripherals[SH_TCR] & 3];
+		}
+		break;
+	}
 }
 
 static void sh7095_write_32(uint32_t address, sh2_context *sh2, uint32_t value)
@@ -289,6 +362,7 @@ void sh7095_setup(sh2_context *sh2)
 		did_write_mask_setup = 1;
 		memset(write_masks, 0xFF, sizeof(write_masks));
 		write_masks[SH_RDR] = 0;
+		write_masks[SH_FRCH] = 0; //writes go to TEMP
 		write_masks[SH_TOCR] = 0x1F;
 		write_masks[SH_ICRH] = write_masks[SH_ICRL] = 0;
 		write_masks[SH_IPRA + 1] = 0xF0;

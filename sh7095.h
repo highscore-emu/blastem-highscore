@@ -11,13 +11,14 @@ enum {
 	SH_RDR,
 	SH_TIER = 0x10,
 	SH_FTCSR,
-	SH_FRC,
-	SH_OCRA,
-	SH_OCRB,
+	SH_FRCH,
+	SH_FRCL,
+	SH_OCRH,
+	SH_OCRL,
 	SH_TCR,
-	SH_TOCR = 0x17,
-	SH_ICRH = 0x18,
-	SH_ICRL = 0x19,
+	SH_TOCR,
+	SH_ICRH,
+	SH_ICRL,
 	SH_IPRB = 0x60,
 	SH_VCRA = 0x62,
 	SH_VCRB = 0x64,
@@ -71,6 +72,12 @@ enum {
 #define BIT_SSR_RDRF 0x40
 #define BIT_SSR_ORER 0x20
 #define BIT_SSR_TEND 0x04
+
+#define BIT_TOCR_OCRS 0x10
+
+#define BIT_FTCSR_OCFA 0x08
+#define BIT_FTCSR_OCFB 0x04
+#define BIT_FTCSR_OVF  0x02
 typedef void (*sci_handler)(void *data, uint32_t cycle, uint8_t byte);
 typedef struct {
 	void        *sci_handler_data;
@@ -78,6 +85,10 @@ typedef struct {
 	uint32_t    cycle;
 	uint32_t    divide_counter;
 	uint32_t    transmit_counter;
+	uint32_t    frc_counter;
+	uint16_t    ocra;
+	uint16_t    ocrb;
+	uint8_t     frc_temp;
 	uint8_t     tsr;
 	uint8_t     ti_pending;
 	uint8_t     ri_pending;
