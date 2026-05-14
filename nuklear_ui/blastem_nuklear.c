@@ -2528,6 +2528,9 @@ void view_bios_settings(struct nk_context *context)
 		settings_path(context, "US CD BIOS", "system\0scd_bios_us\0", "cdbios.md", exts, 3);
 		settings_path(context, "JP CD BIOS", "system\0scd_bios_jp\0", "cdbios.md", exts, 3);
 		settings_path(context, "EU CD BIOS", "system\0scd_bios_eu\0", "cdbios.md", exts, 3);
+		settings_path(context, "32X Main SH2 BIOS", "system\0s32x_main_bios\0", "32X_M_BIOS.bin", exts, 3);
+		settings_path(context, "32X Sub SH2 BIOS", "system\0s32x_sub_bios\0", "32X_S_BIOS.bin", exts, 3);
+		settings_path(context, "32X 68K BIOS", "system\0s32x_68k_bios\0", "32X_G_BIOS.bin", exts, 3);
 		static const char* coleco_exts[] = {"col", "bin", "rom"};
 		settings_path(context, "Colecovision BIOS", "system\0coleco_bios_path\0", "colecovision_bios.col", coleco_exts, 3);
 		if (nk_button_label(context, "Back")) {
