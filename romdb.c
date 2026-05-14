@@ -474,13 +474,7 @@ void add_memmap_header(rom_info *info, uint8_t *rom, uint32_t size, memmap_chunk
 
 void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_chunk const *base_map, int base_chunks)
 {
-	uint32_t rom_end = get_u32be(rom + ROM_END) + 1;
-	uint32_t rom_end_raw = rom_end;
-	if (size > rom_end) {
-		rom_end = size;
-	} else if (rom_end > nearest_pow2(size)) {
-		rom_end = nearest_pow2(size);
-	}
+	uint32_t rom_end = nearest_pow2(size);
 	info->save_type = SAVE_NONE;
 	//TODO: deal with heuristics detectable mappers besides the basic Sega SRAM one
 	if (has_ram_header(rom, size)) {
