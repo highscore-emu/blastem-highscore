@@ -46,7 +46,8 @@ static void start_transmit(sh2_context *sh2)
 	case 2: counter = 256; break;
 	case 3: counter = 1024; break;
 	}
-	p->transmit_counter = counter * sh2->peripherals[SH_BRR];
+	//TODO: probably need to account for stop-bits and/or parity here
+	p->transmit_counter = counter * (sh2->peripherals[SH_BRR] + 1) * 8;
 }
 
 void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
@@ -120,6 +121,7 @@ static void sh7095_run(sh2_context *sh2)
 			uint32_t transmit_delta = delta;
 			while (transmit_delta >= p->transmit_counter && p->transmit_counter)
 			{
+				transmit_delta -= p->transmit_counter;
 				if (p->transmit_handler) {
 					p->transmit_handler(p->sci_handler_data, p->cycle + p->transmit_counter, p->tsr);
 				}
@@ -137,7 +139,6 @@ static void sh7095_run(sh2_context *sh2)
 					}
 					start_transmit(sh2);
 				}
-				transmit_delta -= p->transmit_counter;
 			}
 			if (transmit_delta && p->transmit_counter)
 			{

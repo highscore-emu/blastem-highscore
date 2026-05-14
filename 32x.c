@@ -120,6 +120,24 @@ void s32x_run(s32x *mars, uint32_t target)
 	s32x_video_run(&mars->video, target);
 }
 
+static void sci_transmit_ack(sh2_context *sh2)
+{
+	sh7095_periph *p = sh2->periph_state;
+	p->ti_pending = 0;
+}
+
+static void sci_receive_ack(sh2_context *sh2)
+{
+	sh7095_periph *p = sh2->periph_state;
+	p->ri_pending = 0;
+}
+
+static void sci_transmit_end_ack(sh2_context *sh2)
+{
+	sh7095_periph *p = sh2->periph_state;
+	p->tei_pending = 0;
+}
+
 void main_sh2_next_int(sh2_context *sh2)
 {
 	s32x *mars = sh2->system;
@@ -167,6 +185,35 @@ void main_sh2_next_int(sh2_context *sh2)
 					sh2->int_priority = 6;
 				}
 			}
+		}
+	}
+	//TODO: predict interrupt timing when possible
+	sh7095_periph *p = sh2->periph_state;
+	if ((sh2->peripherals[SH_SCR] & BIT_SCR_TIE) && p->ti_pending) {
+		uint32_t priority = sh2->peripherals[SH_IPRB] >> 4;
+		if (priority_mask < priority && sh2->int_cycle > sh2->cycles || priority > sh2->int_priority) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			sh2->int_vector = sh2->peripherals[SH_VCRB] & 0x7F;
+			sh2->int_ack = sci_transmit_ack;
+		}
+	}
+	if ((sh2->peripherals[SH_SCR] & BIT_SCR_RIE) && p->ri_pending) {
+		uint32_t priority = sh2->peripherals[SH_IPRB] >> 4;
+		if (priority_mask < priority && sh2->int_cycle > sh2->cycles || priority > sh2->int_priority) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			sh2->int_vector = sh2->peripherals[SH_VCRA + 1] & 0x7F;
+			sh2->int_ack = sci_receive_ack;
+		}
+	}
+	if (sh2->peripherals[SH_SCR] & BIT_SCR_TEIE) {
+		uint32_t priority = sh2->peripherals[SH_IPRB] >> 4;
+		if (priority_mask < priority && sh2->int_cycle > sh2->cycles || priority > sh2->int_priority) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			sh2->int_vector = sh2->peripherals[SH_VCRB + 1] & 0x7F;
+			sh2->int_ack = sci_transmit_end_ack;
 		}
 	}
 }
