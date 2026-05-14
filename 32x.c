@@ -74,9 +74,11 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 			} else if (mars->pwm_counter != 1) {
 				mars->pwm_counter--;
 				mars->pwm_counter &= 0xFFF;
+			} else {
+				mars->pwm_counter = mars->regs[S32X_PWM_CYCLE];
 			}
 		}
-		render_put_stereo_sample(mars->pwm, mars->pwm_left * 32, mars->pwm_right * 32);
+		render_put_stereo_sample(mars->pwm, mars->pwm_left * 32 - 0x4000, mars->pwm_right * 32 - 0x4000);
 	}
 }
 
@@ -154,8 +156,9 @@ void main_sh2_next_int(sh2_context *sh2)
 					s32x_pwm_run(mars, sh2->cycles);
 					if (mars->pwm_main_int_pending) {
 						pwm_int_cycle = sh2->cycles;
-					} else {
-						//TODO: predict PWM interrupt time
+					} else if (mars->pwm_counter != 1) {
+						pwm_int_cycle = mars->pwm_cycle + 7 * ((mars->pwm_counter - 2) & 0xFFFF);
+						pwm_int_cycle += ((mars->pwm_timer - 1) & 0xF) * ((mars->regs[S32X_PWM_CYCLE] - 2) & 0xFFFF) * 7;
 					}
 				}
 				if (pwm_int_cycle < sh2->int_cycle) {
@@ -207,8 +210,9 @@ void sub_sh2_next_int(sh2_context *sh2)
 					s32x_pwm_run(mars, sh2->cycles);
 					if (mars->pwm_sub_int_pending) {
 						pwm_int_cycle = sh2->cycles;
-					} else {
-						//TODO: predict PWM interrupt time
+					} else if (mars->pwm_counter != 1) {
+						pwm_int_cycle = mars->pwm_cycle + 7 * ((mars->pwm_counter - 2) & 0xFFFF);
+						pwm_int_cycle += ((mars->pwm_timer - 1) & 0xF) * ((mars->regs[S32X_PWM_CYCLE] - 2) & 0xFFFF) * 7;
 					}
 				}
 				if (pwm_int_cycle < sh2->int_cycle) {
@@ -680,6 +684,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		}
 		break;
 	case S32X_PWM_INT_CLR:
+		s32x_pwm_run(mars, sh2->cycles);
 		if (sh2 == mars->main) {
 			mars->pwm_main_int_pending = 0;
 			main_sh2_next_int(sh2);
