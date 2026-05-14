@@ -120,6 +120,8 @@ int main(int argc, char **argv)
 	}
 	uint32_t address_end = address_off + filesize;
 	byteswap_rom(filesize, filebuf);
+	uint32_t address_off_alt =0, address_end_alt = 0;
+	uint16_t *filebuf_alt = NULL;
 	if (!address_off && filesize >= 0x800 && !memcmp(filebuf + 0x80, "ESAG", 4)) {
 		uint32_t sh2_code_offset = filebuf[0x3D4>>1] << 16 | filebuf[0x3D4>>1|1];
 		uint32_t sh2_dest = filebuf[0x3D8>>1] << 16 | filebuf[0x3D8>>1|1];
@@ -131,6 +133,9 @@ int main(int argc, char **argv)
 			uint32_t main_vbr = filebuf[0x3E8>>1] << 16 | filebuf[0x3E8>>1|1];
 			uint32_t sub_vbr = filebuf[0x3EC>>1] << 16 | filebuf[0x3EC>>1|1];
 			address_off = 0x6000000 + sh2_dest;
+			address_off_alt = 0x2000000;
+			address_end_alt = address_off_alt + address_end;
+			filebuf_alt = filebuf;
 			filebuf += sh2_code_offset >> 1;
 			address_end = address_off + sh2_code_size;
 			defer_disasm(context, main_sh2_start);
@@ -150,6 +155,7 @@ int main(int argc, char **argv)
 	}
 	uint32_t address;
 	uint8_t valid_address;
+	uint8_t use_alt = 0;
 	while(context->deferred) {
 		do {
 			valid_address = 0;
@@ -171,6 +177,13 @@ int main(int argc, char **argv)
 							target |= filebuf[(masked - address_off) >> 1];
 							defer_disasm(context, target);
 							reference(context, target);
+						} else if (masked < address_end_alt - 2 && masked >= address_off_alt) {
+							uint32_t target = filebuf_alt[(masked - address_off) >> 1] << 16;
+							masked += 2;
+							target |= filebuf_alt[(masked - address_off) >> 1];
+							defer_disasm(context, target);
+							reference(context, target);
+							use_alt = 1;
 						}
 					}
 				}
@@ -178,6 +191,9 @@ int main(int argc, char **argv)
 				uint32_t masked = address & context->address_mask;
 				if (masked < address_end && masked >= address_off) {
 					valid_address = 1;
+				} else if (masked < address_end_alt && masked >= address_off_alt) {
+					valid_address = 1;
+					use_alt = 1;
 				}
 			}
 		} while (context->deferred && !valid_address);
@@ -185,13 +201,23 @@ int main(int argc, char **argv)
 			break;
 		}
 		uint8_t should_break = 0;
+		uint16_t *curbuf = filebuf;
+		uint32_t cur_off = address_off;
+		uint32_t cur_end = address_end;
 		while(!should_break)
 		{
 			if ((address & context->address_mask) > address_end || address < address_off) {
-				break;
+				if ((address & context->address_mask) < address_end_alt && address >= address_off_alt) {
+					curbuf = filebuf_alt;
+					cur_off = address_off_alt;
+					cur_end = address_end;
+					use_alt = 1;
+				} else {
+					break;
+				}
 			}
 			visit(context, address);
-			inst = sh2_decode(filebuf[((address & context->address_mask) - address_off) >> 1]);
+			inst = sh2_decode(curbuf[((address & context->address_mask) - cur_off) >> 1]);
 			uint32_t tmpaddr;
 			switch (inst.opcode)
 			{
@@ -231,12 +257,12 @@ int main(int argc, char **argv)
 					def->data_count = 1;
 					def->data_size = inst.opcode == SH2_MOVL ? 4 : 2;
 					uint32_t masked = tmpaddr & context->address_mask;
-					if (!def->num_labels && masked >= address_off && masked < address_end) {
+					if (!def->num_labels && masked >= cur_off && masked < cur_end) {
 						char name[128];
-						uint32_t value = filebuf[(masked - address_off) >> 1];
-						if (inst.opcode == SH2_MOVL && (masked + 2) < address_end) {
+						uint32_t value = curbuf[(masked - cur_off) >> 1];
+						if (inst.opcode == SH2_MOVL && (masked + 2) < cur_end) {
 							value <<= 16;
-							value |= filebuf[(masked + 2 - address_off) >> 1];
+							value |= curbuf[(masked + 2 - cur_off) >> 1];
 						}
 						sprintf(name, "CONST_%X", value);
 						uint32_t version = 0;
@@ -261,91 +287,118 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	rom_def rom = {address_off, address_end, filebuf};
-	if (labels) {
-		tern_foreach(context->labels, print_label_def, &rom);
-		puts("");
-	}
-	for (address = address_off; address < address_end;) {
-		if (is_visited(context, address)) {
-			if (labels) {
-				label_def *label = find_label(context, address);
-				if (!label && !(address & 1)) {
-					label = find_label(context, address + 1);
-					if (label) {
-						uint8_t val = fetch(address, &rom) >> 8;
-						printf("\t.byte %02X\n", val);
-						address++;
-					}
-				}
-				if (label) {
-					if (label->num_labels) {
-						for (int i = 0; i < label->num_labels; i++)
-						{
-							printf("%s:\n", label->labels[i]);
+	uint32_t main_address_off = address_off;
+	uint32_t main_address_end = address_end;
+	uint16_t *filebuf_main = filebuf;
+	for (int sect = 0; sect < (use_alt + 1); sect++)
+	{
+		if (sect) {
+			if (main_address_off > address_off_alt) {
+				address_off = main_address_off;
+				address_end = main_address_end;
+				filebuf = filebuf_main;
+			} else {
+				address_off = address_off_alt;
+				address_end = address_end_alt;
+				filebuf = filebuf_alt;
+			}
+		} else if (use_alt) {
+			if (main_address_off > address_off_alt) {
+				address_off = address_off_alt;
+				address_end = address_end_alt;
+				filebuf = filebuf_alt;
+			} else {
+				address_off = main_address_off;
+				address_end = main_address_end;
+				filebuf = filebuf_main;
+			}
+		}
+		rom_def rom = {address_off, address_end, filebuf};
+		if (labels) {
+			tern_foreach(context->labels, print_label_def, &rom);
+			puts("");
+		}
+		for (address = address_off; address < address_end;) {
+			if (is_visited(context, address)) {
+				if (labels) {
+					label_def *label = find_label(context, address);
+					if (!label && !(address & 1)) {
+						label = find_label(context, address + 1);
+						if (label) {
+							uint8_t val = fetch(address, &rom) >> 8;
+							printf("\t.byte %02X\n", val);
+							address++;
 						}
-					} else {
-						printf("ADR_%X:\n", label->full_address);
 					}
-					if (label->data_size) {
-						uint32_t els_per_line = 16 / label->data_size;
-						for (uint32_t i = 0; i < label->data_count;)
-						{
-							printf("\t.%s ", label->data_size < 2 ? "byte" : label->data_size < 4 ? "word" : "long");
-							for (uint32_t j = 0; j < els_per_line && i < label->data_count; i++,j++)
+					if (label) {
+						if (label->num_labels) {
+							for (int i = 0; i < label->num_labels; i++)
 							{
-								uint32_t val = fetch(address & ~1, &rom);
-								const char *fmt = "$%04X";
-								if (label->data_size == 1) {
-									val = address & 1 ? val & 0xFF : val >> 8;
-									fmt = "$%02X";
-								} else if (label->data_size == 4) {
-									val <<= 16;
-									val |= fetch(address + 2, &rom);
-									if (label->is_pointer) {
-										format_label(disbuf, val, context);
-										fmt = NULL;
-										fputs(disbuf, stdout);
-									} else {
-										fmt = "$%08X";
+								printf("%s:\n", label->labels[i]);
+							}
+						} else {
+							printf("ADR_%X:\n", label->full_address);
+						}
+						if (label->data_size) {
+							uint32_t els_per_line = 16 / label->data_size;
+							for (uint32_t i = 0; i < label->data_count;)
+							{
+								printf("\t.%s ", label->data_size < 2 ? "byte" : label->data_size < 4 ? "word" : "long");
+								for (uint32_t j = 0; j < els_per_line && i < label->data_count; i++,j++)
+								{
+									uint32_t val = fetch(address & ~1, &rom);
+									const char *fmt = "$%04X";
+									if (label->data_size == 1) {
+										val = address & 1 ? val & 0xFF : val >> 8;
+										fmt = "$%02X";
+									} else if (label->data_size == 4) {
+										val <<= 16;
+										val |= fetch(address + 2, &rom);
+										if (label->is_pointer) {
+											format_label(disbuf, val, context);
+											fmt = NULL;
+											fputs(disbuf, stdout);
+										} else {
+											fmt = "$%08X";
+										}
 									}
+									if (fmt) {
+										printf(fmt, val);
+									}
+									if (j == els_per_line - 1 || i == label->data_count - 1) {
+										puts("");
+									} else {
+										fputs(", ", stdout);
+									}
+									address += label->data_size;
 								}
-								if (fmt) {
-									printf(fmt, val);
-								}
-								if (j == els_per_line - 1 || i == label->data_count - 1) {
-									puts("");
-								} else {
-									fputs(", ", stdout);
-								}
-								address += label->data_size;
 							}
 						}
 					}
-				}
-				if (!label || !label->data_size) {
-					if (address & 1) {
-						uint8_t val = fetch(address & ~1, &rom);
-						printf("\t.byte %02X\n", val);
-						address++;
+					if (!label || !label->data_size) {
+						if (address & 1) {
+							uint8_t val = fetch(address & ~1, &rom);
+							printf("\t.byte %02X\n", val);
+							address++;
+						}
+						inst = sh2_decode(fetch(address, &rom));
+						sh2_disasm(disbuf, inst, address, context);
+						if (addr) {
+							printf("\t%s\t!%X\n", disbuf, address);
+						} else {
+							printf("\t%s\n", disbuf);
+						}
+						address += 2;
 					}
+				} else {
 					inst = sh2_decode(fetch(address, &rom));
 					sh2_disasm(disbuf, inst, address, context);
-					if (addr) {
-						printf("\t%s\t!%X\n", disbuf, address);
-					} else {
-						printf("\t%s\n", disbuf);
-					}
+					printf("%X: %s\n", address, disbuf);
 					address += 2;
 				}
 			} else {
-				inst = sh2_decode(fetch(address, &rom));
-				sh2_disasm(disbuf, inst, address, context);
-				printf("%X: %s\n", address, disbuf);
 				address += 2;
 			}
-		} else {
-			address += 2;
 		}
 	}
 	return 0;

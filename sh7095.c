@@ -56,6 +56,9 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 		} else {
 			other_sh2->peripherals[SH_RDR] = byte;
 			other_sh2->peripherals[SH_SSR] |= BIT_SSR_RDRF;
+			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RE) {
+				p->ri_pending = 1;
+			}
 		}
 	}
 }
@@ -114,9 +117,16 @@ static void sh7095_run(sh2_context *sh2)
 				}
 				if (sh2->peripherals[SH_SSR] & BIT_SSR_TDRE) {
 					sh2->peripherals[SH_SSR] |= BIT_SSR_TEND;
+					if (sh2->peripherals[SH_SCR] & BIT_SCR_TEIE) {
+						p->tei_pending = 1;
+					}
 					p->transmit_counter = 0;
 				} else {
 					p->tsr = sh2->peripherals[SH_TDR];
+					sh2->peripherals[SH_SSR] |= BIT_SSR_TDRE;
+					if (sh2->peripherals[SH_SCR] & BIT_SCR_TIE) {
+						p->ti_pending = 1;
+					}
 					start_transmit(sh2);
 				}
 			} else {
@@ -215,6 +225,9 @@ static void sh7095_write_8(uint32_t address, sh2_context *sh2, uint8_t value)
 				sh2->peripherals[SH_SSR] &= ~BIT_SSR_TEND;
 			}
 			sh2->peripherals[SH_SSR] |= BIT_SSR_TDRE;
+			if (sh2->peripherals[SH_SCR] & BIT_SCR_TIE) {
+				p->ti_pending = 1;
+			}
 		}
 		break;
 	}
@@ -341,4 +354,25 @@ void sh7095_adjust_cycles(sh2_context *sh2, uint32_t deduction)
 	} else {
 		p->cycle = 0;
 	}
+}
+
+void sh7095_ack_sci_ti(sh2_context *sh2)
+{
+	sh7095_run(sh2);
+	sh7095_periph *p = sh2->periph_state;
+	p->ti_pending = 0;
+}
+
+void sh7095_ack_sci_ri(sh2_context *sh2)
+{
+	sh7095_run(sh2);
+	sh7095_periph *p = sh2->periph_state;
+	p->ri_pending = 0;
+}
+
+void sh7095_ack_sci_tei(sh2_context *sh2)
+{
+	sh7095_run(sh2);
+	sh7095_periph *p = sh2->periph_state;
+	p->tei_pending = 0;
 }

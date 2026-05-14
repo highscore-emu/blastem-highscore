@@ -39,6 +39,7 @@ typedef struct {
 	uint16_t    hcounter;
 	uint16_t    regs[S32X_NUM_VID_REGS];
 	uint16_t    palette[256];
+	uint16_t    fill_count;
 	//TODO: FIFO
 	uint8_t     main_vint_pending;
 	uint8_t     sub_vint_pending;
