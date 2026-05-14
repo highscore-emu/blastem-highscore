@@ -483,3 +483,86 @@ void s32x_video_overwrite_write_b(uint32_t address, s32x_video *video, uint8_t v
 		video->back[address] = value;
 	}
 }
+
+static void s32x_fb_debug_indexed(pixel_t *fb, uint32_t pitch, s32x_video *video, uint16_t vblank_start, pixel_t *colors, uint32_t *line_offsets)
+{
+	//TODO: display offscreen portions with a scroll rect like for MD VDP planes
+	for (int y = 0; y < vblank_start; y++)
+	{
+		pixel_t *cur = fb;
+		fb += pitch / sizeof(pixel_t);
+		uint32_t cur_off = line_offsets[y];
+		if (video->regs[S32X_VID_SHIFT] & 1) {
+			cur_off += 1;
+			cur_off &= 0x1FFFF;
+		}
+		for (int x = 0; x < 320; x++)
+		{
+			*(cur++) = colors[video->front[cur_off++]];
+			cur_off &= 0x1FFFF;
+		}
+	}
+}
+
+static void s32x_fb_debug_rle(pixel_t *fb, uint32_t pitch, s32x_video *video, uint16_t vblank_start, pixel_t *colors, uint32_t *line_offsets)
+{
+	//TODO: implement me
+}
+
+static void s32x_fb_debug_direct(pixel_t *fb, uint32_t pitch, s32x_video *video, uint16_t vblank_start, uint32_t *line_offsets)
+{
+	//TODO: display offscreen portions with a scroll rect like for MD VDP planes
+	//TODO: display offscreen portions with a scroll rect like for MD VDP planes
+	for (int y = 0; y < vblank_start; y++)
+	{
+		pixel_t *cur = fb;
+		fb += pitch / sizeof(pixel_t);
+		uint32_t cur_off = line_offsets[y];
+		for (int x = 0; x < 320; x++)
+		{
+			uint16_t color = video->front[cur_off++] << 8;
+			cur_off &= 0x1FFFF;
+			color |= video->front[cur_off++];
+			*(cur++) = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
+			cur_off &= 0x1FFFF;
+		}
+	}
+}
+
+void s32x_fb_debug(pixel_t *fb, uint32_t pitch, s32x_video *video)
+{
+	pixel_t colors[256];
+	pixel_t black = render_map_color(0, 0, 0);
+	uint32_t line_offsets[240];
+	int vblank_start;
+	if (!(video->regs[S32X_VID_MODE] & S32X_VID_BIT_PAL) && (video->regs[S32X_VID_MODE] & S32X_VID_BIT_V240)) {
+		vblank_start = 240;
+	} else {
+		vblank_start = 224;
+	}
+	for (int i = 0; i < vblank_start; i++)
+	{
+		line_offsets[i] = video->front[i << 1] << 9 | video->front[i << 1 | 1] << 1;
+	}
+	switch (video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK)
+	{
+	case S32X_VID_MODE_BLANK:
+		break;
+	case S32X_VID_MODE_INDEXED:
+	case S32X_VID_MODE_RLE:
+		for (int i = 0; i < 256; i++)
+		{
+			uint16_t color = video->palette[i];
+			colors[i] = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
+		}
+		if ((video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK) == S32X_VID_MODE_INDEXED) {
+			s32x_fb_debug_indexed(fb, pitch, video, vblank_start, colors, line_offsets);
+		} else {
+			s32x_fb_debug_rle(fb, pitch, video, vblank_start, colors, line_offsets);
+		}
+		break;
+	case S32X_VID_MODE_DIRECT:
+		s32x_fb_debug_direct(fb, pitch, video, vblank_start, line_offsets);
+		break;
+	}
+}

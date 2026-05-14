@@ -101,18 +101,26 @@ static void plane_debug_ui(void)
 			"Plane A",
 			"Plane B",
 			"Window",
-			"Sprites"
+			"Sprites",
+			"32X"
 		};
-		for (int i = 0; i < 4; i++)
+		int num_choices = vdp->s32x_vid ? 5 : 4;
+		uint8_t debug_plane = vdp->debug_modes[DEBUG_PLANE];
+		if (vdp->s32x_vid) {
+			debug_plane %= 5;
+		} else {	
+			debug_plane &= 3;
+		}
+		for (int i = 0; i < num_choices; i++)
 		{
 			nk_layout_space_push(context, nk_rect(0, i * 32, 150, 32));
-			int selected = i == (vdp->debug_modes[DEBUG_PLANE] & 3);
+			int selected = i == debug_plane;
 			nk_selectable_label(context, names[i], NK_TEXT_ALIGN_LEFT, &selected);
 			if (selected) {
-				vdp->debug_modes[DEBUG_PLANE] = i;
+				vdp->debug_modes[DEBUG_PLANE] = debug_plane = i;
 			}
 		}
-		if ((vdp->debug_modes[DEBUG_PLANE] & 3) < 3) {
+		if (debug_plane < 3) {
 			nk_layout_space_push(context, nk_rect(0, 5 * 32, 150, 32));
 			if (nk_check_label(context, "Screen Border", vdp->debug_flags & DEBUG_FLAG_PLANE_BORDER)) {
 				vdp->debug_flags |= DEBUG_FLAG_PLANE_BORDER;

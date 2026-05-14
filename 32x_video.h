@@ -61,5 +61,6 @@ uint16_t s32x_video_fb_read_w(uint32_t address, s32x_video *video);
 uint16_t s32x_video_fb_read_b(uint32_t address, s32x_video *video);
 void s32x_video_overwrite_write_w(uint32_t address, s32x_video *video, uint16_t value);
 void s32x_video_overwrite_write_b(uint32_t address, s32x_video *video, uint8_t value);
+void s32x_fb_debug(pixel_t *fb, uint32_t pitch, s32x_video *video);
 
 #endif //S32X_VIDEO_H_

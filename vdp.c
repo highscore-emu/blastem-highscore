@@ -2927,7 +2927,9 @@ void vdp_update_per_frame_debug(vdp_context *context)
 		
 		uint32_t pitch;
 		pixel_t *fb = render_get_framebuffer(context->debug_fb_indices[DEBUG_PLANE], &pitch);
-		if (context->type == VDP_GENESIS && (context->regs[REG_MODE_2] & BIT_MODE_5)) {
+		if (context->s32x_vid && context->debug_modes[DEBUG_PLANE] == 4) {
+			s32x_fb_debug(fb, pitch, context->s32x_vid);
+		} else if (context->type == VDP_GENESIS && (context->regs[REG_MODE_2] & BIT_MODE_5)) {
 			if ((context->debug_modes[DEBUG_PLANE] & 3) == 3) {
 				sprite_debug_mode5(fb, pitch, context);
 			} else {
@@ -6779,6 +6781,9 @@ void vdp_inc_debug_mode(vdp_context *context)
 	{
 		if (context->enabled_debuggers & (1 << i) && context->debug_fb_indices[i] == active) {
 			context->debug_modes[i]++;
+			if (i == DEBUG_PLANE && context->s32x_vid) {
+				context->debug_modes[i] %= 5;
+			}
 			return;
 		}
 	}
