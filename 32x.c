@@ -909,7 +909,8 @@ void *s32x_fb_write_b(uint32_t address, void *vcontext, uint8_t value)
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
-	s32x_video_fb_write_b(address, &mars->video, value);
+	//byte writes behave as if they were written to the overwrite area
+	s32x_video_overwrite_write_b(address, &mars->video, value);
 	return vcontext;
 }
 
@@ -951,7 +952,8 @@ void *s32x_sh2_fb_write_b(uint32_t address, void *vcontext, uint8_t value)
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
-	s32x_video_fb_write_b(address, &mars->video, value);
+	//byte writes behave as if they were written to the overwrite area
+	s32x_video_overwrite_write_b(address, &mars->video, value);
 	return vcontext;
 }
 
