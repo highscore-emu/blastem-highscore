@@ -61,6 +61,12 @@ enum {
 	SH_RTCOR = 0x1F8
 };
 
+#define BIT_SMR_CA   0x80
+#define BIT_SMR_CHR  0x40
+#define BIT_SMR_PE   0x20
+#define BIT_SMR_STOP 0x08
+#define MASK_SMR_CKS 0x03
+
 #define BIT_SCR_TIE  0x80
 #define BIT_SCR_RIE  0x40
 #define BIT_SCR_TE   0x20
@@ -93,13 +99,12 @@ typedef struct {
 	uint8_t     ti_pending;
 	uint8_t     ri_pending;
 	uint8_t     tei_pending;
+	uint8_t     eri_pending;
 } sh7095_periph;
 
 void sh7095_setup(sh2_context *sh2);
 void sh7095_adjust_cycles(sh2_context *sh2, uint32_t deduction);
 void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte);
-void sh7095_ack_sci_ti(sh2_context *sh2);
-void sh7095_ack_sci_ri(sh2_context *sh2);
-void sh7095_ack_sci_tei(sh2_context *sh2);
+void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask);
 
 #endif //SH7095_H_

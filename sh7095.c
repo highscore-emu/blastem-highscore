@@ -39,15 +39,29 @@ static void start_transmit(sh2_context *sh2)
 {
 	sh7095_periph *p = sh2->periph_state;
 	uint32_t counter;
-	switch (sh2->peripherals[SH_SCR] & MASK_SCR_CKE)
+	switch (sh2->peripherals[SH_SMR] & MASK_SMR_CKS)
 	{
 	case 0: counter = 16; break;
 	case 1: counter = 64; break;
 	case 2: counter = 256; break;
 	case 3: counter = 1024; break;
 	}
-	//TODO: probably need to account for stop-bits and/or parity here
-	p->transmit_counter = counter * (sh2->peripherals[SH_BRR] + 1) * 8;
+	uint32_t bits = 8;
+	if (!(sh2->peripherals[SH_SMR] & BIT_SMR_CA)) {
+		counter *= 8;
+		if (sh2->peripherals[SH_SMR] & BIT_SMR_CHR) {
+			bits--;
+		}
+		if (sh2->peripherals[SH_SMR] & BIT_SMR_PE) {
+			bits++;
+		}
+		if (sh2->peripherals[SH_SMR] & BIT_SMR_STOP) {
+			bits += 2;
+		} else {	
+			bits++;
+		}
+	}
+	p->transmit_counter = counter * (sh2->peripherals[SH_BRR] + 1) * bits;
 }
 
 void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
@@ -57,12 +71,16 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 	sh7095_periph *p = other_sh2->periph_state;
 	if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RE) {
 		if (other_sh2->peripherals[SH_SSR] & BIT_SSR_RDRF) {
+			printf("SCI received %X, setting ORER SH2: %p\n", byte, other_sh2);
 			other_sh2->peripherals[SH_SSR] |= BIT_SSR_ORER;
-			p->transmit_counter = 0;
+			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RIE) {
+				p->eri_pending = 1;
+			}
 		} else {
+			printf("SCI received %X, setting RDRF SH2: %p\n", byte, other_sh2);
 			other_sh2->peripherals[SH_RDR] = byte;
 			other_sh2->peripherals[SH_SSR] |= BIT_SSR_RDRF;
-			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RE) {
+			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RIE) {
 				p->ri_pending = 1;
 			}
 		}
@@ -272,6 +290,7 @@ static void sh7095_write_8(uint32_t address, sh2_context *sh2, uint8_t value)
 	sh7095_run(sh2);
 	address &= 0x1FF;
 	uint8_t changes;
+	uint8_t mask;
 	switch(address)
 	{
 	case SH_TDR:
@@ -303,6 +322,11 @@ static void sh7095_write_8(uint32_t address, sh2_context *sh2, uint8_t value)
 				p->ti_pending = 1;
 			}
 		}
+		break;
+	case SH_SSR:
+		//except for bit 1, most of the settable bits in this reg can only be cleared
+		mask = 1 | (value ^ 0xF8);
+		value = (value & mask) | (sh2->peripherals[SH_SSR] & ~mask);
 		break;
 	}
 	sh7095_write_byte(address, sh2, value);
@@ -431,23 +455,68 @@ void sh7095_adjust_cycles(sh2_context *sh2, uint32_t deduction)
 	}
 }
 
-void sh7095_ack_sci_ti(sh2_context *sh2)
+static void sh7095_ack_sci_ti(sh2_context *sh2)
 {
 	sh7095_run(sh2);
 	sh7095_periph *p = sh2->periph_state;
 	p->ti_pending = 0;
 }
 
-void sh7095_ack_sci_ri(sh2_context *sh2)
+static void sh7095_ack_sci_ri(sh2_context *sh2)
 {
 	sh7095_run(sh2);
 	sh7095_periph *p = sh2->periph_state;
 	p->ri_pending = 0;
 }
 
-void sh7095_ack_sci_tei(sh2_context *sh2)
+static void sh7095_ack_sci_tei(sh2_context *sh2)
 {
 	sh7095_run(sh2);
 	sh7095_periph *p = sh2->periph_state;
 	p->tei_pending = 0;
+}
+
+static void sh7095_ack_sci_eri(sh2_context *sh2)
+{
+	sh7095_run(sh2);
+	sh7095_periph *p = sh2->periph_state;
+	p->eri_pending = 0;
+}
+
+void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask)
+{
+	//TODO: predict interrupt timing when possible
+	sh7095_periph *p = sh2->periph_state;
+	if ((sh2->peripherals[SH_SCR] & BIT_SCR_TIE) && p->ti_pending) {
+		uint32_t priority = sh2->peripherals[SH_IPRB] >> 4;
+		if (priority_mask < priority && (sh2->int_cycle > sh2->cycles || priority > sh2->int_priority)) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			sh2->int_vector = sh2->peripherals[SH_VCRB] & 0x7F;
+			sh2->int_ack = sh7095_ack_sci_ti;
+		}
+	}
+	if ((sh2->peripherals[SH_SCR] & BIT_SCR_RIE) && (p->ri_pending || p->eri_pending)) {
+		uint32_t priority = sh2->peripherals[SH_IPRB] >> 4;
+		if (priority_mask < priority && (sh2->int_cycle > sh2->cycles || priority > sh2->int_priority)) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			if (p->eri_pending) {
+				sh2->int_vector = sh2->peripherals[SH_VCRA] & 0x7F;
+				sh2->int_ack = sh7095_ack_sci_eri;
+			} else {
+				sh2->int_vector = sh2->peripherals[SH_VCRA + 1] & 0x7F;
+				sh2->int_ack = sh7095_ack_sci_ri;
+			}
+		}
+	}
+	if (sh2->peripherals[SH_SCR] & BIT_SCR_TEIE) {
+		uint32_t priority = sh2->peripherals[SH_IPRB] >> 4;
+		if (priority_mask < priority && (sh2->int_cycle > sh2->cycles || priority > sh2->int_priority)) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			sh2->int_vector = sh2->peripherals[SH_VCRB + 1] & 0x7F;
+			sh2->int_ack = sh7095_ack_sci_tei;
+		}
+	}
 }
