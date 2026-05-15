@@ -88,6 +88,7 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 }
 
 static const uint32_t frc_counter_values[] = {8, 32, 128, 0};
+static const uint32_t wdt_counter_values[] = {2, 64, 128, 256, 512, 1024, 4096, 8192};
 static void sh7095_run(sh2_context *sh2)
 {
 	sh7095_periph *p = sh2->periph_state;
@@ -173,11 +174,14 @@ static void sh7095_run(sh2_context *sh2)
 				if (!frc) {
 					sh2->peripherals[SH_FTCSR] |= BIT_FTCSR_OVF;
 				}
-				if (frc == p->ocra) {
-					sh2->peripherals[SH_FTCSR] |= BIT_FTCSR_OCFA;
-				}
 				if (frc == p->ocrb) {
 					sh2->peripherals[SH_FTCSR] |= BIT_FTCSR_OCFB;
+				}
+				if (frc == p->ocra) {
+					sh2->peripherals[SH_FTCSR] |= BIT_FTCSR_OCFA;
+					if (sh2->peripherals[SH_FTCSR] & BIT_FTCSR_CCLRA) {
+						frc = 0;
+					}
 				}
 				frc_delta -= p->frc_counter;
 				p->frc_counter = cks;
@@ -188,6 +192,24 @@ static void sh7095_run(sh2_context *sh2)
 			}
 			sh2->peripherals[SH_FRCH] = frc >> 8;
 			sh2->peripherals[SH_FRCL] = frc;
+		}
+		if (p->wdt_counter) {
+			uint32_t wdt_delta = delta;
+			uint32_t cks = frc_counter_values[sh2->peripherals[SH_WTCSR] & 7];
+			while (wdt_delta >= p->wdt_counter)
+			{
+				sh2->peripherals[SH_WTCNT]++;
+				if (!sh2->peripherals[SH_WTCNT]) {
+					//TODO: interrupt and/or reset
+					sh2->peripherals[SH_WTCSR] |= BIT_WTCSR_OVF;
+				}
+				wdt_delta -= p->wdt_counter;
+				p->wdt_counter = cks;
+			}
+			if (wdt_delta)
+			{
+				p->wdt_counter -= wdt_delta;
+			}
 		}
 		
 		p->cycle = sh2->cycles;
@@ -202,10 +224,15 @@ static void sh7095_write_byte(uint32_t reg, sh2_context *sh2, uint8_t value)
 	sh7095_periph *p = sh2->periph_state;
 	uint8_t mask = write_masks[reg];
 	uint8_t old = sh2->peripherals[reg];
+	uint8_t changes;
+	if (reg == SH_FTCSR) {
+		mask |= (value ^ 0x8E);
+	}
 	sh2->peripherals[reg] = (old & ~mask) | (value & mask);
 	switch (reg)
 	{
 	case SH_FRCH:
+		sh2->peripherals[reg] = old;
 		p->frc_temp = value;
 		break;
 	case SH_FRCL:
@@ -234,6 +261,16 @@ static void sh7095_write_byte(uint32_t reg, sh2_context *sh2, uint8_t value)
 	case SH_TCR:
 		if (!p->frc_counter) {
 			p->frc_counter = frc_counter_values[sh2->peripherals[SH_TCR] & 3];
+		}
+		break;
+	case SH_WTCSR:
+		changes = old ^ value;
+		if (changes & BIT_WTCSR_TME) {
+			if (value & BIT_WTCSR_TME) {
+				p->wdt_counter = wdt_counter_values[sh2->peripherals[SH_TCR] & 7];
+			} else {
+				p->wdt_counter = 0;
+			}
 		}
 		break;
 	}
@@ -388,6 +425,7 @@ void sh7095_setup(sh2_context *sh2)
 		memset(write_masks, 0xFF, sizeof(write_masks));
 		write_masks[SH_RDR] = 0;
 		write_masks[SH_FRCH] = 0; //writes go to TEMP
+		write_masks[SH_FTCSR] = 0x01; //other bits can only be cleared, handled in sh7095_write_byte
 		write_masks[SH_TOCR] = 0x1F;
 		write_masks[SH_ICRH] = write_masks[SH_ICRL] = 0;
 		write_masks[SH_IPRA + 1] = 0xF0;
