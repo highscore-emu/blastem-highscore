@@ -6310,14 +6310,42 @@ static uint8_t read_sh2(debug_root *root, uint32_t *out, char size)
 	switch (size)
 	{
 	case 'b':
-		*out = read_byte(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		if (address < 0x28000000) {
+			*out = read_byte(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			switch (address & 3)
+			{
+			case 0: *out = sh2->cache[address >> 2] >> 24; break;
+			case 1: *out = sh2->cache[address >> 2] >> 16 & 0xFF; break;
+			case 2: *out = sh2->cache[address >> 2] >> 8 & 0xFF; break;
+			case 3: *out = sh2->cache[address >> 2] & 0xFF; break;
+			}
+		} else if (address >= 0xFFFFFE00) {
+			*out = sh2->periph_read8(address, sh2);
+		}
 		break;
 	case 'w':
-		*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		if (address < 0x28000000) {
+			*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			if (address & 2) {
+				*out = sh2->cache[address >> 2] & 0xFFFF;
+			} else {
+				*out = sh2->cache[address >> 2] >> 16;
+			}
+		} else if (address >= 0xFFFFFE00) {
+			*out = sh2->periph_read16(address, sh2);
+		}
 		break;
 	case 'l':
-		*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
-		*out |= read_word(address | 2, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		if (address < 0x28000000) {
+			*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
+			*out |= read_word(address | 2, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			*out = sh2->cache[address >> 2];
+		} else if (address >= 0xFFFFFE00) {
+			*out = sh2->periph_read32(address, sh2);
+		}
 		break;
 	}
 	return 1;
