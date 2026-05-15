@@ -376,6 +376,8 @@ static uint32_t sh7095_read_32(uint32_t address, sh2_context *sh2)
 	address &= 0x1FC;
 	switch (address)
 	{
+	case SH_DVDNTL_ALT:
+		address = SH_DVDNTL;
 	case SH_DVSR:
 	case SH_DVDNT:
 	case SH_DVDNTH:

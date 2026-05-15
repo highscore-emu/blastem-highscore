@@ -38,8 +38,9 @@ enum {
 	SH_DVDNT = 0x104,
 	SH_DVCR = 0x108,
 	SH_VCRDIV = 0x10C,
-	SH_DVDNTH = 0x110,
+	SH_DVDNTH = 0x110,//does this have a mirror at 0x118?
 	SH_DVDNTL = 0x114,
+	SH_DVDNTL_ALT = 0x11C,
 	//TODO: user break controller
 	SH_SAR0 = 0x180,
 	SH_DAR0 = 0x184,
