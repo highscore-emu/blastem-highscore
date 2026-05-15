@@ -903,7 +903,7 @@ def _mulsCImpl(prog, params, rawParams, flagUpdates):
 	if p1Size >= size:
 		p1Size = size // 2
 	#TODO: Handle case in which destSize > size
-	return f'\n\t{params[2]} = (int{size}_t)(((int{p0Size}_t){params[0]}) * ((int{p1Size}_t){params[1]}));'
+	return f'\n\t{params[2]} = (int{size}_t)(((int{size}_t)((int{p0Size}_t){params[0]})) * ((int{size}_t)((int{p1Size}_t){params[1]})));'
 
 def _muluCImpl(prog, params, rawParams, flagUpdates):
 	p0Size = prog.paramSize(rawParams[0])
