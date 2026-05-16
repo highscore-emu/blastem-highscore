@@ -141,31 +141,49 @@ void main_sh2_next_int(sh2_context *sh2)
 			sh2->int_vector = 70;
 			sh2->int_priority = 12;
 		}
-		if (priority_mask < 8) {
-			uint32_t cmd_int_cycle = 0xFFFFFFFF;
-			if ((mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_CMD_INT_EN) && (mars->regs[S32X_INT_CTRL] & BIT_MAIN_INT) ) {
-				cmd_int_cycle = sh2->cycles;
-			}
-			if (cmd_int_cycle < sh2->int_cycle) {
-				sh2->int_cycle = cmd_int_cycle;
-				sh2->int_vector = 68;
-				sh2->int_priority = 8;
-			}
-			if (priority_mask < 6) {
-				uint32_t pwm_int_cycle = 0xFFFFFFFF;
-				if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_PWM_INT_EN) {
-					s32x_pwm_run(mars, sh2->cycles);
-					if (mars->pwm_main_int_pending) {
-						pwm_int_cycle = sh2->cycles;
-					} else if (mars->pwm_counter != 1) {
-						pwm_int_cycle = mars->pwm_cycle + 7 * ((mars->pwm_counter - 2) & 0xFFFF);
-						pwm_int_cycle += ((mars->pwm_timer - 1) & 0xF) * ((mars->regs[S32X_PWM_CYCLE] - 2) & 0xFFFF) * 7;
-					}
+		if (priority_mask < 10) {
+			uint64_t hint_cycle = 0xFFFFFFFF;
+			if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_HORZ_INT_EN) {
+				if (mars->video.main_hint_pending) {
+					hint_cycle = sh2->cycles;
+				} else {
+					hint_cycle = sh2->cycles + ((uint64_t)s32x_cycles_to_hint(&mars->video)) * 3;
 				}
-				if (pwm_int_cycle < sh2->int_cycle) {
-					sh2->int_cycle = pwm_int_cycle;
-					sh2->int_vector = 67;
-					sh2->int_priority = 6;
+				if (hint_cycle > 0xFFFFFFFFULL) {
+					hint_cycle = 0xFFFFFFFF;
+				}
+			}
+			if (hint_cycle < sh2->int_cycle) {
+				sh2->int_cycle = hint_cycle;
+				sh2->int_vector = 69;
+				sh2->int_priority = 10;
+			}
+			if (priority_mask < 8) {
+				uint32_t cmd_int_cycle = 0xFFFFFFFF;
+				if ((mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_CMD_INT_EN) && (mars->regs[S32X_INT_CTRL] & BIT_MAIN_INT) ) {
+					cmd_int_cycle = sh2->cycles;
+				}
+				if (cmd_int_cycle < sh2->int_cycle) {
+					sh2->int_cycle = cmd_int_cycle;
+					sh2->int_vector = 68;
+					sh2->int_priority = 8;
+				}
+				if (priority_mask < 6) {
+					uint32_t pwm_int_cycle = 0xFFFFFFFF;
+					if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_PWM_INT_EN) {
+						s32x_pwm_run(mars, sh2->cycles);
+						if (mars->pwm_main_int_pending) {
+							pwm_int_cycle = sh2->cycles;
+						} else if (mars->pwm_counter != 1) {
+							pwm_int_cycle = mars->pwm_cycle + 7 * ((mars->pwm_counter - 2) & 0xFFFF);
+							pwm_int_cycle += ((mars->pwm_timer - 1) & 0xF) * ((mars->regs[S32X_PWM_CYCLE] - 2) & 0xFFFF) * 7;
+						}
+					}
+					if (pwm_int_cycle < sh2->int_cycle) {
+						sh2->int_cycle = pwm_int_cycle;
+						sh2->int_vector = 67;
+						sh2->int_priority = 6;
+					}
 				}
 			}
 		}
@@ -197,31 +215,49 @@ void sub_sh2_next_int(sh2_context *sh2)
 			sh2->int_vector = 70;
 			sh2->int_priority = 12;
 		}
-		if (priority_mask < 8) {
-			uint32_t cmd_int_cycle = 0xFFFFFFFF;
-			if ((mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_CMD_INT_EN) && mars->regs[S32X_INT_CTRL] & BIT_SUB_INT) {
-				cmd_int_cycle = sh2->cycles;
-			}
-			if (cmd_int_cycle < sh2->int_cycle) {
-				sh2->int_cycle = cmd_int_cycle;
-				sh2->int_vector = 68;
-				sh2->int_priority = 8;
-			}
-			if (priority_mask < 6) {
-				uint32_t pwm_int_cycle = 0xFFFFFFFF;
-				if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_PWM_INT_EN) {
-					s32x_pwm_run(mars, sh2->cycles);
-					if (mars->pwm_sub_int_pending) {
-						pwm_int_cycle = sh2->cycles;
-					} else if (mars->pwm_counter != 1) {
-						pwm_int_cycle = mars->pwm_cycle + 7 * ((mars->pwm_counter - 2) & 0xFFFF);
-						pwm_int_cycle += ((mars->pwm_timer - 1) & 0xF) * ((mars->regs[S32X_PWM_CYCLE] - 2) & 0xFFFF) * 7;
-					}
+		if (priority_mask < 10) {
+			uint64_t hint_cycle = 0xFFFFFFFF;
+			if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_HORZ_INT_EN) {
+				if (mars->video.sub_hint_pending) {
+					hint_cycle = sh2->cycles;
+				} else {
+					hint_cycle = sh2->cycles + ((uint64_t)s32x_cycles_to_hint(&mars->video)) * 3;
 				}
-				if (pwm_int_cycle < sh2->int_cycle) {
-					sh2->int_cycle =pwm_int_cycle;
-					sh2->int_vector = 67;
-					sh2->int_priority = 6;
+				if (hint_cycle > 0xFFFFFFFFULL) {
+					hint_cycle = 0xFFFFFFFF;
+				}
+			}
+			if (hint_cycle < sh2->int_cycle) {
+				sh2->int_cycle = hint_cycle;
+				sh2->int_vector = 69;
+				sh2->int_priority = 10;
+			}
+			if (priority_mask < 8) {
+				uint32_t cmd_int_cycle = 0xFFFFFFFF;
+				if ((mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_CMD_INT_EN) && mars->regs[S32X_INT_CTRL] & BIT_SUB_INT) {
+					cmd_int_cycle = sh2->cycles;
+				}
+				if (cmd_int_cycle < sh2->int_cycle) {
+					sh2->int_cycle = cmd_int_cycle;
+					sh2->int_vector = 68;
+					sh2->int_priority = 8;
+				}
+				if (priority_mask < 6) {
+					uint32_t pwm_int_cycle = 0xFFFFFFFF;
+					if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_PWM_INT_EN) {
+						s32x_pwm_run(mars, sh2->cycles);
+						if (mars->pwm_sub_int_pending) {
+							pwm_int_cycle = sh2->cycles;
+						} else if (mars->pwm_counter != 1) {
+							pwm_int_cycle = mars->pwm_cycle + 7 * ((mars->pwm_counter - 2) & 0xFFFF);
+							pwm_int_cycle += ((mars->pwm_timer - 1) & 0xF) * ((mars->regs[S32X_PWM_CYCLE] - 2) & 0xFFFF) * 7;
+						}
+					}
+					if (pwm_int_cycle < sh2->int_cycle) {
+						sh2->int_cycle =pwm_int_cycle;
+						sh2->int_vector = 67;
+						sh2->int_priority = 6;
+					}
 				}
 			}
 		}
@@ -650,6 +686,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			mars->regs[S32X_ADAPT_CTRL] &= ~BIT_ADCT_FM;
 			mars->regs[S32X_ADAPT_CTRL] |= new & BIT_ADCT_FM;
 		}
+		mars->video.hen = (new & BIT_INTMASK_HEN) ? 1 : 0;
 		if (sh2 == mars->main) {
 			if (changes & S32X_INTEN_MASK) {
 				base[reg] = new;
@@ -668,6 +705,15 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			new = (old & ~mask) | (value & mask);
 		}
 		break;
+	case S32X_SH2_HINT_COUNT:
+		s32x_video_run(&mars->video, sh2->cycles / 3);
+		mars->video.hint_count = new;
+		if (sh2 == mars->main) {
+			main_sh2_next_int(sh2);
+		} else {
+			sub_sh2_next_int(sh2);
+		}
+		break;
 	case S32X_VINT_CLR:
 		s32x_video_run(&mars->video, sh2->cycles / 3);
 		if (sh2 == mars->main) {
@@ -675,6 +721,16 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			main_sh2_next_int(sh2);
 		} else {
 			mars->video.sub_vint_pending = 0;
+			sub_sh2_next_int(sh2);
+		}
+		break;
+	case S32X_HINT_CLR:
+		s32x_video_run(&mars->video, sh2->cycles / 3);
+		if (sh2 == mars->main) {
+			mars->video.main_hint_pending = 0;
+			main_sh2_next_int(sh2);
+		} else {
+			mars->video.sub_hint_pending = 0;
 			sub_sh2_next_int(sh2);
 		}
 		break;
