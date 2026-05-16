@@ -51,19 +51,26 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 		for (uint32_t hint_lines = lines; hint_lines > 0;)
 		{
 			if (hint_lines > vid->hint_counter) {
+				if (vid->hen || (vid->vcounter + vid->hint_counter + 1 < vblank_start)) {
+					vid->main_hint_pending = vid->sub_hint_pending = 1;
+				}
 				hint_lines -= vid->hint_counter + 1;
 				vid->hint_counter = vid->hint_count;
-				vid->main_hint_pending = vid->sub_hint_pending = 1;
 			} else {
-				vid->hint_counter -= hint_lines;
-				hint_lines = 0;
+				if (vid->vcounter < frame_end - 1 && hint_lines + vid->vcounter >= frame_end - 1) {
+					vid->hint_counter = vid->hint_count;
+					hint_lines -= frame_end - 1 - vid->vcounter;
+				} else {
+					vid->hint_counter -= hint_lines;
+					hint_lines = 0;
+				}
 			}
 		}
 		uint16_t line_start = vid->vcounter;
 		while (rest >= MCLKS_PIXEL) {
 			if (vid->hcounter < HSYNC_START) {
 				uint16_t new = vid->hcounter + rest / MCLKS_PIXEL;
-				if (new > HBLANK_START && vid->vcounter < frame_end - 1) {
+				if (vid->hcounter < HBLANK_START && new >= HBLANK_START && (vid->hen || (vid->vcounter < vblank_start - 1))) {
 					if (vid->hint_counter) {
 						vid->hint_counter--;
 					} else {
@@ -312,10 +319,36 @@ uint32_t s32x_cycles_to_hint(s32x_video *video)
 	} else {
 		frame_end = 262;
 	}
-	if ((video->vcounter + video->hint_counter < vblank_start - 1) || video->hen) {
-		return  video->hint_counter * MCLKS_LINE + (HBLANK_START - video->hcounter) * MCLKS_PIXEL;
+	uint16_t next_hint_line = video->vcounter + video->hint_counter;
+	if (video->hcounter > HBLANK_START) {
+		next_hint_line++;
 	}
-	return (video->hint_counter + (frame_end - 1 - video->vcounter)) * MCLKS_LINE + (HBLANK_START - video->hcounter) * MCLKS_PIXEL;
+	uint32_t cycles;
+	if ((next_hint_line < vblank_start - 1) || video->hen) {
+		cycles = video->hint_counter * MCLKS_LINE;
+	} else {
+		cycles = (video->hint_count + (frame_end - 1 - video->vcounter)) * MCLKS_LINE;
+		if (video->hcounter < HBLANK_START) {
+			cycles += MCLKS_LINE;
+		}
+	}
+	if (video->hcounter <= HBLANK_START) {
+		//just add cycles left to HBLANK_START
+		return cycles + (HBLANK_START - video->hcounter) * MCLKS_PIXEL;
+	} else if (video->hcounter <= HSYNC_START) {
+		//add cycles until end of line + cycles to HBLANK_START on the next line
+		return cycles + HBLANK_START * MCLKS_PIXEL + MCLKS_LINE - video->hcounter * MCLKS_PIXEL;
+	} else if (video->hcounter >= HSYNC_END) {
+		//same as above, just calculated differently
+		return cycles + (HBLANK_START + LINE_END - video->hcounter) * MCLKS_PIXEL;
+	} else {
+		//same as above, but annoying
+		for (uint16_t hcnt = video->hcounter; hcnt < HSYNC_END; hcnt++)
+		{
+			cycles += mclks_pixel[hcnt - HSYNC_START];
+		}
+		return cycles + (HBLANK_START + LINE_END - HSYNC_END) * MCLKS_PIXEL;
+	}
 }
 
 static uint16_t video_write_mask[] = {
