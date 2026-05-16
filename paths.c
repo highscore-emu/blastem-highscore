@@ -342,7 +342,7 @@ void set_exe_str(char * str)
 
 #ifdef _WIN32
 
-typedef HRESULT (*SHGetKnownFolderPath_t)(REFKNOWNFOLDERID, DWORD, HANDLE, PWSTR *);
+typedef HRESULT (WINAPI *SHGetKnownFolderPath_t)(REFKNOWNFOLDERID, DWORD, HANDLE, PWSTR *);
 static SHGetKnownFolderPath_t SHGetKnownFolderPath_ptr;
 static void maybe_get_shgetknownfolderpath(void)
 {
