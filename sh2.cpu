@@ -1249,16 +1249,19 @@ sh2_reset
 	sr = gpr.M & 0x3F3
 	sh2_disperse_sr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00011110 ldc_rm_gbr
 	cycles 1
 	gbr = gpr.M
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00101110 ldc_rm_vbr
 	cycles 1
 	vbr = gpr.M
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00000111 ldc_rm_postinc_sr
 	cycles 1
@@ -1268,6 +1271,7 @@ sh2_reset
 	gpr.M += 4
 	sh2_disperse_sr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00010111 ldc_rm_postinc_gbr
 	cycles 1
@@ -1276,6 +1280,7 @@ sh2_reset
 	gbr = scratch1
 	gpr.M += 4
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00100111 ldc_rm_postinc_vbr
 	cycles 1
@@ -1284,21 +1289,25 @@ sh2_reset
 	vbr = scratch1
 	gpr.M += 4
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00001010 lds_mach
 	cycles 1
 	mach = gpr.M
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00011010 lds_macl
 	cycles 1
 	macl = gpr.M
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00101010 lds_pr
 	cycles 1
 	pr = gpr.M
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00000110 lds_rm_postinc_mach
 	cycles 1
@@ -1306,6 +1315,7 @@ sh2_reset
 	mach = scratch1
 	gpr.M += 4
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00010110 lds_rm_postinc_macl
 	cycles 1
@@ -1313,6 +1323,7 @@ sh2_reset
 	macl = scratch1
 	gpr.M += 4
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100MMMM00100110 lds_rm_postinc_pr
 	cycles 1
@@ -1320,6 +1331,7 @@ sh2_reset
 	pr = scratch1
 	gpr.M += 4
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0000000000001001 nop
 	cycles 1
@@ -1335,16 +1347,19 @@ sh2_reset
 	sh2_collect_sr
 	gpr.N = sr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0000NNNN00010010 stc_gbr_rn
 	cycles 1
 	gpr.N = gbr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0000NNNN00100010 stc_vbr_rn
 	cycles 1
 	gpr.N = vbr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00000011 stc_sr_rn_predec
 	cycles 2
@@ -1352,51 +1367,60 @@ sh2_reset
 	sh2_collect_sr
 	sh2_write32 gpr.N sr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00010011 stc_gbr_rn_predec
 	cycles 2
 	gpr.N -= 4
 	sh2_write32 gpr.N gbr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00100011 stc_vbr_rn_predec
 	cycles 2
 	gpr.N -= 4
 	sh2_write32 gpr.N vbr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0000NNNN00001010 sts_mach_rn
 	cycles 1
 	gpr.N = mach
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0000NNNN00011010 sts_macl_rn
 	cycles 1
 	gpr.N = macl
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0000NNNN00101010 sts_pr_rn
 	cycles 1
 	gpr.N = pr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00000010 sts_mach_rn_predec
 	cycles 1
 	gpr.N -= 4
 	sh2_write32 gpr.N mach
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00010010 sts_macl_rn_predec
 	cycles 1
 	gpr.N -= 4
 	sh2_write32 gpr.N macl
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00100010 sts_pr_rn_predec
 	cycles 1
 	gpr.N -= 4
 	sh2_write32 gpr.N pr
 	sh2_fetch
+	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0000000000101011 rte
 	cycles 1
