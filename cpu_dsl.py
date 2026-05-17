@@ -407,8 +407,12 @@ class Op:
 			if needsCarry or needsOflow or needsHalf or (flagUpdates and needsSizeAdjust) or size == 64:
 				if needsCarry and op != '>>':
 					size *= 2
-				decl,name = prog.getTemp(size)
-				dst = prog.carryFlowDst = name
+				if needsCarry or needsOflow or needsHalf or (flagUpdates and needsSizeAdjust):
+					decl,name = prog.getTemp(size)
+					dst = prog.carryFlowDst = name
+				else:
+					decl = ''
+					dst = params[2]
 				prog.lastA = a
 				prog.lastB = b
 				if size == 64:
@@ -863,8 +867,8 @@ def _sext(size, src):
 def _sextCImpl(prog, params, rawParams):
 	if not type(params[0]) is int:
 		raise Exception('First param to sext must resolve to an integer')
-	if not params[0] in (16, 32):
-		raise Exception('First param to sext must be 16 or 32')
+	if not params[0] in (16, 32, 64):
+		raise Exception('First param to sext must be 16, 32 or 64')
 	fromSize = params[0] >> 1
 	srcMask = (1 << fromSize) - 1
 	dstMask = (1 << params[0]) - 1
@@ -876,8 +880,11 @@ def _sextCImpl(prog, params, rawParams):
 	else:
 		src = params[1]
 	signBit = 1 << (fromSize - 1)
-	extend = (0xFFFFFFFF << fromSize) & dstMask
+	extend = (0xFFFFFFFFFFFFFFFF << fromSize) & dstMask
 	prog.lastSize = params[0]
+	if params[0] == 64:
+		signBit = f'{signBit}UL'
+		extend = f'{extend}ULL'
 	if prog.paramSize(rawParams[2]) > params[0]:
 		return f'\n\t{params[2]} = ({params[2]} & ~{dstMask}) | ({src} & {signBit} ? {src} | {extend} : {src});'
 	else:

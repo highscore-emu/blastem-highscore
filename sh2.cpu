@@ -828,7 +828,7 @@ sh2_reset
 	tmp1 = scratch1
 	sh2_read32_data gpr.M
 	gpr.M += 4
-	tmp1 *= scratch1
+	tmp1 = tmp1 *S scratch1
 	tmp2 = mach << 32
 	tmp2 |= macl
 	tmp1 += tmp2
@@ -857,7 +857,7 @@ sh2_reset
 	sh2_read32_data gpr.M
 	gpr.M += 2
 	tmpm = sext 16 scratch1
-	tmp1 = tmpn * tmpm
+	tmp1 = tmpn *S tmpm
 	tmp2 = mach << 32
 	tmp2 |= macl
 	tmp1 += tmp2
