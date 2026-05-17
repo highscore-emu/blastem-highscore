@@ -133,7 +133,7 @@ void main_sh2_next_int(sh2_context *sh2)
 			if (mars->video.main_vint_pending) {
 				vint_cycle = sh2->cycles;
 			} else {
-				vint_cycle = sh2->cycles + s32x_cycles_to_vblank(&mars->video) * 3;
+				vint_cycle = (mars->video.cycle + s32x_cycles_to_vblank(&mars->video)) * 3;
 			}
 		}
 		if (vint_cycle < sh2->int_cycle) {
@@ -142,15 +142,12 @@ void main_sh2_next_int(sh2_context *sh2)
 			sh2->int_priority = 12;
 		}
 		if (priority_mask < 10) {
-			uint64_t hint_cycle = 0xFFFFFFFF;
+			uint32_t hint_cycle = 0xFFFFFFFF;
 			if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_HORZ_INT_EN) {
 				if (mars->video.main_hint_pending) {
 					hint_cycle = sh2->cycles;
 				} else {
-					hint_cycle = sh2->cycles + ((uint64_t)s32x_cycles_to_hint(&mars->video)) * 3;
-				}
-				if (hint_cycle > 0xFFFFFFFFULL) {
-					hint_cycle = 0xFFFFFFFF;
+					hint_cycle = (mars->video.cycle + s32x_cycles_to_hint(&mars->video)) * 3;
 				}
 			}
 			if (hint_cycle < sh2->int_cycle) {
@@ -199,15 +196,12 @@ void sub_sh2_next_int(sh2_context *sh2)
 	sh2->int_priority = priority_mask;
 	sh2->int_ack = NULL;
 	if (priority_mask < 12) {
-		uint64_t vint_cycle = 0xFFFFFFFF;
+		uint32_t vint_cycle = 0xFFFFFFFF;
 		if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_VERT_INT_EN) {
 			if (mars->video.sub_vint_pending) {
 				vint_cycle = sh2->cycles;
 			} else {
-				vint_cycle = sh2->cycles + ((uint64_t)s32x_cycles_to_vblank(&mars->video)) * 3;
-			}
-			if (vint_cycle > 0xFFFFFFFFULL) {
-				vint_cycle = 0xFFFFFFFF;
+				vint_cycle = (mars->video.cycle + s32x_cycles_to_vblank(&mars->video)) * 3;
 			}
 		}
 		if (vint_cycle < sh2->int_cycle) {
@@ -216,15 +210,12 @@ void sub_sh2_next_int(sh2_context *sh2)
 			sh2->int_priority = 12;
 		}
 		if (priority_mask < 10) {
-			uint64_t hint_cycle = 0xFFFFFFFF;
+			uint32_t hint_cycle = 0xFFFFFFFF;
 			if (mars->sh2_regs[S32X_SH2_SUB_INT] & BIT_HORZ_INT_EN) {
 				if (mars->video.sub_hint_pending) {
 					hint_cycle = sh2->cycles;
 				} else {
-					hint_cycle = sh2->cycles + ((uint64_t)s32x_cycles_to_hint(&mars->video)) * 3;
-				}
-				if (hint_cycle > 0xFFFFFFFFULL) {
-					hint_cycle = 0xFFFFFFFF;
+					hint_cycle = (mars->video.cycle + s32x_cycles_to_hint(&mars->video)) * 3;
 				}
 			}
 			if (hint_cycle < sh2->int_cycle) {
@@ -686,20 +677,27 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			mars->regs[S32X_ADAPT_CTRL] &= ~BIT_ADCT_FM;
 			mars->regs[S32X_ADAPT_CTRL] |= new & BIT_ADCT_FM;
 		}
+		s32x_video_run(&mars->video, sh2->cycles / 3);
 		mars->video.hen = (new & BIT_INTMASK_HEN) ? 1 : 0;
 		if (sh2 == mars->main) {
 			if (changes & S32X_INTEN_MASK) {
 				base[reg] = new;
 				main_sh2_next_int(sh2);
+				if (changes & BIT_INTMASK_HEN) {
+					sub_sh2_next_int(mars->sub);
+				}
 			}
 		} else {
 			uint16_t old_int = mars->sh2_regs[S32X_SH2_SUB_INT];
 			uint16_t mask_int = mask & 0xF;
 			uint16_t new_int = (old_int & ~mask_int) | (value & mask_int);
-			changes = old_int ^ new_int;
+			changes = (old_int ^ new_int) | (changes & BIT_INTMASK_HEN);
 			if (changes) {
 				mars->sh2_regs[S32X_SH2_SUB_INT] = new_int;
 				sub_sh2_next_int(sh2);
+				if (changes & BIT_INTMASK_HEN) {
+					main_sh2_next_int(mars->main);
+				}
 			}
 			mask &= 0xFFF0;
 			new = (old & ~mask) | (value & mask);
@@ -708,11 +706,8 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 	case S32X_SH2_HINT_COUNT:
 		s32x_video_run(&mars->video, sh2->cycles / 3);
 		mars->video.hint_count = new;
-		if (sh2 == mars->main) {
-			main_sh2_next_int(sh2);
-		} else {
-			sub_sh2_next_int(sh2);
-		}
+		main_sh2_next_int(mars->main);
+		sub_sh2_next_int(mars->sub);
 		break;
 	case S32X_VINT_CLR:
 		s32x_video_run(&mars->video, sh2->cycles / 3);
