@@ -129,7 +129,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 				}
 			}
 		}
-		if (vid->hcounter > HBLANK_START) {
+		if (vid->hcounter >= HBLANK_START) {
 			vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_HBLK;
 		} else {
 			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_HBLK;
