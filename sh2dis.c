@@ -206,11 +206,11 @@ int main(int argc, char **argv)
 		uint32_t cur_end = address_end;
 		while(!should_break)
 		{
-			if ((address & context->address_mask) > address_end || address < address_off) {
-				if ((address & context->address_mask) < address_end_alt && address >= address_off_alt) {
+			if ((address & context->address_mask) > address_end || (address & context->address_mask) < address_off) {
+				if ((address & context->address_mask) < address_end_alt && (address & context->address_mask) >= address_off_alt) {
 					curbuf = filebuf_alt;
 					cur_off = address_off_alt;
-					cur_end = address_end;
+					cur_end = address_end_alt;
 					use_alt = 1;
 				} else {
 					break;
