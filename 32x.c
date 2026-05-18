@@ -71,6 +71,10 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 					mars->pwm_main_int_pending = mars->pwm_sub_int_pending = 1;
 					mars->pwm_timer = mars->regs[S32X_PWM_CTRL] >> 8 & 0xF;
 				}
+				if (mars->regs[S32X_PWM_CTRL] & BIT_PWM_RTP) {
+					sh7095_assert_dreq1(mars->main);
+					sh7095_assert_dreq1(mars->sub);
+				}
 			} else if (mars->pwm_counter != 1) {
 				mars->pwm_counter--;
 				mars->pwm_counter &= 0xFFF;
@@ -123,7 +127,7 @@ void s32x_run(s32x *mars, uint32_t target)
 void main_sh2_next_int(sh2_context *sh2)
 {
 	s32x *mars = sh2->system;
-	uint32_t priority_mask = sh2->sr >> 4;
+	uint32_t priority_mask = sh2->sr >> 4 & 0xF;
 	sh2->int_cycle = 0xFFFFFFFF;
 	sh2->int_priority = priority_mask;
 	sh2->int_ack = NULL;
@@ -191,7 +195,7 @@ void main_sh2_next_int(sh2_context *sh2)
 void sub_sh2_next_int(sh2_context *sh2)
 {
 	s32x *mars = sh2->system;
-	uint32_t priority_mask = sh2->sr >> 4;
+	uint32_t priority_mask = sh2->sr >> 4 & 0xF;
 	sh2->int_cycle = 0xFFFFFFFF;
 	sh2->int_priority = priority_mask;
 	sh2->int_ack = NULL;
@@ -275,7 +279,7 @@ void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
 	} else {
 		mars->sub->cycles = 0;
 	}
-	sh7095_adjust_cycles(mars->main, deduction);
+	sh7095_adjust_cycles(mars->sub, deduction);
 	if (deduction > mars->pwm_cycle) {
 		mars->pwm_cycle -= deduction;
 	} else {
@@ -348,6 +352,15 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 					mars->dreq_fifo_read &= 0x7;
 					mars->regs[S32X_DREQ_CTRL] &= ~BIT_DREQ_FULL;
 					mars->regs[S32X_DREQ_LEN]--;
+					if (mars->dreq_fifo_write == mars->dreq_fifo_read) {
+						//TODO: if/when edge vs level DREQ Is implemented
+						//generate a new edge here when the fifo is NOT empty
+						sh7095_clear_dreq0(mars->main);
+						sh7095_clear_dreq0(mars->sub);
+					}
+					if (!mars->regs[S32X_DREQ_LEN]) {
+						mars->regs[S32X_DREQ_CTRL] &= ~BIT_DREQ_68S;
+					}
 					return value;
 				}
 			}
@@ -357,7 +370,7 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 			//TODO: test what happens when reading the FIFO status bits here when L & R don't match
 			return mars->regs[S32X_PWM_WIDTH_L] & mars->regs[S32X_PWM_WIDTH_R];
 		case S32X_PWM_WIDTH_L:
-		case S32X_PWM_WIDTH_R:\
+		case S32X_PWM_WIDTH_R:
 			s32x_pwm_run(mars, sh2->cycles);
 		default:
 			return mars->regs[reg];
@@ -477,6 +490,35 @@ static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t cha
 	}
 }
 
+static void maybe_update_pwm_dreq(s32x *mars)
+{
+	if (!(mars->regs[S32X_PWM_CTRL] & BIT_PWM_RTP)) {
+		return;
+	}
+	uint8_t data_needed = 1;
+	switch (mars->regs[S32X_PWM_CTRL] & 3)
+	{
+	case 1: data_needed = !(mars->regs[S32X_PWM_WIDTH_L] & BIT_PWM_FULL); break;
+	case 2: data_needed = !(mars->regs[S32X_PWM_WIDTH_R] & BIT_PWM_FULL); break;
+	//TODO: what happens if the illegal 3 value is used
+	case 3: data_needed = 0; break;
+	}
+	switch (mars->regs[S32X_PWM_CTRL] >> 2 & 3)
+	{
+	case 1: data_needed = !(mars->regs[S32X_PWM_WIDTH_R] & BIT_PWM_FULL); break;
+	case 2: data_needed = !(mars->regs[S32X_PWM_WIDTH_L] & BIT_PWM_FULL); break;
+	//TODO: what happens if the illegal 3 value is used
+	case 3: data_needed = 0; break;
+	}
+	if (data_needed) {
+		sh7095_assert_dreq1(mars->main);
+		sh7095_assert_dreq1(mars->sub);
+	} else {
+		sh7095_clear_dreq1(mars->main);
+		sh7095_clear_dreq1(mars->sub);
+	}
+}
+
 void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_t mask, uint16_t value)
 {
 	uint16_t old = mars->regs[reg];
@@ -521,6 +563,11 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 				//unclear if FIFO is emptied, or if the full bit is just suppressed
 				new &= ~BIT_DREQ_FULL;
 				mars->dreq_fifo_write = mars->dreq_fifo_read = 0;
+				sh7095_clear_dreq0(mars->main);
+				sh7095_clear_dreq0(mars->sub);
+			} else if (((mars->dreq_fifo_write - mars->dreq_fifo_read) & 0x7) >= 4) {
+				sh7095_assert_dreq0(mars->main);
+				sh7095_assert_dreq0(mars->sub);
 			}
 		}
 		break;
@@ -538,8 +585,15 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 				//treating this like the PWM FIFO and evicting the oldest word for now
 				mars->dreq_fifo_read++;
 				mars->dreq_fifo_read &= 0x7;
+				
 			} else if (mars->dreq_fifo_write == mars->dreq_fifo_read) {
 				mars->regs[S32X_DREQ_CTRL] |= BIT_DREQ_FULL;
+			}
+			if ((mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_68S)
+				&& ((mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_FULL) || ((mars->dreq_fifo_write - mars->dreq_fifo_read) & 0x7) >= 4)
+			) {
+				sh7095_assert_dreq0(mars->main);
+				sh7095_assert_dreq0(mars->sub);
 			}
 		}
 		break;
@@ -552,10 +606,12 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 			reg = S32X_PWM_WIDTH_R;
 			new = mars->regs[reg];
 		} else {
+			maybe_update_pwm_dreq(mars);
 			break;
 		}
 	case S32X_PWM_WIDTH_R:
 		pwm_fifo_write(&mars->fifo_right, &new, value);
+		maybe_update_pwm_dreq(mars);
 		break;
 	}
 	mars->regs[reg] = new;
@@ -765,6 +821,16 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		pwm_fifo_write(&mars->fifo_right, &new, value);
 		break;
 	case S32X_PWM_CTRL:
+		s32x_pwm_run(mars, sh2->cycles);
+		if (changes & BIT_PWM_RTP) {
+			if (new & BIT_PWM_RTP) {
+				maybe_update_pwm_dreq(mars);
+			} else {
+				sh7095_clear_dreq1(mars->main);
+				sh7095_clear_dreq1(mars->sub);
+			}
+		}
+		break;
 	case S32X_PWM_CYCLE:
 		s32x_pwm_run(mars, sh2->cycles);
 		break;

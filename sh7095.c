@@ -87,6 +87,138 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 	}
 }
 
+static void sh7095_check_start_dma(sh2_context *sh2, int which)
+{
+	sh7095_periph *p = sh2->periph_state;
+	if (!sh2->peripherals[SH_DMAOR+3] & BIT_DMAOR_DMIE) {
+		p->dmac0_run = p->dmac1_run = 0;
+		return;
+	}
+	uint8_t running = 0;
+	if ((sh2->peripherals[SH_CHCR0 + which + 3] & (BIT_CHCR_TE|BIT_CHCR_DE)) == 1) {
+		
+		if (sh2->peripherals[SH_CHCR0 + which + 2] & 2) {
+			//auto-request mode i.e. no peripheral involved
+			running = 1;
+		} else if (sh2->peripherals[SH_DRCR0 + !!which] & 3) {
+			//TODO: implement SCI DMA
+		} else {
+			running = which ? p->dreq1 : p->dreq0;
+		}
+	}
+	
+	if (which) {
+		p->dmac1_run = running;
+	} else {
+		p->dmac0_run = running;
+	}
+}
+
+void sh7095_assert_dreq0(sh2_context *sh2)
+{
+	sh7095_periph *p = sh2->periph_state;
+	//TODO: level vs edge and polarity
+	p->dreq0 = 1;
+	sh7095_check_start_dma(sh2, 0);
+}
+
+void sh7095_assert_dreq1(sh2_context *sh2)
+{
+	sh7095_periph *p = sh2->periph_state;
+	//TODO: level vs edge and polarity
+	p->dreq1 = 1;
+	sh7095_check_start_dma(sh2, SH_SAR1 - SH_SAR0);
+}
+
+void sh7095_clear_dreq0(sh2_context *sh2)
+{
+	sh7095_periph *p = sh2->periph_state;
+	//TODO: level vs edge and polarity
+	p->dreq0 = 0;
+	sh7095_check_start_dma(sh2, 0);
+}
+
+void sh7095_clear_dreq1(sh2_context *sh2)
+{
+	sh7095_periph *p = sh2->periph_state;
+	//TODO: level vs edge and polarity
+	p->dreq1 = 0;
+	sh7095_check_start_dma(sh2, SH_SAR1 - SH_SAR0);
+}
+
+static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *dst, uint32_t ts, int32_t src_delta, int32_t dst_delta)
+{
+	//TODO: real cycles
+	//TODO: figure out how larger than word transfer sizes actually work on a 16-bit wide bus and/or with SDRAM
+	uint32_t cycles;
+	uint8_t val8;
+	uint16_t val16;
+	uint32_t val32;
+	switch (ts)
+	{
+	case 1:
+		val8 = read_byte(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		write_byte(*dst, val8, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		*src += src_delta;
+		*dst += dst_delta;
+		cycles = 2;
+		break;
+	case 2:
+		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		*src += src_delta;
+		*dst += dst_delta;
+		cycles = 2;
+		break;
+	case 4:
+	case 16:
+		//unclear if these are usuable on 32X
+		cycles = 4;
+		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		val32 = val16 << 16;
+		val16 = read_word(*src + 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		write_word(*dst + 2, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		val32 |= val16;
+		*src += src_delta;
+		*dst += dst_delta;
+		break;
+	}
+	return cycles;
+}
+
+static int32_t sh7095_dmac_src_delta(uint8_t sm, int32_t ts)
+{
+	if (ts == 16) {
+		ts = 4;
+	}
+	int32_t src_delta;
+	switch (sm & 0x30)
+	{
+	default:
+	case 0: src_delta = 0; break;
+	case 0x10: src_delta = ts; break;
+	case 0x20: src_delta = -ts; break;
+	}
+	return src_delta;
+}
+
+static int32_t sh7095_dmac_dst_delta(uint8_t dm, int32_t ts)
+{
+	if (ts == 16) {
+		ts = 4;
+	}
+	int32_t dst_delta;
+	switch (dm & 0xC0)
+	{
+	default:
+	case 0: dst_delta = 0; break;
+	case 0x40: dst_delta = ts; break;
+	case 0x80: dst_delta = -ts; break;
+	}
+	return dst_delta;
+}
+
 static const uint32_t frc_counter_values[] = {8, 32, 128, 0};
 static const uint32_t wdt_counter_values[] = {2, 64, 128, 256, 512, 1024, 4096, 8192};
 static void sh7095_run(sh2_context *sh2)
@@ -211,6 +343,120 @@ static void sh7095_run(sh2_context *sh2)
 				p->wdt_counter -= wdt_delta;
 			}
 		}
+		if (p->dmac0_run || p->dmac1_run)
+		{
+			uint32_t dmac_delta = delta;
+			uint32_t tcr0 = sh2->peripherals[SH_TCR0+1] << 16 | sh2->peripherals[SH_TCR0+2] << 8 | sh2->peripherals[SH_TCR0+3];
+			uint32_t tcr1 = sh2->peripherals[SH_TCR1+1] << 16 | sh2->peripherals[SH_TCR1+2] << 8 | sh2->peripherals[SH_TCR1+3];
+			uint32_t sar0 = sh7095_periph32(SH_SAR0, sh2);
+			uint32_t sar1 = sh7095_periph32(SH_SAR1, sh2);
+			uint32_t dar0 = sh7095_periph32(SH_DAR0, sh2);
+			uint32_t dar1 = sh7095_periph32(SH_DAR1, sh2);
+			uint8_t chcr0_mdsz = sh2->peripherals[SH_CHCR0+2];
+			uint32_t chcr0_ts = 1 << (chcr0_mdsz >> 2 & 3);
+			if (chcr0_ts == 8) {
+				chcr0_ts = 16;
+			}
+			int32_t src_delta0 = sh7095_dmac_src_delta(chcr0_mdsz, chcr0_ts);
+			int32_t dst_delta0 = sh7095_dmac_dst_delta(chcr0_mdsz, chcr0_ts);
+			uint8_t ar0 = chcr0_mdsz & 2;
+			uint8_t chcr1_mdsz = sh2->peripherals[SH_CHCR1+2];
+			uint32_t chcr1_ts = 1 << (chcr1_mdsz >> 2 & 3);
+			if (chcr1_ts == 8) {
+				chcr1_ts = 16;
+			}
+			int32_t src_delta1 = sh7095_dmac_src_delta(chcr1_mdsz, chcr1_ts);
+			int32_t dst_delta1 = sh7095_dmac_dst_delta(chcr1_mdsz, chcr1_ts);
+			uint8_t ar1 = chcr1_mdsz & 2;
+			
+			if (sh2->peripherals[SH_DMAOR+3] & BIT_DMAOR_PR) {
+				while (dmac_delta && p->dmac0_run && p->dmac1_run)
+				{
+					uint32_t cycles;
+					if (p->dmac_which) {
+						cycles = sh7095_dmac_transfer(sh2, &sar1, &dar1, chcr1_ts, src_delta1, dst_delta1);
+						tcr1--;
+						if (!tcr1) {
+							p->dmac1_run = 0;
+							sh2->peripherals[SH_CHCR1+3] |= BIT_CHCR_TE;
+							if (sh2->peripherals[SH_CHCR1+3] & BIT_CHCR_IE) {
+								p->dmac1_pending = 1;
+ 							}
+						} else if (!ar0 && !p->dreq1) { //TODO: SCI DMA
+							p->dmac1_run = 0;
+						}
+					} else {
+						cycles = sh7095_dmac_transfer(sh2, &sar0, &dar0, chcr0_ts, src_delta0, dst_delta0);
+						tcr0--;
+						if (!tcr0) {
+							p->dmac0_run = 0;
+							sh2->peripherals[SH_CHCR0+3] |= BIT_CHCR_TE;
+							if (sh2->peripherals[SH_CHCR0+3] & BIT_CHCR_IE) {
+								p->dmac0_pending = 1;
+ 							}
+						} else if (!ar1 && !p->dreq0) { //TODO: SCI DMA
+							p->dmac0_run = 0;
+						}
+					}
+					if (cycles > dmac_delta) {
+						dmac_delta = 0;
+					} else {
+						dmac_delta -= cycles;
+					}
+					p->dmac_which = !p->dmac_which;
+					
+				}
+			}
+			while (dmac_delta && p->dmac0_run)
+			{
+				uint32_t cycles = sh7095_dmac_transfer(sh2, &sar0, &dar0, chcr0_ts, src_delta0, dst_delta0);
+				tcr0--;
+				if (!tcr0) {
+					p->dmac0_run = 0;
+					sh2->peripherals[SH_CHCR0+3] |= BIT_CHCR_TE;
+					if (sh2->peripherals[SH_CHCR0+3] & BIT_CHCR_IE) {
+						p->dmac0_pending = 1;
+					}
+				} else if (!ar0 && !p->dreq0) { //TODO: SCI DMA
+					p->dmac0_run = 0;
+				}
+				if (cycles > dmac_delta) {
+					dmac_delta = 0;
+				} else {
+					dmac_delta -= cycles;
+				}
+			}
+			while (dmac_delta && p->dmac1_run)
+			{
+				uint32_t cycles = sh7095_dmac_transfer(sh2, &sar1, &dar1, chcr1_ts, src_delta1, dst_delta1);
+				tcr1--;
+				if (!tcr1) {
+					p->dmac1_run = 0;
+					sh2->peripherals[SH_CHCR1+3] |= BIT_CHCR_TE;
+					if (sh2->peripherals[SH_CHCR1+3] & BIT_CHCR_IE) {
+						p->dmac1_pending = 1;
+					}
+				} else if (!ar1 && !p->dreq1) { //TODO: SCI DMA
+					p->dmac1_run = 0;
+				}
+				if (cycles > dmac_delta) {
+					dmac_delta = 0;
+				} else {
+					dmac_delta -= cycles;
+				}
+				
+			}
+			sh2->peripherals[SH_TCR0+1] = tcr0 >> 16;
+			sh2->peripherals[SH_TCR0+2] = tcr0 >> 8;
+			sh2->peripherals[SH_TCR0+3] = tcr0;
+			sh7095_setperiph32(SH_SAR0, sh2, sar0);
+			sh7095_setperiph32(SH_DAR0, sh2, dar0);
+			sh2->peripherals[SH_TCR1+1] = tcr1 >> 16;
+			sh2->peripherals[SH_TCR1+2] = tcr1 >> 8;
+			sh2->peripherals[SH_TCR1+3] = tcr1;
+			sh7095_setperiph32(SH_SAR1, sh2, sar1);
+			sh7095_setperiph32(SH_DAR1, sh2, dar1);
+		}
 		
 		p->cycle = sh2->cycles;
 	}
@@ -281,8 +527,12 @@ static void sh7095_write_32(uint32_t address, sh2_context *sh2, uint32_t value)
 	sh7095_periph *p = sh2->periph_state;
 	sh7095_run(sh2);
 	address &= 0x1FC;
+	uint32_t mask;
 	switch (address)
 	{
+	case SH_DVDNTH_ALT:
+	case SH_DVDNTL_ALT:
+		address &= 0x1F7;
 	case SH_DVSR:
 	case SH_DVDNT:
 	case SH_DVDNTH:
@@ -297,6 +547,13 @@ static void sh7095_write_32(uint32_t address, sh2_context *sh2, uint32_t value)
 			sh7095_run(sh2);
 		}
 		break;
+	case SH_DMAOR:
+		mask = 0xF ^ (value & 6);//AE and NMIF are clear only
+		sh2->peripherals[SH_DMAOR+3] &= ~mask;
+		sh2->peripherals[SH_DMAOR+3] |= mask & value;
+		sh7095_check_start_dma(sh2, 0);
+		sh7095_check_start_dma(sh2, 0x10);
+		return;
 	}
 	sh7095_write_byte(address, sh2, value >> 24);
 	sh7095_write_byte(address | 1, sh2, value >> 16);
@@ -309,6 +566,10 @@ static void sh7095_write_32(uint32_t address, sh2_context *sh2, uint32_t value)
 		memcpy(sh2->peripherals + SH_DVDNTL, sh2->peripherals + SH_DVDNT, 4);
 	case SH_DVDNTL:
 		p->divide_counter = 39;
+		break;
+	case SH_CHCR0:
+	case SH_CHCR1:
+		sh7095_check_start_dma(sh2, address & 0x10);
 		break;
 	}
 }
@@ -376,8 +637,9 @@ static uint32_t sh7095_read_32(uint32_t address, sh2_context *sh2)
 	address &= 0x1FC;
 	switch (address)
 	{
+	case SH_DVDNTH_ALT:
 	case SH_DVDNTL_ALT:
-		address = SH_DVDNTL;
+		address &= 0x1F7;
 	case SH_DVSR:
 	case SH_DVDNT:
 	case SH_DVDNTH:
@@ -523,6 +785,20 @@ static void sh7095_ack_sci_eri(sh2_context *sh2)
 	p->eri_pending = 0;
 }
 
+static void sh7095_ack_dmac0(sh2_context *sh2)
+{
+	sh7095_run(sh2);
+	sh7095_periph *p = sh2->periph_state;
+	p->dmac0_pending = 0;
+}
+
+static void sh7095_ack_dmac1(sh2_context *sh2)
+{
+	sh7095_run(sh2);
+	sh7095_periph *p = sh2->periph_state;
+	p->dmac1_pending = 0;
+}
+
 void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask)
 {
 	//TODO: predict interrupt timing when possible
@@ -550,13 +826,31 @@ void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask)
 			}
 		}
 	}
-	if (sh2->peripherals[SH_SCR] & BIT_SCR_TEIE) {
+	if (p->tei_pending && (sh2->peripherals[SH_SCR] & BIT_SCR_TEIE)) {
 		uint32_t priority = sh2->peripherals[SH_IPRB] >> 4;
 		if (priority_mask < priority && (sh2->int_cycle > sh2->cycles || priority > sh2->int_priority)) {
 			sh2->int_cycle = sh2->cycles;
 			sh2->int_priority = priority;
 			sh2->int_vector = sh2->peripherals[SH_VCRB + 1] & 0x7F;
 			sh2->int_ack = sh7095_ack_sci_tei;
+		}
+	}
+	if (p->dmac0_pending && (sh2->peripherals[SH_CHCR0 + 3] & BIT_CHCR_IE)) {
+		uint32_t priority = sh2->peripherals[SH_IPRA] & 0xF;
+		if (priority_mask < priority && (sh2->int_cycle > sh2->cycles || priority > sh2->int_priority)) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			sh2->int_vector = sh2->peripherals[SH_VCRDMA0 + 3] & 0x7F;
+			sh2->int_ack = sh7095_ack_dmac0;
+		}
+	}
+	if (p->dmac1_pending && (sh2->peripherals[SH_CHCR1 + 3] & BIT_CHCR_IE)) {
+		uint32_t priority = sh2->peripherals[SH_IPRA] & 0xF;
+		if (priority_mask < priority && (sh2->int_cycle > sh2->cycles || priority > sh2->int_priority)) {
+			sh2->int_cycle = sh2->cycles;
+			sh2->int_priority = priority;
+			sh2->int_vector = sh2->peripherals[SH_VCRDMA1 + 3] & 0x7F;
+			sh2->int_ack = sh7095_ack_dmac1;
 		}
 	}
 }

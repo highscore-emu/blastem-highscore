@@ -40,6 +40,7 @@ enum {
 	SH_VCRDIV = 0x10C,
 	SH_DVDNTH = 0x110,//does this have a mirror at 0x118?
 	SH_DVDNTL = 0x114,
+	SH_DVDNTH_ALT = 0x118,
 	SH_DVDNTL_ALT = 0x11C,
 	//TODO: user break controller
 	SH_SAR0 = 0x180,
@@ -89,6 +90,14 @@ enum {
 
 #define BIT_WTCSR_OVF 0x80
 #define BIT_WTCSR_TME 0x20
+
+#define BIT_CHCR_IE 0x04
+#define BIT_CHCR_TE 0x02
+#define BIT_CHCR_DE 0x01
+
+#define BIT_DMAOR_PR   0x08
+#define BIT_DMAOR_DMIE 0x01
+
 typedef void (*sci_handler)(void *data, uint32_t cycle, uint8_t byte);
 typedef struct {
 	void        *sci_handler_data;
@@ -106,11 +115,22 @@ typedef struct {
 	uint8_t     ri_pending;
 	uint8_t     tei_pending;
 	uint8_t     eri_pending;
+	uint8_t     dmac_which;
+	uint8_t     dmac0_run;
+	uint8_t     dmac1_run;
+	uint8_t     dreq0;
+	uint8_t     dreq1;
+	uint8_t     dmac0_pending;
+	uint8_t     dmac1_pending;
 } sh7095_periph;
 
 void sh7095_setup(sh2_context *sh2);
 void sh7095_adjust_cycles(sh2_context *sh2, uint32_t deduction);
 void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte);
 void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask);
+void sh7095_assert_dreq0(sh2_context *sh2);
+void sh7095_assert_dreq1(sh2_context *sh2);
+void sh7095_clear_dreq0(sh2_context *sh2);
+void sh7095_clear_dreq1(sh2_context *sh2);
 
 #endif //SH7095_H_

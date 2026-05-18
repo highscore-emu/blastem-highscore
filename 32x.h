@@ -62,6 +62,7 @@ enum {
 #define BIT_DREQ_FULL   0x0080
 #define BIT_DREQ_68S    0x0004
 #define BIT_DREQ_RV     0x0001
+#define BIT_PWM_RTP     0x0080
 #define BIT_PWM_FULL    0x8000
 #define BIT_PWM_EMPTY   0x4000
 #define S32X_BANK_MASK  0x0003
