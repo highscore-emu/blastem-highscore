@@ -149,11 +149,10 @@ void sh7095_clear_dreq1(sh2_context *sh2)
 static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *dst, uint32_t ts, int32_t src_delta, int32_t dst_delta)
 {
 	//TODO: real cycles
-	//TODO: figure out how larger than word transfer sizes actually work on a 16-bit wide bus and/or with SDRAM
+	//TODO: test how 16-byte burst mode behaves on 16-bit bus
 	uint32_t cycles;
 	uint8_t val8;
 	uint16_t val16;
-	uint32_t val32;
 	switch (ts)
 	{
 	case 1:
@@ -164,6 +163,7 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		cycles = 2;
 		break;
 	case 2:
+	case 16:
 		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		*src += src_delta;
@@ -171,15 +171,11 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		cycles = 2;
 		break;
 	case 4:
-	case 16:
-		//unclear if these are usuable on 32X
 		cycles = 4;
 		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		val32 = val16 << 16;
 		val16 = read_word(*src + 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst + 2, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		val32 |= val16;
 		*src += src_delta;
 		*dst += dst_delta;
 		break;
@@ -190,7 +186,7 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 static int32_t sh7095_dmac_src_delta(uint8_t sm, int32_t ts)
 {
 	if (ts == 16) {
-		ts = 4;
+		return 2;
 	}
 	int32_t src_delta;
 	switch (sm & 0x30)
@@ -206,7 +202,7 @@ static int32_t sh7095_dmac_src_delta(uint8_t sm, int32_t ts)
 static int32_t sh7095_dmac_dst_delta(uint8_t dm, int32_t ts)
 {
 	if (ts == 16) {
-		ts = 4;
+		ts = 2;
 	}
 	int32_t dst_delta;
 	switch (dm & 0xC0)
