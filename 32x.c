@@ -25,10 +25,14 @@ void pwm_fifo_write(pwm_fifo *fifo, uint16_t *status, uint16_t value)
 	*status &= ~BIT_PWM_EMPTY;
 }
 
-void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t *out)
+void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t cycle, int16_t *out)
 {
 	if (!(*status & BIT_PWM_EMPTY)) {
-		*out = fifo->fifo[fifo->read++];
+		uint16_t sample = fifo->fifo[fifo->read++];
+		if (sample > cycle) {
+			sample = cycle;
+		}
+		*out =  sample * 0x8000 / cycle - 0x4000;
 		fifo->read %= 3;
 		if (fifo->read == fifo->write) {
 			*status |= BIT_PWM_EMPTY;
@@ -48,20 +52,20 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 				switch (mars->regs[S32X_PWM_CTRL] & 3)
 				{
 				case 1:
-					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, &mars->pwm_left);
+					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, mars->pwm_counter, &mars->pwm_left);
 					break;
 				case 2:
-					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, &mars->pwm_left);
+					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, mars->pwm_counter, &mars->pwm_left);
 					break;
 				//TODO: what happens if the illegal 3 value is used
 				}
 				switch (mars->regs[S32X_PWM_CTRL] >> 2 & 3)
 				{
 				case 1:
-					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, &mars->pwm_right);
+					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, mars->pwm_counter, &mars->pwm_right);
 					break;
 				case 2:
-					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, &mars->pwm_right);
+					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, mars->pwm_counter, &mars->pwm_right);
 					break;
 				}
 				mars->pwm_timer--;
@@ -82,7 +86,7 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 				mars->pwm_counter = mars->regs[S32X_PWM_CYCLE];
 			}
 		}
-		render_put_stereo_sample(mars->pwm, mars->pwm_left * 32 - 0x4000, mars->pwm_right * 32 - 0x4000);
+		render_put_stereo_sample(mars->pwm, mars->pwm_left, mars->pwm_right);
 	}
 }
 
@@ -505,8 +509,8 @@ static void maybe_update_pwm_dreq(s32x *mars)
 	}
 	switch (mars->regs[S32X_PWM_CTRL] >> 2 & 3)
 	{
-	case 1: data_needed = !(mars->regs[S32X_PWM_WIDTH_R] & BIT_PWM_FULL); break;
-	case 2: data_needed = !(mars->regs[S32X_PWM_WIDTH_L] & BIT_PWM_FULL); break;
+	case 1: data_needed = data_needed && !(mars->regs[S32X_PWM_WIDTH_R] & BIT_PWM_FULL); break;
+	case 2: data_needed = data_needed && !(mars->regs[S32X_PWM_WIDTH_L] & BIT_PWM_FULL); break;
 	//TODO: what happens if the illegal 3 value is used
 	case 3: data_needed = 0; break;
 	}
@@ -606,13 +610,15 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 			reg = S32X_PWM_WIDTH_R;
 			new = mars->regs[reg];
 		} else {
+			mars->regs[reg] = new;
 			maybe_update_pwm_dreq(mars);
-			break;
+			return;
 		}
 	case S32X_PWM_WIDTH_R:
 		pwm_fifo_write(&mars->fifo_right, &new, value);
+		mars->regs[reg] = new;
 		maybe_update_pwm_dreq(mars);
-		break;
+		return;
 	}
 	mars->regs[reg] = new;
 	check_cart_map_change(reg, m68k, changes);
@@ -714,10 +720,7 @@ static uint16_t sh2_write_masks[] = {
 	0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
 	0xFFFF, 0xFFFF,
 	0x0F8F,
-	0x0FFF,
-	0x0FFF,
-	0x0FFF,
-	0x0FFF,
+	0x0FFF
 };
 
 static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, uint16_t mask, uint16_t value)
@@ -813,13 +816,17 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 			base[S32X_PWM_WIDTH_L] = new;
 			reg = S32X_PWM_WIDTH_R;
 			new = base[reg];
-		} else {
-			break;
+		} else {			
+			mars->regs[S32X_PWM_WIDTH_L] = new;
+			maybe_update_pwm_dreq(mars);
+			return;
 		}
 	case S32X_PWM_WIDTH_R:
 		s32x_pwm_run(mars, sh2->cycles);
 		pwm_fifo_write(&mars->fifo_right, &new, value);
-		break;
+		mars->regs[reg] = new;
+		maybe_update_pwm_dreq(mars);
+		return;
 	case S32X_PWM_CTRL:
 		s32x_pwm_run(mars, sh2->cycles);
 		if (changes & BIT_PWM_RTP) {

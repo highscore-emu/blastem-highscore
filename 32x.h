@@ -76,7 +76,7 @@ typedef struct {
 } pwm_fifo;
 
 void pwm_fifo_write(pwm_fifo *fifo, uint16_t *status, uint16_t value);
-void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t *out);
+void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t cycle, int16_t *out);
 
 typedef struct {
 	void         *gen;
