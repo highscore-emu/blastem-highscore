@@ -323,7 +323,7 @@ static void sh7095_run(sh2_context *sh2)
 		}
 		if (p->wdt_counter) {
 			uint32_t wdt_delta = delta;
-			uint32_t cks = frc_counter_values[sh2->peripherals[SH_WTCSR] & 7];
+			uint32_t cks = wdt_counter_values[sh2->peripherals[SH_WTCSR] & 7];
 			while (wdt_delta >= p->wdt_counter)
 			{
 				sh2->peripherals[SH_WTCNT]++;
