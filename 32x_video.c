@@ -254,7 +254,13 @@ uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video)
 {
 	//TODO: check FM
 	if (address < 0xA15180 + S32X_NUM_VID_REGS * 2) {
-		return video->regs[(address & 0xF) >> 1];
+		uint32_t reg = (address & 0xF) >> 1;
+		if (reg == S32X_VID_FB_CTRL && video->hcounter >= HBLANK_START && video->hcounter < HBLANK_START + 6) {
+			//TODO: determine all times VRAM refresh happens
+			//refresh
+			return video->regs[reg] | S32X_VID_BIT_FEN;
+		}
+		return video->regs[reg];
 	} else if (address >= 0xA15200 && address < 0xA15400) {
 		return video->palette[(address & 0x1FF) >> 1];
 	}
@@ -265,7 +271,13 @@ uint16_t s32x_video_sh2_read(uint32_t address, s32x_video *video)
 {
 	//TODO: check FM
 	if (address < 0x0004100 + S32X_NUM_VID_REGS * 2) {
-		return video->regs[(address & 0xF) >> 1];
+		uint32_t reg = (address & 0xF) >> 1;
+		if (reg == S32X_VID_FB_CTRL && video->hcounter >= HBLANK_START && video->hcounter < HBLANK_START + 6) {
+			//TODO: determine all times VRAM refresh happens
+			//refresh
+			return video->regs[reg] | S32X_VID_BIT_FEN;
+		}
+		return video->regs[reg];
 	} else if (address >= 0x0004200 && address < 0x0004400) {
 		return video->palette[(address & 0x1FF) >> 1];
 	}
