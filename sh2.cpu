@@ -400,20 +400,23 @@ sh2_reset
 
 0010NNNNMMMM0100 store_predec_rm_rn_b
 	cycles 1
+	scratch1 = gpr.M
 	gpr.N -= 1
-	sh2_write8 gpr.N gpr.M
+	sh2_write8 gpr.N scratch1
 	sh2_fetch
 
 0010NNNNMMMM0101 store_predec_rm_rn_w
 	cycles 1
+	scratch1 = gpr.M
 	gpr.N -= 2
-	sh2_write16 gpr.N gpr.M
+	sh2_write16 gpr.N scratch1
 	sh2_fetch
 
 0010NNNNMMMM0110 store_predec_rm_rn_l
 	cycles 1
+	scratch1 = gpr.M 
 	gpr.N -= 4
-	sh2_write32 gpr.N gpr.M
+	sh2_write32 gpr.N scratch1
 	sh2_fetch
 
 0110NNNNMMMM0100 load_postinc_rm_rn_b
