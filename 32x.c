@@ -396,7 +396,7 @@ uint8_t s32x_sh2_read_b(uint32_t address, void *vcontext)
 }
 
 //TODO: confirm which bits are actually writeable
-static uint16_t reg_write_masks[] = {
+static uint16_t reg_write_masks[S32X_NUM_REGS] = {
 	0x8003,
 	0x0003,
 	0x0003,
@@ -711,7 +711,7 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 }
 
 //TODO: confirm which bits are actually writeable
-static uint16_t sh2_write_masks[] = {
+static uint16_t sh2_write_masks[S32X_NUM_REGS] = {
 	0x808F, //0 = interrupt mask
 	0xFFFF, //2 = stand by change
 	0x00FF, //4 = h count
@@ -1148,6 +1148,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	sh7095_setup(ret->main);
 	ret->main->sync_cycle = 0xFFFFFFFF;
 	ret->main->system = ret;
+	ret->main->main = 1;
 
 	memmap_chunk *sub_map = calloc(num_chunks, sizeof(memmap_chunk));
 	memcpy(sub_map, base_sh2_map, sizeof(base_sh2_map));
