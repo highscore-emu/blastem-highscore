@@ -851,12 +851,12 @@ sh2_reset
 	local tmpn 32
 	local tmpm 32
 	cycles 3 # manual says 3/(2 to 4)
-	sh2_read32_data gpr.N
+	sh2_read16_data gpr.N
 	gpr.N += 2
-	tmpn = sext 16 scratch1
-	sh2_read32_data gpr.M
+	tmpn = sext 32 scratch1
+	sh2_read16_data gpr.M
 	gpr.M += 2
-	tmpm = sext 16 scratch1
+	tmpm = sext 32 scratch1
 	tmp1 = tmpn *S tmpm
 	tmp2 = mach << 32
 	tmp2 |= macl
