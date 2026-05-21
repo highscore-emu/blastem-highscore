@@ -422,7 +422,7 @@ void log_msg(char *format, log_level level, va_list args)
 		char *buf = malloc(size);
 		va_list tmp;
 		va_copy(tmp, args);
-		int32_t actual = vsnprintf(buf, size, format, args);
+		int32_t actual = vsnprintf(buf, size, format, tmp);
 		va_end(tmp);
 		if (actual >= size || actual < 0) {
 			if (actual < 0) {
