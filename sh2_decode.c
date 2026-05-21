@@ -281,7 +281,7 @@ sh2_inst sh2_decode(uint16_t inst)
 		case 0xF: return reg_binary(SH2_ADDV, rm, rn);
 		}
 	case 0x4:
-		if (rm >= 3) {
+		if (oplo != 0xF && rm >= 3) {
 			return sh2_invalid;
 		}
 		switch (oplo)
