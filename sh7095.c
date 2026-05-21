@@ -163,7 +163,6 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		cycles = 2;
 		break;
 	case 2:
-	case 16:
 		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		*src += src_delta;
@@ -171,6 +170,7 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		cycles = 2;
 		break;
 	case 4:
+	case 16:
 		cycles = 4;
 		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
@@ -186,7 +186,7 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 static int32_t sh7095_dmac_src_delta(uint8_t sm, int32_t ts)
 {
 	if (ts == 16) {
-		return 2;
+		return 4;
 	}
 	int32_t src_delta;
 	switch (sm & 0x30)
@@ -202,7 +202,7 @@ static int32_t sh7095_dmac_src_delta(uint8_t sm, int32_t ts)
 static int32_t sh7095_dmac_dst_delta(uint8_t dm, int32_t ts)
 {
 	if (ts == 16) {
-		ts = 2;
+		ts = 4;
 	}
 	int32_t dst_delta;
 	switch (dm & 0xC0)
