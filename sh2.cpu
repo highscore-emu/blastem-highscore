@@ -839,7 +839,7 @@ sh2_reset
 		if tmp1 >=S 0x800000000000
 			tmp1 = 0x7FFFFFFFFFFF
 		else
-			if tmp1 >=U 0xFFFF800000000001
+			if -0x800000000001 >=S tmp1
 				tmp1 = 0xFFFF800000000000
 			end
 		end
@@ -861,22 +861,26 @@ sh2_reset
 	gpr.M += 2
 	tmpm = sext 32 scratch1
 	tmp1 = tmpn *S tmpm
-	tmp2 = mach << 32
-	tmp2 |= macl
-	tmp1 += tmp2
 	if s
+		tmp2 = sext 64 macl
+		tmp1 += tmp2
 		if tmp1 >=S 0x80000000
-			tmp1 = 0x17FFFFFFF
+			tmp1 = 0x7FFFFFFF
+			mach |= 1
 		else
-			if tmp1 >=U 0xFFFFFFFF80000001
-				tmp1 = 0x180000000
+			if -0x80000001 >=S tmp1
+				tmp1 = 0x80000000
+				mach |= 1
 			else
 				tmp1 &= 0xFFFFFFFF
 			end
 		end
+	else
+		tmp2 = mach << 32
+		tmp2 |= macl
+		tmp1 += tmp2
 	end
 	macl = tmp1
-	mach = tmp1 >> 32
 	sh2_fetch
 
 0000NNNNMMMM0111 mul_l

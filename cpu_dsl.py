@@ -1659,8 +1659,8 @@ def _gesCImpl(prog, parent, fieldVals, output):
 		params = [prog.resolveParam(p, parent, fieldVals) for p in prog.lastOp.params]
 		a = params[1]
 		b = params[0]
-		sza = prog.paramSize(prog.lastOp.params[1])
-		szb = prog.paramSize(prog.lastOp.params[0])
+		sza = prog.paramSize(prog.lastOp.params[1], True)
+		szb = prog.paramSize(prog.lastOp.params[0], True)
 		return f'\n\tif (((int{sza}_t){a}) >= ((int{szb}_t){b})) ' + '{'
 	else:
 		raise Exception(">=S not implemented in the general case yet")
@@ -2458,9 +2458,9 @@ class Program:
 			try:
 				if type(param) is int:
 					pass
-				elif param.startswith('0x'):
+				elif param.startswith('0x') or param.startswith('-0x'):
 					param = int(param, 16)
-				elif param.startswith('0b'):
+				elif param.startswith('0b') or param.startswith('-0b'):
 					param = int(param, 2)
 				else:
 					param = int(param)
@@ -2539,7 +2539,7 @@ class Program:
 		
 	
 	
-	def paramSize(self, name):
+	def paramSize(self, name, signed=False):
 		if name in self.meta:
 			return self.paramSize(self.meta[name])
 		for i in range(len(self.scopes) -1, -1, -1):
@@ -2554,6 +2554,18 @@ class Program:
 		for size in self.temp:
 			if self.temp[size] == name:
 				return size
+		try:
+			if name.startswith('0x') or name.startswith('-0x'):
+				name = int(name, 16)
+			elif name.startswith('0b') or name.startswith('-0b'):
+				name = int(name, 2)
+			else:
+				name = int(name)
+		except ValueError:
+			pass
+		if type(name) is int:
+			if name > 0xFFFFFFFF or signed and (name > 2147483647 or name < -2147483648):
+				return 64
 		return 32
 	
 	def getLastSize(self):
