@@ -6313,6 +6313,7 @@ static uint8_t read_sh2(debug_root *root, uint32_t *out, char size)
 		if (address < 0x28000000) {
 			*out = read_byte(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			address &= 0xFFF;
 			switch (address & 3)
 			{
 			case 0: *out = sh2->cache[address >> 2] >> 24; break;
@@ -6328,6 +6329,7 @@ static uint8_t read_sh2(debug_root *root, uint32_t *out, char size)
 		if (address < 0x28000000) {
 			*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			address &= 0xFFF;
 			if (address & 2) {
 				*out = sh2->cache[address >> 2] & 0xFFFF;
 			} else {
@@ -6342,6 +6344,7 @@ static uint8_t read_sh2(debug_root *root, uint32_t *out, char size)
 			*out = read_word(address, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
 			*out |= read_word(address | 2, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			address &= 0xFFF;
 			*out = sh2->cache[address >> 2];
 		} else if (address >= 0xFFFFFE00) {
 			*out = sh2->periph_read32(address, sh2);
@@ -6357,14 +6360,61 @@ static uint8_t write_sh2(debug_root *root, uint32_t address, uint32_t value, cha
 	switch (size)
 	{
 	case 'b':
-		write_byte(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		if (address < 0x28000000) {
+			write_byte(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			address &= 0xFFF;
+			value &= 0xFF;
+			switch (address & 3)
+			{
+			case 0: 
+				sh2->cache[address >> 2] &= 0xFFFFFF;
+				sh2->cache[address >> 2] |= value << 24;
+				break;
+			case 1:
+				sh2->cache[address >> 2] &= 0xFF00FFFF;
+				sh2->cache[address >> 2] |= value << 16;
+				break;
+			case 2:
+				sh2->cache[address >> 2] &= 0xFFFF00FF;
+				sh2->cache[address >> 2] |= value << 8;
+				break;
+			case 3:
+				sh2->cache[address >> 2] &= 0xFFFFFF00;
+				sh2->cache[address >> 2] |= value;
+				break;
+			}
+		} else if (address >= 0xFFFFFE00) {
+			sh2->periph_write8(address, sh2, value);
+		}
 		break;
 	case 'w':
-		write_word(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		if (address < 0x28000000) {
+			write_word(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			address &= 0xFFF;
+			value &= 0xFFFF;
+			if (address & 2) {
+				sh2->cache[address >> 2] &= 0xFFFF0000;
+				sh2->cache[address >> 2] |= value;
+			} else {
+				sh2->cache[address >> 2] &= 0x0000FFFF;
+				sh2->cache[address >> 2] |= value << 16;
+			}
+		} else if (address >= 0xFFFFFE00) {
+			sh2->periph_write16(address, sh2, value);
+		}
 		break;
 	case 'l':
-		write_word(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		write_word(address | 2, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		if (address < 0x28000000) {
+			write_word(address, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+			write_word(address | 2, value, (void **)sh2->mem_pointers, &sh2->opts->gen, sh2);
+		} else if (address >= 0xC0000000 && address < 0xC0001000) {
+			address &= 0xFFF;
+			sh2->cache[address >> 2] = value;
+		} else if (address >= 0xFFFFFE00) {
+			sh2->periph_write32(address, sh2, value);
+		}
 		break;
 	}
 	return 1;
