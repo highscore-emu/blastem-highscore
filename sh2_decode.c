@@ -387,7 +387,7 @@ sh2_inst sh2_decode(uint16_t inst)
 		case 0x3: return (sh2_inst){.opcode = SH2_TRAPA, .src = SH2_IMMED, .immed = (inst & 0xFF)};
 		case 0x4:
 		case 0x5:
-		case 0x6: return (sh2_inst){.opcode = SH2_MOVB + (rn & 3), .src = SH2_DISP_GBR, .dst = SH2_R0, .immed = (inst & 0xFF) << rn};
+		case 0x6: return (sh2_inst){.opcode = SH2_MOVB + (rn & 3), .src = SH2_DISP_GBR, .dst = SH2_R0, .immed = (inst & 0xFF) << (rn & 3)};
 		case 0x7: return (sh2_inst){.opcode = SH2_MOVA, .src = SH2_DISP_PC, .dst = SH2_R0, .immed = (inst & 0xFF) << 2};
 		case 0x8: return immed8_zext(SH2_TST, inst & 0xFF, SH2_R0);
 		case 0x9: return immed8_zext(SH2_AND, inst & 0xFF, SH2_R0);
