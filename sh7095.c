@@ -558,7 +558,7 @@ static void sh7095_write_32(uint32_t address, sh2_context *sh2, uint32_t value)
 	switch (address)
 	{
 	case SH_DVDNT:
-		memset(sh2->peripherals + SH_DVDNTH, 0, 4);
+		memset(sh2->peripherals + SH_DVDNTH, (value & 0x80000000) ? 0xFF : 0, 4);
 		memcpy(sh2->peripherals + SH_DVDNTL, sh2->peripherals + SH_DVDNT, 4);
 	case SH_DVDNTL:
 		p->divide_counter = 39;
@@ -636,8 +636,9 @@ static uint32_t sh7095_read_32(uint32_t address, sh2_context *sh2)
 	case SH_DVDNTH_ALT:
 	case SH_DVDNTL_ALT:
 		address &= 0x1F7;
-	case SH_DVSR:
 	case SH_DVDNT:
+		address |= 0x10;
+	case SH_DVSR:
 	case SH_DVDNTH:
 	case SH_DVDNTL:
 		//Does this apply to DVCR and VCRDIV too?
