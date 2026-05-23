@@ -35,6 +35,7 @@ typedef struct {
 	uint8_t     *front;
 	uint8_t     *back;
 	uint32_t    cycle;
+	uint32_t    fill_remainder;
 	uint16_t    vcounter;
 	uint16_t    hcounter;
 	uint16_t    regs[S32X_NUM_VID_REGS];

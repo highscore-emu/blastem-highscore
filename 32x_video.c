@@ -135,7 +135,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_HBLK;
 		}
 		//run fill
-		delta = target - rest - vid->cycle;
+		delta = target - rest - vid->cycle + vid->fill_remainder;
 		if (vid->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_FEN) {
 			uint8_t count = vid->fill_count;
 			uint32_t address = vid->regs[S32X_VID_FILL_START] << 1;
@@ -161,6 +161,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 			}
 			vid->fill_count = count;
 			vid->regs[S32X_VID_FILL_START] = address >> 1;
+			vid->fill_remainder = delta;
 		}
 		if (
 			(vid->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK) == 0 
@@ -393,6 +394,7 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 		if (reg == S32X_VID_FILL_DATA) {
 			video->fill_count = video->regs[S32X_VID_FILL_LEN];
 			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
+			video->fill_remainder = 0;
 		}
 	} else if (address >= 0xA15200 && address < 0xA15400) {
 		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
