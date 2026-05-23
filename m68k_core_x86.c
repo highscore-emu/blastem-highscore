@@ -2816,10 +2816,10 @@ void init_m68k_opts(m68k_options * opts, memmap_chunk * memmap, uint32_t num_chu
 	opts->gen.handle_align_error_read = code->cur;
 	code->cur += 256;
 
-	opts->read_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_16, NULL);
-	opts->read_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_8, NULL);
-	opts->write_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_16, NULL);
-	opts->write_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_8, NULL);
+	opts->read_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_16, NULL, 0);
+	opts->read_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_8, NULL, 0);
+	opts->write_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_16, NULL, 0);
+	opts->write_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_8, NULL, 0);
 
 	opts->read_32 = code->cur;
 	if (opts->gen.align_error_mask) {

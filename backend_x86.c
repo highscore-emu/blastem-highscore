@@ -107,19 +107,52 @@ void check_code_prologue(code_info *code)
 	check_alloc_code(code, MAX_INST_LEN*4);
 }
 
-code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t num_chunks, ftype fun_type, code_ptr *after_inc)
+code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t num_chunks, ftype fun_type, code_ptr *after_inc, uint8_t from_c)
 {
 	code_info *code = &opts->code;
 	code_ptr start = code->cur;
-	check_cycles(opts);
 	uint8_t is_write = fun_type == WRITE_16 || fun_type == WRITE_8;
-	uint8_t adr_reg = is_write ? opts->scratch2 : opts->scratch1;
+	uint8_t adr_reg, context_reg, value_reg, dst_reg;
 	uint8_t size =  (fun_type == READ_16 || fun_type == WRITE_16) ? SZ_W : SZ_B;
+	
+	if (from_c) {
+#if defined(X86_64)
+#if defined(_WIN32)
+		//RCX, RDX, R8
+		adr_reg = RCX;
+		context_reg = RDX;
+		value_reg = is_write ? R9 : RAX;
+#else
+		//RDI, RSI, RDX
+		adr_reg = RDI;
+		context_reg = RSI;
+		value_reg = is_write ? RDX : RAX;
+#endif
+#else
+		//rtl on stack, EAX, ECX, EDX are caller saved
+		adr_reg = ECX;
+		context_reg = EDX;
+		value_reg = EAX;
+		mov_rr(code, RSP, EAX, SZ_D);
+		mov_rdispr(code, EAX, 4, adr_reg, opts->address_size);
+		mov_rdispr(code, EAX, 8, context_reg, SZ_D);
+		if (!is_write) {
+			mov_rdispr(code, EAX, 12, value_reg, size);
+		}
+#endif
+	} else {
+		adr_reg = is_write ? opts->scratch2 : opts->scratch1;
+		value_reg = opts->scratch1;
+		context_reg = opts->context_reg;
+		check_cycles(opts);
+	}
 	if (size != SZ_B && opts->align_error_mask) {
 		test_ir(code, opts->align_error_mask, adr_reg, SZ_D);
 		jcc(code, CC_NZ, is_write ? opts->handle_align_error_write : opts->handle_align_error_read);
 	}
-	cycles(opts, opts->bus_cycles);
+	if (opts->bus_cycles) {
+		cycles(opts, opts->bus_cycles);
+	}
 	if (after_inc) {
 		*after_inc = code->cur;
 	}
@@ -133,21 +166,25 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 	code_ptr check_watchpoints = size == SZ_W ? (code_ptr)opts->check_watchpoints_16 : (code_ptr)opts->check_watchpoints_8;
 	if (is_write && check_watchpoints) {
 		//watchpoints are enabled, check if the address is within the watchpoint range
-		cmp_rdispr(code, opts->context_reg, opts->watchpoint_range_off, adr_reg, opts->address_size);
+		cmp_rdispr(code, context_reg, opts->watchpoint_range_off, adr_reg, opts->address_size);
 		code_ptr watch_lb = code->cur + 1;
 		jcc(code, CC_C, code->cur + 2);
-		cmp_rdispr(code, opts->context_reg, opts->watchpoint_range_off + (opts->address_size == SZ_D ? 4 : 2), adr_reg, opts->address_size);
+		cmp_rdispr(code, context_reg, opts->watchpoint_range_off + (opts->address_size == SZ_D ? 4 : 2), adr_reg, opts->address_size);
 		code_ptr watch_ub = code->cur + 1;
 		jcc(code, CC_A, code->cur + 2);
 
-		push_r(code, opts->scratch1);
-		push_r(code, opts->scratch2);
-		call(code, opts->save_context);
-		call_args_abi(code, check_watchpoints, 3, opts->scratch2, opts->context_reg, opts->scratch1);
-		mov_rr(code, RAX, opts->context_reg, SZ_PTR);
-		call(code, opts->load_context);
-		pop_r(code, opts->scratch2);
-		pop_r(code, opts->scratch1);
+		push_r(code, value_reg);
+		push_r(code, adr_reg);
+		if (!from_c) {
+			call(code, opts->save_context);
+		}
+		call_args_abi(code, check_watchpoints, 3, adr_reg, context_reg, value_reg);
+		mov_rr(code, RAX, context_reg, SZ_PTR);
+		if (!from_c) {
+			call(code, opts->load_context);
+		}
+		pop_r(code, adr_reg);
+		pop_r(code, value_reg);
 
 		*watch_lb = code->cur - (watch_lb + 1);
 		*watch_ub = code->cur - (watch_ub + 1);
@@ -193,7 +230,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 		code_ptr after_normal = NULL;
 		uint8_t need_addr_pop = 0;
 		if (size == SZ_B && memmap[chunk].shift != 0) {
-			if (is_write && (memmap[chunk].flags & MMAP_CODE)) {
+			if (is_write && (memmap[chunk].flags & MMAP_CODE) && !from_c) {
 				push_r(code, adr_reg);
 				need_addr_pop = 1;
 			}
@@ -211,13 +248,13 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 			*normal = code->cur - (normal + 1);
 		}
 		if (memmap[chunk].shift > 0) {
-			if (!need_addr_pop && is_write && (memmap[chunk].flags & MMAP_CODE)) {
+			if (!need_addr_pop && is_write && (memmap[chunk].flags & MMAP_CODE) && !from_c) {
 				push_r(code, adr_reg);
 				need_addr_pop = 1;
 			}
 			shl_ir(code, memmap[chunk].shift, adr_reg, opts->address_size);
 		} else if (memmap[chunk].shift < 0) {
-			if (!need_addr_pop && is_write && (memmap[chunk].flags & MMAP_CODE)) {
+			if (!need_addr_pop && is_write && (memmap[chunk].flags & MMAP_CODE) && !from_c) {
 				push_r(code, adr_reg);
 				need_addr_pop = 1;
 			}
@@ -248,7 +285,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 			uint8_t tmp_size = size;
 			if (memmap[chunk].flags & MMAP_PTR_IDX) {
 				if (memmap[chunk].flags & MMAP_FUNC_NULL) {
-					cmp_irdisp(code, 0, opts->context_reg, opts->mem_ptr_off + sizeof(void*) * memmap[chunk].ptr_index, SZ_PTR);
+					cmp_irdisp(code, 0, context_reg, opts->mem_ptr_off + sizeof(void*) * memmap[chunk].ptr_index, SZ_PTR);
 					code_ptr not_null = code->cur + 1;
 					jcc(code, CC_NZ, code->cur + 2);
 					uint32_t stack_off;
@@ -256,17 +293,31 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 						stack_off = code->stack_off;
 						pop_r(code, adr_reg);
 					}
-					call(code, opts->save_context);
-					if (is_write) {
-						call_args_abi(code, cfun, 3, opts->scratch2, opts->context_reg, opts->scratch1);
-						mov_rr(code, RAX, opts->context_reg, SZ_PTR);
-					} else {
-						push_r(code, opts->context_reg);
-						call_args_abi(code, cfun, 2, opts->scratch1, opts->context_reg);
-						pop_r(code, opts->context_reg);
-						mov_rr(code, RAX, opts->scratch1, size);
+					if (!from_c) {
+						call(code, opts->save_context);
 					}
-					jmp(code, opts->load_context);
+					if (is_write) {
+						call_args_abi(code, cfun, 3, adr_reg, context_reg, value_reg);
+						if (!from_c) {
+							mov_rr(code, RAX, context_reg, SZ_PTR);
+						}
+					} else {
+						if (!from_c) {
+							push_r(code, context_reg);
+						}
+						call_args_abi(code, cfun, 2, adr_reg, context_reg);
+						if (!from_c) {
+							pop_r(code, context_reg);
+						}
+						if (value_reg != RAX) {
+							mov_rr(code, RAX, value_reg, size);
+						}
+					}
+					if (from_c) {
+						retn(code);
+					} else {
+						jmp(code, opts->load_context);
+					}
 					if (need_addr_pop) {
 						code->stack_off = stack_off;
 					}
@@ -279,7 +330,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 						code_ptr good_addr = code->cur + 1;
 						jcc(code, (memmap[chunk].flags & MMAP_ONLY_ODD) ? CC_C : CC_NC, code->cur + 2);
 						if (!is_write) {
-							mov_ir(code, 0xFF, opts->scratch1, SZ_B);
+							mov_ir(code, 0xFF, value_reg, SZ_B);
 						}
 						retn(code);
 						*good_addr = code->cur - (good_addr + 1);
@@ -291,28 +342,28 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 					tmp_size = SZ_B;
 					shr_ir(code, 1, adr_reg, opts->address_size);
 					if ((memmap[chunk].flags & MMAP_ONLY_EVEN) && is_write) {
-						shr_ir(code, 8, opts->scratch1, SZ_W);
+						shr_ir(code, 8, value_reg, SZ_W);
 					}
 				}
 				if (opts->address_size != SZ_D) {
 					movzx_rr(code, adr_reg, adr_reg, opts->address_size, SZ_D);
 				}
-				if (!need_addr_pop && is_write && (memmap[chunk].flags & MMAP_CODE)) {
+				if (!need_addr_pop && is_write && (memmap[chunk].flags & MMAP_CODE) && !from_c) {
 					push_r(code, adr_reg);
 					need_addr_pop = 1;
 				}
-				add_rdispr(code, opts->context_reg, opts->mem_ptr_off + sizeof(void*) * memmap[chunk].ptr_index, adr_reg, SZ_PTR);
+				add_rdispr(code, context_reg, opts->mem_ptr_off + sizeof(void*) * memmap[chunk].ptr_index, adr_reg, SZ_PTR);
 				if (is_write) {
-					mov_rrind(code, opts->scratch1, opts->scratch2, tmp_size);
+					mov_rrind(code, value_reg, adr_reg, tmp_size);
 				} else {
-					mov_rindr(code, opts->scratch1, opts->scratch1, tmp_size);
+					mov_rindr(code, adr_reg, value_reg, tmp_size);
 				}
 				if (size != tmp_size && !is_write) {
 					if (memmap[chunk].flags & MMAP_ONLY_EVEN) {
-						shl_ir(code, 8, opts->scratch1, SZ_W);
-						mov_ir(code, 0xFF, opts->scratch1, SZ_B);
+						shl_ir(code, 8, value_reg, SZ_W);
+						mov_ir(code, 0xFF, value_reg, SZ_B);
 					} else {
-						or_ir(code, 0xFF00, opts->scratch1, SZ_W);
+						or_ir(code, 0xFF00, value_reg, SZ_W);
 					}
 				}
 			} else {
@@ -322,7 +373,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 						code_ptr good_addr = code->cur + 1;
 						jcc(code, (memmap[chunk].flags & MMAP_ONLY_ODD) ? CC_C : CC_NC, code->cur + 2);
 						if (!is_write) {
-							mov_ir(code, 0xFF, opts->scratch1, SZ_B);
+							mov_ir(code, 0xFF, value_reg, SZ_B);
 						}
 						retn(code);
 						*good_addr = code->cur - (good_addr + 1);
@@ -334,7 +385,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 					tmp_size = SZ_B;
 					shr_ir(code, 1, adr_reg, opts->address_size);
 					if ((memmap[chunk].flags & MMAP_ONLY_EVEN) && is_write) {
-						shr_ir(code, 8, opts->scratch1, SZ_W);
+						shr_ir(code, 8, value_reg, SZ_W);
 					}
 				}
 				if (opts->address_size != SZ_D) {
@@ -342,73 +393,93 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 				}
 				if ((intptr_t)memmap[chunk].buffer <= 0x7FFFFFFF && (intptr_t)memmap[chunk].buffer >= -2147483648) {
 					if (is_write) {
-						mov_rrdisp(code, opts->scratch1, opts->scratch2, (intptr_t)memmap[chunk].buffer, tmp_size);
+						mov_rrdisp(code, value_reg, adr_reg, (intptr_t)memmap[chunk].buffer, tmp_size);
 					} else {
-						mov_rdispr(code, opts->scratch1, (intptr_t)memmap[chunk].buffer, opts->scratch1, tmp_size);
+						mov_rdispr(code, adr_reg, (intptr_t)memmap[chunk].buffer, value_reg, tmp_size);
 					}
 				} else {
 					if (is_write) {
-						push_r(code, opts->scratch2);
-						mov_ir(code, (intptr_t)memmap[chunk].buffer, opts->scratch2, SZ_PTR);
-						add_rdispr(code, RSP, 0, opts->scratch2, SZ_PTR);
-						mov_rrind(code, opts->scratch1, opts->scratch2, tmp_size);
-						if (is_write && (memmap[chunk].flags & MMAP_CODE)) {
+						push_r(code, adr_reg);
+						mov_ir(code, (intptr_t)memmap[chunk].buffer, adr_reg, SZ_PTR);
+						add_rdispr(code, RSP, 0, adr_reg, SZ_PTR);
+						mov_rrind(code, value_reg, adr_reg, tmp_size);
+						if (is_write && (memmap[chunk].flags & MMAP_CODE) && !from_c) {
 							need_addr_pop = 1;
 						} else {
 							add_ir(code, sizeof(void*), RSP, SZ_PTR);
 							code->stack_off -= sizeof(void *);
 						}
 					} else {
-						push_r(code, opts->scratch2);
-						mov_ir(code, (intptr_t)memmap[chunk].buffer, opts->scratch2, SZ_PTR);
-						mov_rindexr(code, opts->scratch2, opts->scratch1, 1, opts->scratch1, tmp_size);
-						pop_r(code, opts->scratch2);
+						if (from_c) {
+							mov_ir(code, (intptr_t)memmap[chunk].buffer, value_reg, SZ_PTR);
+							mov_rindexr(code, value_reg, adr_reg, 1, value_reg, tmp_size);
+						} else {
+							push_r(code, opts->scratch2);
+							mov_ir(code, (intptr_t)memmap[chunk].buffer, opts->scratch2, SZ_PTR);
+							mov_rindexr(code, opts->scratch2, opts->scratch1, 1, opts->scratch1, tmp_size);
+							pop_r(code, opts->scratch2);
+						}
 					}
 				}
 				if (size != tmp_size && !is_write) {
 					if (memmap[chunk].flags & MMAP_ONLY_EVEN) {
-						shl_ir(code, 8, opts->scratch1, SZ_W);
-						mov_ir(code, 0xFF, opts->scratch1, SZ_B);
+						shl_ir(code, 8, value_reg, SZ_W);
+						mov_ir(code, 0xFF, value_reg, SZ_B);
 					} else {
-						or_ir(code, 0xFF00, opts->scratch1, SZ_W);
+						or_ir(code, 0xFF00, value_reg, SZ_W);
 					}
 				}
 			}
-			if (is_write && (memmap[chunk].flags & MMAP_CODE)) {
+			if (is_write && (memmap[chunk].flags & MMAP_CODE) && !from_c) {
+				//FIXME: make this work in the from_c case
 				if (need_addr_pop) {
 					pop_r(code, adr_reg);
 				}
 				mov_rr(code, opts->scratch2, opts->scratch1, opts->address_size);
 				shr_ir(code, opts->ram_flags_shift, opts->scratch1, opts->address_size);
-				bt_rrdisp(code, opts->scratch1, opts->context_reg, ram_flags_off, opts->address_size);
+				bt_rrdisp(code, opts->scratch1, context_reg, ram_flags_off, opts->address_size);
 				code_ptr not_code = code->cur + 1;
 				jcc(code, CC_NC, code->cur + 2);
 				if (memmap[chunk].mask != opts->address_mask) {
 					or_ir(code, memmap[chunk].start, opts->scratch2, opts->address_size);
 				}
 				call(code, opts->save_context);
-				call_args(code, opts->handle_code_write, 2, opts->scratch2, opts->context_reg);
-				mov_rr(code, RAX, opts->context_reg, SZ_PTR);
+				call_args(code, opts->handle_code_write, 2, opts->scratch2, context_reg);
+				mov_rr(code, RAX, context_reg, SZ_PTR);
 				jmp(code, opts->load_context);
 				*not_code = code->cur - (not_code+1);
 			}
 			retn(code);
 		} else if (cfun) {
-			call(code, opts->save_context);
-			if (is_write) {
-				call_args_abi(code, cfun, 3, opts->scratch2, opts->context_reg, opts->scratch1);
-				mov_rr(code, RAX, opts->context_reg, SZ_PTR);
-			} else {
-				push_r(code, opts->context_reg);
-				call_args_abi(code, cfun, 2, opts->scratch1, opts->context_reg);
-				pop_r(code, opts->context_reg);
-				mov_rr(code, RAX, opts->scratch1, size);
+			if (!from_c) {
+				call(code, opts->save_context);
 			}
-			jmp(code, opts->load_context);
+			if (is_write) {
+				call_args_abi(code, cfun, 3, adr_reg, context_reg, value_reg);
+				if (!from_c) {
+					mov_rr(code, RAX, context_reg, SZ_PTR);
+				}
+			} else {
+				if (!from_c) {
+					push_r(code, context_reg);
+				}
+				call_args_abi(code, cfun, 2, adr_reg, context_reg);
+				if (!from_c) {
+					pop_r(code, context_reg);
+				}
+				if (value_reg != RAX) {
+					mov_rr(code, RAX, value_reg, size);
+				}
+			}
+			if (from_c) {
+				retn(code);
+			} else {
+				jmp(code, opts->load_context);
+			}
 		} else {
 			//Not sure the best course of action here
 			if (!is_write) {
-				mov_ir(code, size == SZ_B ? 0xFF : 0xFFFF, opts->scratch1, size);
+				mov_ir(code, size == SZ_B ? 0xFF : 0xFFFF, value_reg, size);
 			}
 			retn(code);
 		}
@@ -453,7 +524,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 		}
 	}
 	if (!is_write) {
-		mov_ir(code, size == SZ_B ? 0xFF : 0xFFFF, opts->scratch1, size);
+		mov_ir(code, size == SZ_B ? 0xFF : 0xFFFF, value_reg, size);
 	}
 	retn(code);
 	return start;

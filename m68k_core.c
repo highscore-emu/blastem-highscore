@@ -903,8 +903,8 @@ static void m68k_enable_watchpoints(m68k_context *context)
 	context->opts->gen.check_watchpoints_16 = m68k_watchpoint_check16;
 	context->opts->gen.check_watchpoints_8 = m68k_watchpoint_check8;
 	//re-generate write handlers with watchpoints enabled
-	code_ptr new_write16 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_16, NULL);
-	code_ptr new_write8 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_8, NULL);
+	code_ptr new_write16 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_16, NULL, 0);
+	code_ptr new_write8 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_8, NULL, 0);
 
 	//patch old write handlers to point to the new ones
 	code_info code = {

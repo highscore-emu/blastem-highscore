@@ -62,6 +62,10 @@ regs
 	periph_run ptrsh2_fun
 	int_ack ptrsh2_fun
 	calc_next_interrupt ptrsh2_fun
+	native_write16 ptrsh2_periph_write16
+	native_read16 ptrsh2_periph_read16
+	native_write8 ptrsh2_periph_write8
+	native_read8 ptrsh2_periph_read8
 	mem_pointers ptr8 4
 	cache 32 1024
 	peripherals 8 512
