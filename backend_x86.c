@@ -95,7 +95,7 @@ void log_address(cpu_options *opts, uint32_t address, char * format)
 	call(code, opts->save_context);
 	push_r(code, opts->context_reg);
 	mov_rr(code, opts->cycles, RDX, SZ_D);
-	mov_ir(code, (int64_t)format, RDI, SZ_PTR);
+	mov_ir(code, (intptr_t)format, RDI, SZ_PTR);
 	mov_ir(code, address, RSI, SZ_D);
 	call_args_abi(code, (code_ptr)printf, 3, RDI, RSI, RDX);
 	pop_r(code, opts->context_reg);
@@ -130,14 +130,14 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 #endif
 #else
 		//rtl on stack, EAX, ECX, EDX are caller saved
-		adr_reg = ECX;
-		context_reg = EDX;
-		value_reg = EAX;
-		mov_rr(code, RSP, EAX, SZ_D);
-		mov_rdispr(code, EAX, 4, adr_reg, opts->address_size);
-		mov_rdispr(code, EAX, 8, context_reg, SZ_D);
+		adr_reg = RCX;
+		context_reg = RDX;
+		value_reg = RAX;
+		mov_rr(code, RSP, RAX, SZ_D);
+		mov_rdispr(code, RAX, 4, adr_reg, opts->address_size);
+		mov_rdispr(code, RAX, 8, context_reg, SZ_D);
 		if (!is_write) {
-			mov_rdispr(code, EAX, 12, value_reg, size);
+			mov_rdispr(code, RAX, 12, value_reg, size);
 		}
 #endif
 	} else {
