@@ -121,7 +121,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 		//RCX, RDX, R8
 		adr_reg = RCX;
 		context_reg = RDX;
-		value_reg = is_write ? R9 : RAX;
+		value_reg = is_write ? R8 : RAX;
 #else
 		//RDI, RSI, RDX
 		adr_reg = RDI;
