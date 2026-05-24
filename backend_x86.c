@@ -136,7 +136,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 		mov_rr(code, RSP, RAX, SZ_D);
 		mov_rdispr(code, RAX, 4, adr_reg, opts->address_size);
 		mov_rdispr(code, RAX, 8, context_reg, SZ_D);
-		if (!is_write) {
+		if (is_write) {
 			mov_rdispr(code, RAX, 12, value_reg, size);
 		}
 #endif
