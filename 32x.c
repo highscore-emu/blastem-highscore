@@ -266,25 +266,25 @@ void sub_sh2_next_int(sh2_context *sh2)
 
 void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
 {
-	if (deduction > mars->video.cycle) {
+	if (mars->video.cycle > deduction) {
 		mars->video.cycle -= deduction;
 	} else {
 		mars->video.cycle = 0;
 	}
 	deduction *= 3;
-	if (deduction > mars->main->cycles) {
+	if (mars->main->cycles > deduction) {
 		mars->main->cycles -= deduction;
 	} else {
 		mars->main->cycles = 0;
 	}
 	sh7095_adjust_cycles(mars->main, deduction);
-	if (deduction > mars->sub->cycles) {
+	if (mars->sub->cycles > deduction) {
 		mars->sub->cycles -= deduction;
 	} else {
 		mars->sub->cycles = 0;
 	}
 	sh7095_adjust_cycles(mars->sub, deduction);
-	if (deduction > mars->pwm_cycle) {
+	if (mars->pwm_cycle > deduction) {
 		mars->pwm_cycle -= deduction;
 	} else {
 		mars->pwm_cycle = 0;
