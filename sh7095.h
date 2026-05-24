@@ -92,6 +92,10 @@ enum {
 #define BIT_WTCSR_WTIT 0x40
 #define BIT_WTCSR_TME  0x20
 
+#define BIT_RSTCSR_WOVF 0x80
+#define BIT_RSTCSR_RSTE 0x40
+#define BIT_RSTCSR_RSTS 0x20
+
 #define BIT_CHCR_IE 0x04
 #define BIT_CHCR_TE 0x02
 #define BIT_CHCR_DE 0x01

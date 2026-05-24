@@ -75,6 +75,7 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 			other_sh2->peripherals[SH_SSR] |= BIT_SSR_ORER;
 			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RIE) {
 				p->eri_pending = 1;
+				other_sh2->calc_next_interrupt(other_sh2);
 			}
 		} else {
 			printf("SCI received %X, setting RDRF SH2: %p\n", byte, other_sh2);
@@ -82,6 +83,7 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 			other_sh2->peripherals[SH_SSR] |= BIT_SSR_RDRF;
 			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RIE) {
 				p->ri_pending = 1;
+				other_sh2->calc_next_interrupt(other_sh2);
 			}
 		}
 	}
@@ -276,6 +278,7 @@ static void sh7095_run(sh2_context *sh2)
 					sh2->peripherals[SH_SSR] |= BIT_SSR_TEND;
 					if (sh2->peripherals[SH_SCR] & BIT_SCR_TEIE) {
 						p->tei_pending = 1;
+						sh2->calc_next_interrupt(sh2);
 					}
 					p->transmit_counter = 0;
 				} else {
@@ -283,6 +286,7 @@ static void sh7095_run(sh2_context *sh2)
 					sh2->peripherals[SH_SSR] |= BIT_SSR_TDRE;
 					if (sh2->peripherals[SH_SCR] & BIT_SCR_TIE) {
 						p->ti_pending = 1;
+						sh2->calc_next_interrupt(sh2);
 					}
 					start_transmit(sh2);
 				}
@@ -323,24 +327,27 @@ static void sh7095_run(sh2_context *sh2)
 		}
 		if (p->wdt_counter) {
 			uint32_t wdt_delta = delta;
-			uint32_t cks = wdt_counter_values[sh2->peripherals[SH_WTCSR] & 7];
+			uint32_t cks = wdt_counter_values[sh2->peripherals[SH_WTCSR] & 7] * sh2->opts->gen.clock_divider;
+			uint8_t overflow = 0;
 			while (wdt_delta >= p->wdt_counter)
 			{
 				sh2->peripherals[SH_WTCNT]++;
-				if (!sh2->peripherals[SH_WTCNT]) {
-					sh2->peripherals[SH_WTCSR] |= BIT_WTCSR_OVF;
-					if (sh2->peripherals[SH_WTCSR] & BIT_WTCSR_WTIT) {
-						//TODO: trigger !WDTOVF
-					} else {
-						p->iti_pending = 1;
-					}
-				}
+				overflow = !sh2->peripherals[SH_WTCNT];
 				wdt_delta -= p->wdt_counter;
 				p->wdt_counter = cks;
 			}
 			if (wdt_delta)
 			{
 				p->wdt_counter -= wdt_delta;
+			}
+			if (overflow) {
+				if (sh2->peripherals[SH_WTCSR] & BIT_WTCSR_WTIT) {
+					//TODO: trigger !WDTOVF and or reset chip
+					sh2->peripherals[SH_RSTCSR] |= BIT_RSTCSR_WOVF;
+				} else {
+					sh2->peripherals[SH_WTCSR] |= BIT_WTCSR_OVF;
+					p->iti_pending = 1;
+				}
 			}
 		}
 		if (p->dmac0_run || p->dmac1_run)
@@ -381,6 +388,7 @@ static void sh7095_run(sh2_context *sh2)
 							sh2->peripherals[SH_CHCR1+3] |= BIT_CHCR_TE;
 							if (sh2->peripherals[SH_CHCR1+3] & BIT_CHCR_IE) {
 								p->dmac1_pending = 1;
+								sh2->calc_next_interrupt(sh2);
  							}
 						} else if (!ar0 && !p->dreq1) { //TODO: SCI DMA
 							p->dmac1_run = 0;
@@ -393,6 +401,7 @@ static void sh7095_run(sh2_context *sh2)
 							sh2->peripherals[SH_CHCR0+3] |= BIT_CHCR_TE;
 							if (sh2->peripherals[SH_CHCR0+3] & BIT_CHCR_IE) {
 								p->dmac0_pending = 1;
+								sh2->calc_next_interrupt(sh2);
  							}
 						} else if (!ar1 && !p->dreq0) { //TODO: SCI DMA
 							p->dmac0_run = 0;
@@ -416,6 +425,7 @@ static void sh7095_run(sh2_context *sh2)
 					sh2->peripherals[SH_CHCR0+3] |= BIT_CHCR_TE;
 					if (sh2->peripherals[SH_CHCR0+3] & BIT_CHCR_IE) {
 						p->dmac0_pending = 1;
+						sh2->calc_next_interrupt(sh2);
 					}
 				} else if (!ar0 && !p->dreq0) { //TODO: SCI DMA
 					p->dmac0_run = 0;
@@ -435,6 +445,7 @@ static void sh7095_run(sh2_context *sh2)
 					sh2->peripherals[SH_CHCR1+3] |= BIT_CHCR_TE;
 					if (sh2->peripherals[SH_CHCR1+3] & BIT_CHCR_IE) {
 						p->dmac1_pending = 1;
+						sh2->calc_next_interrupt(sh2);
 					}
 				} else if (!ar1 && !p->dreq1) { //TODO: SCI DMA
 					p->dmac1_run = 0;
@@ -513,12 +524,21 @@ static void sh7095_write_byte(uint32_t reg, sh2_context *sh2, uint8_t value)
 		changes = old ^ value;
 		if (changes & BIT_WTCSR_TME) {
 			if (value & BIT_WTCSR_TME) {
-				p->wdt_counter = wdt_counter_values[value & 7];
+				p->wdt_counter = wdt_counter_values[value & 7] * sh2->opts->gen.clock_divider;
 			} else {
+				sh2->peripherals[SH_WTCNT] = 0;
 				p->wdt_counter = 0;
 			}
 		}
+		if (changes & (BIT_WTCSR_TME|BIT_WTCSR_WTIT)) {
+			sh2->calc_next_interrupt(sh2);
+		}
 		break;
+	case SH_WTCNT:
+		changes = old ^ value;
+		if (changes) {
+			sh2->calc_next_interrupt(sh2);
+		}
 	}
 }
 
@@ -578,8 +598,32 @@ static void sh7095_write_16(uint32_t address, sh2_context *sh2, uint16_t value)
 {
 	sh7095_run(sh2);
 	address &= 0x1FE;
-	sh7095_write_byte(address, sh2, value >> 8);
-	sh7095_write_byte(address | 1, sh2, value);
+	switch (address)
+	{
+	case SH_WTCSR:
+		address = value & 0xFF00;
+		if (address == 0x5A00) {
+			sh7095_write_byte(SH_WTCNT, sh2, value);
+		} else if (address == 0xA500) {
+			sh7095_write_byte(SH_WTCSR, sh2, value);
+		}
+		break;
+	case (SH_RSTCSR-1):
+		address = value & 0xFF00;
+		if (address == 0x5A00) {
+			if (!(value & BIT_RSTCSR_WOVF)) {
+				sh2->peripherals[SH_RSTCSR] &= ~BIT_RSTCSR_WOVF;
+			}
+		} else if (address == 0xA500) {
+			sh2->peripherals[SH_RSTCSR] &= ~(BIT_RSTCSR_RSTE|BIT_RSTCSR_RSTS);
+			sh2->peripherals[SH_RSTCSR] |= value & (BIT_RSTCSR_RSTE|BIT_RSTCSR_RSTS);
+		}
+		break;
+	default:
+		sh7095_write_byte(address, sh2, value >> 8);
+		sh7095_write_byte(address | 1, sh2, value);
+		break;
+	}
 }
 
 static void sh7095_write_8(uint32_t address, sh2_context *sh2, uint8_t value)
@@ -869,7 +913,7 @@ void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask)
 			if (p->iti_pending) {
 				next_wdt_int = sh2->cycles;
 			} else {
-				uint32_t cks = wdt_counter_values[sh2->peripherals[SH_WTCSR] & 7];
+				uint32_t cks = wdt_counter_values[sh2->peripherals[SH_WTCSR] & 7] * sh2->opts->gen.clock_divider;
 				next_wdt_int = p->cycle + p->wdt_counter + (0xFF - sh2->peripherals[SH_WTCNT]) * cks;
 			}
 			if (sh2->int_cycle > next_wdt_int || (sh2->int_cycle == next_wdt_int && priority > sh2->int_priority)) {
