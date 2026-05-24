@@ -328,8 +328,12 @@ static void sh7095_run(sh2_context *sh2)
 			{
 				sh2->peripherals[SH_WTCNT]++;
 				if (!sh2->peripherals[SH_WTCNT]) {
-					//TODO: interrupt and/or reset
 					sh2->peripherals[SH_WTCSR] |= BIT_WTCSR_OVF;
+					if (sh2->peripherals[SH_WTCSR] & BIT_WTCSR_WTIT) {
+						//TODO: trigger !WDTOVF
+					} else {
+						p->iti_pending = 1;
+					}
 				}
 				wdt_delta -= p->wdt_counter;
 				p->wdt_counter = cks;
@@ -509,7 +513,7 @@ static void sh7095_write_byte(uint32_t reg, sh2_context *sh2, uint8_t value)
 		changes = old ^ value;
 		if (changes & BIT_WTCSR_TME) {
 			if (value & BIT_WTCSR_TME) {
-				p->wdt_counter = wdt_counter_values[sh2->peripherals[SH_TCR] & 7];
+				p->wdt_counter = wdt_counter_values[value & 7];
 			} else {
 				p->wdt_counter = 0;
 			}
@@ -796,6 +800,13 @@ static void sh7095_ack_dmac1(sh2_context *sh2)
 	p->dmac1_pending = 0;
 }
 
+static void sh7095_ack_iti(sh2_context *sh2)
+{
+	sh7095_run(sh2);
+	sh7095_periph *p = sh2->periph_state;
+	p->iti_pending = 0;
+}
+
 void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask)
 {
 	//TODO: predict interrupt timing when possible
@@ -848,6 +859,25 @@ void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask)
 			sh2->int_priority = priority;
 			sh2->int_vector = sh2->peripherals[SH_VCRDMA1 + 3] & 0x7F;
 			sh2->int_ack = sh7095_ack_dmac1;
+		}
+	}
+	if ((sh2->peripherals[SH_WTCSR] & (BIT_WTCSR_TME|BIT_WTCSR_WTIT)) == BIT_WTCSR_TME) {
+		//WDT is enabled and in interval timer mode
+		uint32_t priority = sh2->peripherals[SH_IPRA+1] >> 4;
+		if (priority_mask < priority) {
+			uint32_t next_wdt_int;
+			if (p->iti_pending) {
+				next_wdt_int = sh2->cycles;
+			} else {
+				uint32_t cks = wdt_counter_values[sh2->peripherals[SH_WTCSR] & 7];
+				next_wdt_int = p->cycle + p->wdt_counter + (0xFF - sh2->peripherals[SH_WTCNT]) * cks;
+			}
+			if (sh2->int_cycle > next_wdt_int || (sh2->int_cycle == next_wdt_int && priority > sh2->int_priority)) {
+				sh2->int_cycle = next_wdt_int;
+				sh2->int_priority = priority;
+				sh2->int_vector = sh2->peripherals[SH_VCRWDT] & 0x7F;
+				sh2->int_ack = sh7095_ack_iti;
+			}
 		}
 	}
 }

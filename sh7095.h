@@ -88,8 +88,9 @@ enum {
 #define BIT_FTCSR_OVF   0x02
 #define BIT_FTCSR_CCLRA 0x01
 
-#define BIT_WTCSR_OVF 0x80
-#define BIT_WTCSR_TME 0x20
+#define BIT_WTCSR_OVF  0x80
+#define BIT_WTCSR_WTIT 0x40
+#define BIT_WTCSR_TME  0x20
 
 #define BIT_CHCR_IE 0x04
 #define BIT_CHCR_TE 0x02
@@ -122,6 +123,7 @@ typedef struct {
 	uint8_t     dreq1;
 	uint8_t     dmac0_pending;
 	uint8_t     dmac1_pending;
+	uint8_t     iti_pending;
 } sh7095_periph;
 
 void sh7095_setup(sh2_context *sh2);
