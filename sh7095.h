@@ -112,8 +112,11 @@ typedef struct {
 	uint32_t    transmit_counter;
 	uint32_t    frc_counter;
 	uint32_t    wdt_counter;
+	int32_t     quotient;
+	int32_t     remainder;
 	uint16_t    ocra;
 	uint16_t    ocrb;
+	uint8_t     div_overflow;
 	uint8_t     frc_temp;
 	uint8_t     tsr;
 	uint8_t     ti_pending;
