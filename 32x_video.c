@@ -229,6 +229,7 @@ static void s32x_composite_rle(s32x_video *vid, pixel_t *output, uint8_t *compos
 			*output = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
 		}
 		compositebuf++;
+		count--;
 	}
 }
 
