@@ -6011,7 +6011,11 @@ static uint8_t cmd_breakpoint_sh2(debug_root *root, parsed_command *cmd)
 	bp_def *new_bp = calloc(1, sizeof(bp_def));
 	new_bp->next = root->breakpoints;
 	new_bp->address = address;
-	new_bp->mask = 0x7FFFFFF;
+	if (address < 0x28000000) {
+		new_bp->mask = 0x7FFFFFF;
+	} else {
+		new_bp->mask = 0xFFFFFFFF;
+	}
 	new_bp->index = root->bp_index++;
 	new_bp->type = BP_TYPE_CPU;
 	root->breakpoints = new_bp;
