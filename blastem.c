@@ -139,7 +139,7 @@ void setup_saves(system_media *media, system_header *context)
 	free(save_state_path);
 	save_state_path = alloc_concat_m(3, parts);
 	context->save_dir = save_dir;
-	if (info->save_type != SAVE_NONE || context->type == SYSTEM_SEGACD
+	if (info->save_type != SAVE_NONE || context->type == SYSTEM_SEGACD || context->type == SYSTEM_32XCD
 		|| (context->type == SYSTEM_GENESIS && info->wants_cd)
 	) {
 		context->load_save(context);
