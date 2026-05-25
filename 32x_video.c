@@ -146,9 +146,9 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 			{
 				vid->back[address] = data_hi;
 				vid->back[address|1] = data_lo;
+				address = (address & 0x1FE00) | ((address + 2) & 0x1FE);
 				if (count) {
 					--count;
-					address = (address & 0x1FE00) | ((address + 2) & 0x1FE);
 					delta -= MCLKS_FILL_WORD;
 					if (!count) {
 						min_delta = MCLKS_FILL_LAST;
