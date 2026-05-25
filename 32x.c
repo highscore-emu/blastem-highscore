@@ -9,7 +9,7 @@
 #include "util.h"
 #include "debug.h"
 
-#define MAX_SH2_CYCLES 1000
+#define MAX_SH2_CYCLES 500
 
 void pwm_fifo_write(pwm_fifo *fifo, uint16_t *status, uint16_t value)
 {
@@ -329,7 +329,7 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
+	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	if (address < 0x0004000 + (S32X_NUM_REGS * 2)) {
@@ -738,7 +738,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		}
 		s32x_video_run(&mars->video, sh2->cycles / 3);
 		mars->video.hen = (new & BIT_INTMASK_HEN) ? 1 : 0;
-		if (sh2 == mars->main) {
+		if (sh2->main) {
 			if (changes & S32X_INTEN_MASK) {
 				base[reg] = new;
 				main_sh2_next_int(sh2);
@@ -770,7 +770,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		break;
 	case S32X_VINT_CLR:
 		s32x_video_run(&mars->video, sh2->cycles / 3);
-		if (sh2 == mars->main) {
+		if (sh2->main) {
 			mars->video.main_vint_pending = 0;
 			main_sh2_next_int(sh2);
 		} else {
@@ -780,7 +780,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		break;
 	case S32X_HINT_CLR:
 		s32x_video_run(&mars->video, sh2->cycles / 3);
-		if (sh2 == mars->main) {
+		if (sh2->main) {
 			mars->video.main_hint_pending = 0;
 			main_sh2_next_int(sh2);
 		} else {
@@ -789,7 +789,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		}
 		break;
 	case S32X_CMD_INT_CLR:
-		if (sh2 == mars->main) {
+		if (sh2->main) {
 			mars->regs[S32X_INT_CTRL] &= ~BIT_MAIN_INT;
 			main_sh2_next_int(sh2);
 		} else {
@@ -799,7 +799,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		break;
 	case S32X_PWM_INT_CLR:
 		s32x_pwm_run(mars, sh2->cycles);
-		if (sh2 == mars->main) {
+		if (sh2->main) {
 			mars->pwm_main_int_pending = 0;
 			main_sh2_next_int(sh2);
 		} else {
@@ -849,10 +849,10 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
-		sh2_run(mars->sub, sh2->cycles);
-	}
 	if (address < 0x0004000 + (S32X_NUM_REGS * 2)) {
+		if (sh2->main) {
+			sh2_run(mars->sub, sh2->cycles);
+		}
 		uint32_t reg = (address & 0xFE) >> 1;
 		uint16_t mask = sh2_write_masks[reg];
 		printf("32X SH2 %c Write: %06X: %04X\n", sh2 == mars->main ? 'M' : 'S', address, value);
@@ -860,6 +860,9 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 	} else if (address >= 0x0004100) {
 		for (;;)
 		{
+			if (sh2->main) {
+				sh2_run(mars->sub, sh2->cycles);
+			}
 			s32x_video_run(&mars->video, sh2->cycles / 3);
 			uint32_t wait_cycles = s32x_video_sh2_write(address, &mars->video, value);
 			if (wait_cycles) {
@@ -877,13 +880,16 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
+	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	if (address < 0x0004000 + (S32X_NUM_REGS * 2)) {
 		uint32_t reg = (address & 0xFE) >> 1;
 		uint16_t mask = sh2_write_masks[reg];
 		uint16_t extended;
+		if (sh2->main) {
+			sh2_run(mars->sub, sh2->cycles);
+		}
 		if (address & 1) {
 			extended = value;
 			mask &= 0x00FF;;
@@ -896,6 +902,9 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 	} else if (address >= 0x0004100) {
 		for (;;)
 		{
+			if (sh2->main) {
+				sh2_run(mars->sub, sh2->cycles);
+			}
 			s32x_video_run(&mars->video, sh2->cycles / 3);
 			uint32_t wait_cycles = s32x_video_sh2_write_b(address, &mars->video, value);
 			if (wait_cycles) {
@@ -1017,7 +1026,7 @@ void *s32x_sh2_fb_write_w(uint32_t address, void *vcontext, uint16_t value)
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
+	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
@@ -1029,7 +1038,7 @@ void *s32x_sh2_fb_write_b(uint32_t address, void *vcontext, uint8_t value)
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
+	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
@@ -1042,6 +1051,9 @@ uint16_t s32x_sh2_fb_read_w(uint32_t address, void *vcontext)
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
+	if (sh2->main) {
+		sh2_run(mars->sub, sh2->cycles);
+	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
 	return s32x_video_fb_read_w(address, &mars->video);
 }
@@ -1050,7 +1062,7 @@ uint8_t s32x_sh2_fb_read_b(uint32_t address, void *vcontext)
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
+	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
@@ -1081,7 +1093,7 @@ void *s32x_sh2_overwrite_write_w(uint32_t address, void *vcontext, uint16_t valu
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
+	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
@@ -1093,7 +1105,7 @@ void *s32x_sh2_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value
 {
 	sh2_context *sh2 = vcontext;
 	s32x *mars = sh2->system;
-	if (sh2 == mars->main) {
+	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
