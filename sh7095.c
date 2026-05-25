@@ -679,11 +679,6 @@ static uint32_t sh7095_read_32(uint32_t address, sh2_context *sh2)
 	case SH_DVDNTL:
 		//Does this apply to DVCR and VCRDIV too?
 		if (p->divide_counter) {
-			if (p->divide_counter > 33) {
-				//handle early termination due to overflow
-				sh2->cycles += p->divide_counter - 33;
-				sh7095_run(sh2);
-			}
 			sh2->cycles += p->divide_counter;
 			sh7095_run(sh2);
 		}

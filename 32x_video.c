@@ -119,13 +119,27 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 					vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_VBLK;
 					vid->main_vint_pending = 1;
 					vid->sub_vint_pending = 1;
+					if (vid->flip_pending) {
+						vid->flip_pending = 0;
+						uint8_t *tmp = vid->front;
+						vid->front = vid->back;
+						vid->back = tmp;
+						vid->regs[S32X_VID_FB_CTRL] ^= S32X_VID_BIT_FS;
+					}
 				}
 			} else {
 				vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_VBLK;
 				if (line_start < vblank_start && lines >= frame_end - line_start) {
 					//passed through vblank and wrapped around
 					vid->main_vint_pending = 1;
-					vid->sub_vint_pending = 1;
+					vid->sub_vint_pending = 1;					
+					if (vid->flip_pending) {
+						vid->flip_pending = 0;
+						uint8_t *tmp = vid->front;
+						vid->front = vid->back;
+						vid->back = tmp;
+						vid->regs[S32X_VID_FB_CTRL] ^= S32X_VID_BIT_FS;
+					}
 				}
 			}
 		}
@@ -386,8 +400,11 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;
+				video->flip_pending = 0;
 			} else {
-				return s32x_cycles_to_vblank(video);
+				video->flip_pending = 1;
+				new &= ~S32X_VID_BIT_FS;
+				new |= old & S32X_VID_BIT_FS;
 			}
 		}
 		printf("32X VDP Write: %06X: %04X\n", address, value);
@@ -428,8 +445,11 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;
+				video->flip_pending = 0;
 			} else {
-				return s32x_cycles_to_vblank(video);
+				video->flip_pending = 1;
+				new &= ~S32X_VID_BIT_FS;
+				new |= old & S32X_VID_BIT_FS;
 			}
 		}
 		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
@@ -461,8 +481,11 @@ uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t valu
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;
+				video->flip_pending = 0;
 			} else {
-				return s32x_cycles_to_vblank(video) * 3;
+				video->flip_pending = 1;
+				new &= ~S32X_VID_BIT_FS;
+				new |= old & S32X_VID_BIT_FS;
 			}
 		}
 		printf("32X VDP Write: %06X: %04X\n", address, value);
@@ -502,8 +525,11 @@ uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t val
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;
+				video->flip_pending = 0;
 			} else {
-				return s32x_cycles_to_vblank(video) * 3;
+				video->flip_pending = 1;
+				new &= ~S32X_VID_BIT_FS;
+				new |= old & S32X_VID_BIT_FS;
 			}
 		}
 		printf("32X VDP Write (byte): %06X: %04X\n", address, value);

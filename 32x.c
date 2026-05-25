@@ -176,6 +176,7 @@ void main_sh2_next_int(sh2_context *sh2)
 				if (priority_mask < 6) {
 					uint32_t pwm_int_cycle = 0xFFFFFFFF;
 					if (mars->sh2_regs[S32X_SH2_INT_CTRL] & BIT_PWM_INT_EN) {
+						sh2_run(mars->sub, sh2->cycles);
 						s32x_pwm_run(mars, sh2->cycles);
 						if (mars->pwm_main_int_pending) {
 							pwm_int_cycle = sh2->cycles;
@@ -602,21 +603,14 @@ void s32x_68k_sysreg_write(uint32_t reg, m68k_context *m68k, s32x *mars, uint16_
 		}
 		break;
 	case S32X_PWM_WIDTH_M:
-		new = mars->regs[S32X_PWM_WIDTH_L];
 	case S32X_PWM_WIDTH_L:
-		pwm_fifo_write(&mars->fifo_left, &new, value);
-		if (reg == S32X_PWM_WIDTH_M) {
-			mars->regs[S32X_PWM_WIDTH_L] = new;
-			reg = S32X_PWM_WIDTH_R;
-			new = mars->regs[reg];
-		} else {
-			mars->regs[reg] = new;
+		pwm_fifo_write(&mars->fifo_left, &mars->regs[S32X_PWM_WIDTH_L], value);
+		if (reg != S32X_PWM_WIDTH_M) {
 			maybe_update_pwm_dreq(mars);
 			return;
 		}
 	case S32X_PWM_WIDTH_R:
-		pwm_fifo_write(&mars->fifo_right, &new, value);
-		mars->regs[reg] = new;
+		pwm_fifo_write(&mars->fifo_right, &mars->regs[S32X_PWM_WIDTH_R], value);
 		maybe_update_pwm_dreq(mars);
 		return;
 	}
@@ -808,23 +802,16 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		}
 		break;
 	case S32X_PWM_WIDTH_M:
-		new = base[S32X_PWM_WIDTH_L];
 	case S32X_PWM_WIDTH_L:
 		s32x_pwm_run(mars, sh2->cycles);
-		pwm_fifo_write(&mars->fifo_left, &new, value);
-		if (reg == S32X_PWM_WIDTH_M) {
-			base[S32X_PWM_WIDTH_L] = new;
-			reg = S32X_PWM_WIDTH_R;
-			new = base[reg];
-		} else {			
-			mars->regs[S32X_PWM_WIDTH_L] = new;
+		pwm_fifo_write(&mars->fifo_left, &base[S32X_PWM_WIDTH_L], value);
+		if (reg != S32X_PWM_WIDTH_M) {
 			maybe_update_pwm_dreq(mars);
 			return;
 		}
 	case S32X_PWM_WIDTH_R:
 		s32x_pwm_run(mars, sh2->cycles);
-		pwm_fifo_write(&mars->fifo_right, &new, value);
-		mars->regs[reg] = new;
+		pwm_fifo_write(&mars->fifo_right, &base[S32X_PWM_WIDTH_R], value);
 		maybe_update_pwm_dreq(mars);
 		return;
 	case S32X_PWM_CTRL:

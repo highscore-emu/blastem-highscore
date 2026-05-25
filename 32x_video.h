@@ -49,6 +49,7 @@ typedef struct {
 	uint8_t     main_hint_pending;
 	uint8_t     sub_hint_pending;
 	uint8_t     hen;
+	uint8_t     flip_pending;
 } s32x_video;
 
 void s32x_video_init(s32x_video *vid, uint8_t pal);
