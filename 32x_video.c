@@ -402,9 +402,7 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 				video->back = tmp;
 				video->flip_pending = 0;
 			} else {
-				video->flip_pending = 1;
-				new &= ~S32X_VID_BIT_FS;
-				new |= old & S32X_VID_BIT_FS;
+				return s32x_cycles_to_vblank(video);
 			}
 		}
 		printf("32X VDP Write: %06X: %04X\n", address, value);
@@ -447,9 +445,7 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 				video->back = tmp;
 				video->flip_pending = 0;
 			} else {
-				video->flip_pending = 1;
-				new &= ~S32X_VID_BIT_FS;
-				new |= old & S32X_VID_BIT_FS;
+				return s32x_cycles_to_vblank(video);
 			}
 		}
 		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
