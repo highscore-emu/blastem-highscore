@@ -1259,6 +1259,7 @@ sh2_reset
 	cycles 1
 	sr = gpr.M & 0x3F3
 	sh2_disperse_sr
+	update_sync
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
@@ -1281,6 +1282,7 @@ sh2_reset
 	sr = scratch1 & 0x3F3
 	gpr.M += 4
 	sh2_disperse_sr
+	update_sync
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
@@ -1444,6 +1446,7 @@ sh2_reset
 	sh2_read32_data r15
 	sr = scratch1 & 0x3F3
 	sh2_disperse_sr
+	update_sync
 	r15 += 4
 	cycles 1
 
