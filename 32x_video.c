@@ -396,13 +396,15 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 		uint16_t new = (old & ~mask) | (value & mask);
 		uint16_t changed = old ^ new;
 		if (reg == S32X_VID_FB_CTRL && (changed & S32X_VID_BIT_FS)) {
-			if (old & S32X_VID_BIT_VBLK) {
+			if (old & S32X_VID_BIT_VBLK || !(video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK)) {
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;
 				video->flip_pending = 0;
 			} else {
-				return s32x_cycles_to_vblank(video);
+				video->flip_pending = 1;
+				new &= ~S32X_VID_BIT_FS;
+				new |= old & S32X_VID_BIT_FS;
 			}
 		}
 		printf("32X VDP Write: %06X: %04X\n", address, value);
@@ -439,13 +441,15 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 		uint16_t new = (old & ~mask) | (extended & mask);
 		uint16_t changed = old ^ new;
 		if (reg == S32X_VID_FB_CTRL && (changed & S32X_VID_BIT_FS)) {
-			if (old & S32X_VID_BIT_VBLK) {
+			if (old & S32X_VID_BIT_VBLK || !(video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK)) {
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;
 				video->flip_pending = 0;
 			} else {
-				return s32x_cycles_to_vblank(video);
+				video->flip_pending = 1;
+				new &= ~S32X_VID_BIT_FS;
+				new |= old & S32X_VID_BIT_FS;
 			}
 		}
 		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
@@ -473,7 +477,7 @@ uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t valu
 		uint16_t new = (old & ~mask) | (value & mask);
 		uint16_t changed = old ^ new;
 		if (reg == S32X_VID_FB_CTRL && (changed & S32X_VID_BIT_FS)) {
-			if (old & S32X_VID_BIT_VBLK) {
+			if (old & S32X_VID_BIT_VBLK || !(video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK)) {
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;
@@ -517,7 +521,7 @@ uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t val
 		uint16_t new = (old & ~mask) | (extended & mask);
 		uint16_t changed = old ^ new;
 		if (reg == S32X_VID_FB_CTRL && (changed & S32X_VID_BIT_FS)) {
-			if (old & S32X_VID_BIT_VBLK) {
+			if (old & S32X_VID_BIT_VBLK || !(video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK)) {
 				uint8_t *tmp = video->front;
 				video->front = video->back;
 				video->back = tmp;

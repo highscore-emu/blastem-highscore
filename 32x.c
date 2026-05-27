@@ -90,6 +90,50 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 	}
 }
 
+static void save_sh2_state(s32x *mars, sh2_context *sh2)
+{
+	sh2_context *dst = sh2->main ? mars->main_tmp : mars->sub_tmp;
+	memcpy(dst->gpr, sh2->gpr, sizeof(sh2->gpr));
+	dst->vbr = sh2->vbr;
+	dst->sr = sh2->sr;
+	dst->pr = sh2->pr;
+	dst->pc = sh2->pc;
+	dst->macl = sh2->macl;
+	dst->mach = sh2->mach;
+	dst->gbr = sh2->gbr;
+	dst->prefetch_next = sh2->prefetch_next;
+	dst->prefetch_cur = sh2->prefetch_cur;
+	dst->t = sh2->t;
+	dst->s = sh2->s;
+	dst->q = sh2->q;
+	dst->m = sh2->m;
+	dst->delay_slot = sh2->delay_slot;
+	mars->saved_sh2_state = 1;
+}
+
+static void maybe_restore_sh2(s32x *mars, sh2_context *sh2)
+{
+	if (mars->saved_sh2_state) {
+		mars->saved_sh2_state = 0;
+		sh2_context *src = sh2->main ? mars->main_tmp : mars->sub_tmp;
+		memcpy(sh2->gpr, src->gpr, sizeof(sh2->gpr));
+		sh2->vbr = src->vbr;
+		sh2->sr = src->sr;
+		sh2->pr = src->pr;
+		sh2->pc = src->pc;
+		sh2->macl = src->macl;
+		sh2->mach = src->mach;
+		sh2->gbr = src->gbr;
+		sh2->prefetch_next = src->prefetch_next;
+		sh2->prefetch_cur = src->prefetch_cur;
+		sh2->t = src->t;
+		sh2->s = src->s;
+		sh2->q = src->q;
+		sh2->m = src->m;
+		sh2->delay_slot = src->delay_slot;
+	}
+}
+
 void s32x_run(s32x *mars, uint32_t target)
 {
 	uint32_t sh2_target = target * 3;
@@ -102,6 +146,7 @@ void s32x_run(s32x *mars, uint32_t target)
 			} else {
 				cur_target = sh2_target;
 			}
+			mars->cur_sh2_target = cur_target;
 #ifndef IS_LIB
 			if (mars->main_enter_debugger && !mars->main->reset) {
 				mars->main_enter_debugger = 0;
@@ -112,6 +157,7 @@ void s32x_run(s32x *mars, uint32_t target)
 			}
 #endif
 			sh2_run(mars->main, cur_target);
+			maybe_restore_sh2(mars, mars->main);
 #ifndef IS_LIB
 			if (mars->sub_enter_debugger && !mars->sub->reset) {
 				mars->sub_enter_debugger = 0;
@@ -122,6 +168,7 @@ void s32x_run(s32x *mars, uint32_t target)
 			}
 #endif
 			sh2_run(mars->sub, cur_target);
+			maybe_restore_sh2(mars, mars->sub);
 			s32x_pwm_run(mars, cur_target);
 		}
 	}
@@ -312,6 +359,17 @@ uint16_t s32x_68k_read(uint32_t address, void *vcontext)
 		}
 		return mars->regs[reg];
 	} else if (address >= 0xA15180) {
+		while (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+			gen->bus_busy = 1;
+			//FIXME: make this continue exactly when FM Is flipped
+			m68k->cycles += MAX_SH2_CYCLES / 3;
+#ifdef NEW_CORE
+			m68k->sync_components(m68k, 0);
+#else
+			m68k->opts->sync_components(m68k, 0);
+#endif
+		}
+		gen->bus_busy = 0;
 		return s32x_video_68k_read(address, &mars->video);
 	}
 	return 0xFFFF;
@@ -381,6 +439,11 @@ uint16_t s32x_sh2_read(uint32_t address, void *vcontext)
 			return mars->regs[reg];
 		}
 	} else if (address >= 0x0004100) {
+		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM)) {
+			sh2->cycles = mars->cur_sh2_target;
+			save_sh2_state(mars, sh2);
+			return 0xFFFF;
+		}
 		s32x_video_run(&mars->video, sh2->cycles / 3);
 		return s32x_video_sh2_read(address, &mars->video);
 	}
@@ -623,13 +686,18 @@ void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value)
 	m68k_context *m68k = vcontext;
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
+	s32x_run(mars, m68k->cycles);
 	if (address < 0xA15100 + (S32X_NUM_REGS * 2)) {
-		s32x_run(mars, m68k->cycles);
 		uint32_t reg = (address & 0xFF) >> 1;
 		uint16_t mask = reg_write_masks[reg];
 		printf("32X 68K Write: %06X: %04X\n", address, value);
 		s32x_68k_sysreg_write(reg, m68k, mars, mask, value);
 	} else if (address >= 0xA15180) {
+		if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+			//writes are ignored when FM is set
+			return vcontext;
+		}
+		gen->bus_busy = 1;
 		for (;;)
 		{
 			s32x_run(mars, m68k->cycles);
@@ -653,6 +721,7 @@ void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value)
 				break;
 			}
 		}
+		gen->bus_busy = 0;
 	}
 	return vcontext;
 }
@@ -662,8 +731,8 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 	m68k_context *m68k = vcontext;
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
+	s32x_run(mars, m68k->cycles);
 	if (address < 0xA15100 + (S32X_NUM_REGS * 2)) {
-		s32x_run(mars, m68k->cycles);
 		printf("32X 68K Write (byte): %06X: %02X\n", address, value);
 		uint32_t reg = (address & 0xFF) >> 1;
 		uint16_t mask = reg_write_masks[reg];
@@ -677,6 +746,11 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 		}
 		s32x_68k_sysreg_write(reg, m68k, mars, mask, extended);
 	} else if (address >= 0xA15180) {
+		if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+			//writes are ignored when FM is set
+			return vcontext;
+		}
+		gen->bus_busy = 1;
 		for (;;)
 		{
 			s32x_run(mars, m68k->cycles);
@@ -700,6 +774,7 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 				break;
 			}
 		}
+		gen->bus_busy = 0;
 	}
 	return vcontext;
 }
@@ -845,6 +920,9 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 		printf("32X SH2 %c Write: %06X: %04X\n", sh2 == mars->main ? 'M' : 'S', address, value);
 		s32x_sh2_sysreg_write(reg, sh2, mars, mask, value);
 	} else if (address >= 0x0004100) {
+		//SH2 writes seem to always go through for some reason, even when FM is clear
+		//have occasionally seen the writes be delayed, but not consistent
+		//needs more testing
 		for (;;)
 		{
 			if (sh2->main) {
@@ -887,6 +965,9 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 		printf("32X SH2 Write: %06X: %04X\n", address, value);
 		s32x_sh2_sysreg_write(reg, sh2, mars, mask, extended);
 	} else if (address >= 0x0004100) {
+		//SH2 writes seem to always go through for some reason, even when FM is clear
+		//have occasionally seen the writes be delayed, but not consistent
+		//needs more testing
 		for (;;)
 		{
 			if (sh2->main) {
@@ -976,6 +1057,10 @@ void *s32x_fb_write_w(uint32_t address, void *vcontext, uint16_t value)
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+		//TODO: confirm that this actually behaves like register writes
+		return vcontext;
+	}
 	s32x_video_fb_write_w(address, &mars->video, value);
 	return vcontext;
 }
@@ -986,6 +1071,10 @@ void *s32x_fb_write_b(uint32_t address, void *vcontext, uint8_t value)
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+		//TODO: confirm that this actually behaves like register writes
+		return vcontext;
+	}
 	//byte writes behave as if they were written to the overwrite area
 	s32x_video_overwrite_write_b(address, &mars->video, value);
 	return vcontext;
@@ -997,6 +1086,17 @@ uint16_t s32x_fb_read_w(uint32_t address, void *vcontext)
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
+	while (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+		gen->bus_busy = 1;
+		//FIXME: make this continue exactly when FM Is flipped
+		m68k->cycles += MAX_SH2_CYCLES / 3;
+#ifdef NEW_CORE
+		m68k->sync_components(m68k, 0);
+#else
+		m68k->opts->sync_components(m68k, 0);
+#endif
+	}
+	gen->bus_busy = 0;
 	return s32x_video_fb_read_w(address, &mars->video);
 }
 
@@ -1006,6 +1106,17 @@ uint8_t s32x_fb_read_b(uint32_t address, void *vcontext)
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
+	while (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+		gen->bus_busy = 1;
+		//FIXME: make this continue exactly when FM Is flipped
+		m68k->cycles += MAX_SH2_CYCLES / 3;
+#ifdef NEW_CORE
+		m68k->sync_components(m68k, 0);
+#else
+		m68k->opts->sync_components(m68k, 0);
+#endif
+	}
+	gen->bus_busy = 0;
 	return s32x_video_fb_read_b(address, &mars->video);
 }
 
@@ -1015,6 +1126,11 @@ void *s32x_sh2_fb_write_w(uint32_t address, void *vcontext, uint16_t value)
 	s32x *mars = sh2->system;
 	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
+	}
+	if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM)) {
+		sh2->cycles = mars->cur_sh2_target;
+		save_sh2_state(mars, sh2);
+		return vcontext;
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
 	s32x_video_fb_write_w(address, &mars->video, value);
@@ -1027,6 +1143,11 @@ void *s32x_sh2_fb_write_b(uint32_t address, void *vcontext, uint8_t value)
 	s32x *mars = sh2->system;
 	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
+	}
+	if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM)) {
+		sh2->cycles = mars->cur_sh2_target;
+		save_sh2_state(mars, sh2);
+		return vcontext;
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
 	//byte writes behave as if they were written to the overwrite area
@@ -1041,6 +1162,11 @@ uint16_t s32x_sh2_fb_read_w(uint32_t address, void *vcontext)
 	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
+	if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM)) {
+		sh2->cycles = mars->cur_sh2_target;
+		save_sh2_state(mars, sh2);
+		return 0xFFFF;
+	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
 	return s32x_video_fb_read_w(address, &mars->video);
 }
@@ -1052,6 +1178,11 @@ uint8_t s32x_sh2_fb_read_b(uint32_t address, void *vcontext)
 	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
 	}
+	if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM)) {
+		sh2->cycles = mars->cur_sh2_target;
+		save_sh2_state(mars, sh2);
+		return 0xFF;
+	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
 	return s32x_video_fb_read_b(address, &mars->video);
 }
@@ -1062,6 +1193,17 @@ void *s32x_overwrite_write_w(uint32_t address, void *vcontext, uint16_t value)
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
+	while (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+		gen->bus_busy = 1;
+		//FIXME: make this continue exactly when FM Is flipped
+		m68k->cycles += MAX_SH2_CYCLES / 3;
+#ifdef NEW_CORE
+		m68k->sync_components(m68k, 0);
+#else
+		m68k->opts->sync_components(m68k, 0);
+#endif
+	}
+	gen->bus_busy = 0;
 	s32x_video_overwrite_write_w(address, &mars->video, value);
 	return vcontext;
 }
@@ -1072,6 +1214,17 @@ void *s32x_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value)
 	genesis_context *gen = m68k->system;
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
+	while (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
+		gen->bus_busy = 1;
+		//FIXME: make this continue exactly when FM Is flipped
+		m68k->cycles += MAX_SH2_CYCLES / 3;
+#ifdef NEW_CORE
+		m68k->sync_components(m68k, 0);
+#else
+		m68k->opts->sync_components(m68k, 0);
+#endif
+	}
+	gen->bus_busy = 0;
 	s32x_video_overwrite_write_b(address, &mars->video, value);
 	return vcontext;
 }
@@ -1082,6 +1235,11 @@ void *s32x_sh2_overwrite_write_w(uint32_t address, void *vcontext, uint16_t valu
 	s32x *mars = sh2->system;
 	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
+	}
+	if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM)) {
+		sh2->cycles = mars->cur_sh2_target;
+		save_sh2_state(mars, sh2);
+		return vcontext;
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
 	s32x_video_overwrite_write_w(address, &mars->video, value);
@@ -1094,6 +1252,11 @@ void *s32x_sh2_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value
 	s32x *mars = sh2->system;
 	if (sh2->main) {
 		sh2_run(mars->sub, sh2->cycles);
+	}
+	if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM)) {
+		sh2->cycles = mars->cur_sh2_target;
+		save_sh2_state(mars, sh2);
+		return vcontext;
 	}
 	s32x_video_run(&mars->video, sh2->cycles / 3);
 	s32x_video_overwrite_write_b(address, &mars->video, value);
@@ -1148,6 +1311,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	ret->main->sync_cycle = 0xFFFFFFFF;
 	ret->main->system = ret;
 	ret->main->main = 1;
+	ret->main_tmp = calloc(1, sizeof(sh2_context));
 
 	memmap_chunk *sub_map = calloc(num_chunks, sizeof(memmap_chunk));
 	memcpy(sub_map, base_sh2_map, sizeof(base_sh2_map));
@@ -1176,6 +1340,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	sh7095_setup(ret->sub);
 	ret->sub->sync_cycle = 0xFFFFFFFF;
 	ret->sub->system = ret;
+	ret->sub_tmp = calloc(1, sizeof(sh2_context));
 	
 	//hook up main/sub SCI
 	sh7095_periph *p = ret->main->periph_state;

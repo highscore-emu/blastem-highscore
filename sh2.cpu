@@ -404,23 +404,23 @@ sh2_reset
 
 0010NNNNMMMM0100 store_predec_rm_rn_b
 	cycles 1
-	scratch1 = gpr.M
+	scratch2 = gpr.N - 1
+	sh2_write8 scratch2 gpr.M
 	gpr.N -= 1
-	sh2_write8 gpr.N scratch1
 	sh2_fetch
 
 0010NNNNMMMM0101 store_predec_rm_rn_w
 	cycles 1
-	scratch1 = gpr.M
+	scratch2 = gpr.N - 2
+	sh2_write16 scratch2 gpr.M
 	gpr.N -= 2
-	sh2_write16 gpr.N scratch1
 	sh2_fetch
 
 0010NNNNMMMM0110 store_predec_rm_rn_l
 	cycles 1
-	scratch1 = gpr.M 
+	scratch2 = gpr.N - 4
+	sh2_write32 scratch2 gpr.M
 	gpr.N -= 4
-	sh2_write32 gpr.N scratch1
 	sh2_fetch
 
 0110NNNNMMMM0100 load_postinc_rm_rn_b
@@ -1376,23 +1376,26 @@ sh2_reset
 
 0100NNNN00000011 stc_sr_rn_predec
 	cycles 2
-	gpr.N -= 4
 	sh2_collect_sr
-	sh2_write32 gpr.N sr
+	scratch2 = gpr.N - 4
+	sh2_write32 scratch2 sr
+	gpr.N -= 4
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00010011 stc_gbr_rn_predec
 	cycles 2
+	scratch2 = gpr.N - 4
+	sh2_write32 scratch2 gbr
 	gpr.N -= 4
-	sh2_write32 gpr.N gbr
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00100011 stc_vbr_rn_predec
 	cycles 2
+	scratch2 = gpr.N - 4
+	sh2_write32 scratch2 vbr
 	gpr.N -= 4
-	sh2_write32 gpr.N vbr
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
@@ -1416,22 +1419,25 @@ sh2_reset
 
 0100NNNN00000010 sts_mach_rn_predec
 	cycles 1
+	scratch2 = gpr.N - 4
+	sh2_write32 scratch2 mach
 	gpr.N -= 4
-	sh2_write32 gpr.N mach
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00010010 sts_macl_rn_predec
 	cycles 1
+	scratch2 = gpr.N - 4
+	sh2_write32 scratch2 macl
 	gpr.N -= 4
-	sh2_write32 gpr.N macl
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 
 0100NNNN00100010 sts_pr_rn_predec
 	cycles 1
+	scratch2 = gpr.N - 4
+	sh2_write32 scratch2 pr
 	gpr.N -= 4
-	sh2_write32 gpr.N pr
 	sh2_fetch
 	delay_slot = 1 #not actually a delay slot, but no interrupts accepted
 

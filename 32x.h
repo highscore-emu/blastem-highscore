@@ -82,12 +82,15 @@ typedef struct {
 	void         *gen;
 	sh2_context  *main;
 	sh2_context  *sub;
+	sh2_context  *main_tmp;
+	sh2_context  *sub_tmp;
 	uint16_t     *sdram;
 	uint16_t     *rom;
 	uint16_t     *vector_rom;
 	audio_source *pwm;
 	s32x_video   video;
 	uint32_t     pwm_cycle;
+	uint32_t     cur_sh2_target;
 	uint16_t     regs[S32X_NUM_REGS];
 	uint16_t     sh2_regs[S32X_SH2_SUB_INT+1];
 	uint16_t     dreq_fifo[8];
@@ -103,6 +106,7 @@ typedef struct {
 	uint8_t      dreq_fifo_read;
 	uint8_t      main_enter_debugger;
 	uint8_t      sub_enter_debugger;
+	uint8_t      saved_sh2_state;
 } s32x;
 
 s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot);
