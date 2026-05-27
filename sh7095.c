@@ -230,7 +230,7 @@ static void sh7095_run(sh2_context *sh2)
 				p->divide_counter = 0;
 				if (p->div_overflow) {
 					//TODO: overflow interrupts
-					sh2->peripherals[SH_DVCR] |= 1;
+					sh2->peripherals[SH_DVCR + 3] |= 1;
 				} else {
 					sh7095_setperiph32(SH_DVDNTH, sh2, p->remainder);
 					sh7095_setperiph32(SH_DVDNTL, sh2, p->quotient);
