@@ -131,6 +131,7 @@ typedef struct {
 	uint8_t     dmac0_pending;
 	uint8_t     dmac1_pending;
 	uint8_t     iti_pending;
+	uint8_t     divu_loaded;
 } sh7095_periph;
 
 void sh7095_setup(sh2_context *sh2);

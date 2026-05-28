@@ -228,9 +228,11 @@ static void sh7095_run(sh2_context *sh2)
 		if (p->divide_counter) {
 			if (delta >= p->divide_counter) {
 				p->divide_counter = 0;
+				p->divu_loaded = 0;
 				if (p->div_overflow) {
 					//TODO: overflow interrupts
 					sh2->peripherals[SH_DVCR + 3] |= 1;
+					sh7095_setperiph32(SH_DVDNTL, sh2, p->quotient);
 				} else {
 					sh7095_setperiph32(SH_DVDNTH, sh2, p->remainder);
 					sh7095_setperiph32(SH_DVDNTL, sh2, p->quotient);
@@ -515,24 +517,50 @@ static void sh7095_write_byte(uint32_t reg, sh2_context *sh2, uint8_t value)
 	}
 }
 
+static void start_divide(sh2_context *sh2, sh7095_periph *p)
+{
+	int32_t divisor = sh7095_periph32(SH_DVSR, sh2);
+	if (divisor == 0) {
+		p->divide_counter = 6 * sh2->opts->gen.clock_divider;
+		p->div_overflow = 1;
+		p->quotient = INT32_MAX;
+		//TODO: overflow interrupts
+	} else {
+		int64_t dividend = ((uint64_t)sh7095_periph32(SH_DVDNTH, sh2)) << 32 | sh7095_periph32(SH_DVDNTL, sh2);
+		int64_t quotient = dividend / divisor;
+		if (quotient > INT32_MAX || quotient < INT32_MIN) {
+			p->divide_counter = 6 * sh2->opts->gen.clock_divider;
+			p->div_overflow = 1;
+			p->quotient = quotient > 0 ? INT32_MAX : INT32_MIN;
+			//TODO: overflow interrupts
+		} else {
+			p->divide_counter = 39 * sh2->opts->gen.clock_divider;
+			p->div_overflow = 0;
+			p->quotient = quotient;
+			p->remainder = dividend % divisor;
+		}
+	}
+}
+
 static void sh7095_write_32(uint32_t address, sh2_context *sh2, uint32_t value)
 {
 	sh7095_periph *p = sh2->periph_state;
 	sh7095_run(sh2);
 	address &= 0x1FC;
-	int64_t dividend, quotient;
-	int32_t divisor;
 	uint32_t mask;
+	uint8_t no_start_divide = 0;
 	switch (address)
 	{
 	case SH_DVDNTH_ALT:
 	case SH_DVDNTL_ALT:
 		address &= 0x1F7;
+		no_start_divide = 1;
 	case SH_DVSR:
+	case SH_DVCR:
 	case SH_DVDNT:
 	case SH_DVDNTH:
 	case SH_DVDNTL:
-		if (p->divide_counter) {
+		while (p->divide_counter) {
 			sh2->cycles += p->divide_counter;
 			sh7095_run(sh2);
 		}
@@ -555,25 +583,11 @@ static void sh7095_write_32(uint32_t address, sh2_context *sh2, uint32_t value)
 		memset(sh2->peripherals + SH_DVDNTH, (value & 0x80000000) ? 0xFF : 0, 4);
 		memcpy(sh2->peripherals + SH_DVDNTL, sh2->peripherals + SH_DVDNT, 4);
 	case SH_DVDNTL:
-		divisor = sh7095_periph32(SH_DVSR, sh2);
-		if (divisor == 0) {
-			p->divide_counter = 6 * sh2->opts->gen.clock_divider;
-			p->div_overflow = 1;
-			//TODO: overflow interrupts
-		} else {
-			dividend = ((uint64_t)sh7095_periph32(SH_DVDNTH, sh2)) << 32 | sh7095_periph32(SH_DVDNTL, sh2);
-			quotient = dividend / divisor;
-			if (quotient > INT32_MAX || quotient < INT32_MIN) {
-				p->divide_counter = 6 * sh2->opts->gen.clock_divider;
-				p->div_overflow = 1;
-				//TODO: overflow interrupts
-			} else {
-				p->divide_counter = 39 * sh2->opts->gen.clock_divider;
-				p->div_overflow = 0;
-				p->quotient = quotient;
-				p->remainder = dividend % divisor;
-			}
+		if (no_start_divide) {
+			p->divu_loaded = 1;
+			break;
 		}
+		start_divide(sh2, p);
 		break;
 	case SH_CHCR0:
 	case SH_CHCR1:
@@ -667,18 +681,24 @@ static uint32_t sh7095_read_32(uint32_t address, sh2_context *sh2)
 	sh7095_run(sh2);
 	sh7095_periph *p = sh2->periph_state;
 	address &= 0x1FC;
+	uint8_t start_if_loaded = 1;
 	switch (address)
 	{
 	case SH_DVDNTH_ALT:
 	case SH_DVDNTL_ALT:
 		address &= 0x1F7;
+		start_if_loaded = 0;
 	case SH_DVDNT:
 		address |= 0x10;
 	case SH_DVSR:
 	case SH_DVDNTH:
 	case SH_DVDNTL:
+	case SH_DVCR:
+		if (start_if_loaded && p->divu_loaded) {
+			start_divide(sh2, p);
+		}
 		//Does this apply to DVCR and VCRDIV too?
-		if (p->divide_counter) {
+		while (p->divide_counter) {
 			sh2->cycles += p->divide_counter;
 			sh7095_run(sh2);
 		}
