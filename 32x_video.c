@@ -594,7 +594,7 @@ void s32x_video_overwrite_write_b(uint32_t address, s32x_video *video, uint8_t v
 	}
 }
 
-static void s32x_fb_debug_indexed(pixel_t *fb, uint32_t pitch, s32x_video *video, uint16_t vblank_start, pixel_t *colors, uint32_t *line_offsets)
+static void s32x_fb_debug_indexed(pixel_t *fb, uint32_t pitch, s32x_video *video, uint8_t *buffer, uint16_t vblank_start, pixel_t *colors, uint32_t *line_offsets)
 {
 	//TODO: display offscreen portions with a scroll rect like for MD VDP planes
 	for (int y = 0; y < vblank_start; y++)
@@ -608,18 +608,18 @@ static void s32x_fb_debug_indexed(pixel_t *fb, uint32_t pitch, s32x_video *video
 		}
 		for (int x = 0; x < 320; x++)
 		{
-			*(cur++) = colors[video->front[cur_off++]];
+			*(cur++) = colors[buffer[cur_off++]];
 			cur_off &= 0x1FFFF;
 		}
 	}
 }
 
-static void s32x_fb_debug_rle(pixel_t *fb, uint32_t pitch, s32x_video *video, uint16_t vblank_start, pixel_t *colors, uint32_t *line_offsets)
+static void s32x_fb_debug_rle(pixel_t *fb, uint32_t pitch, s32x_video *video, uint8_t *buffer, uint16_t vblank_start, pixel_t *colors, uint32_t *line_offsets)
 {
 	//TODO: implement me
 }
 
-static void s32x_fb_debug_direct(pixel_t *fb, uint32_t pitch, s32x_video *video, uint16_t vblank_start, uint32_t *line_offsets)
+static void s32x_fb_debug_direct(pixel_t *fb, uint32_t pitch, s32x_video *video, uint8_t *buffer, uint16_t vblank_start, uint32_t *line_offsets)
 {
 	//TODO: display offscreen portions with a scroll rect like for MD VDP planes
 	//TODO: display offscreen portions with a scroll rect like for MD VDP planes
@@ -630,16 +630,16 @@ static void s32x_fb_debug_direct(pixel_t *fb, uint32_t pitch, s32x_video *video,
 		uint32_t cur_off = line_offsets[y];
 		for (int x = 0; x < 320; x++)
 		{
-			uint16_t color = video->front[cur_off++] << 8;
+			uint16_t color = buffer[cur_off++] << 8;
 			cur_off &= 0x1FFFF;
-			color |= video->front[cur_off++];
+			color |= buffer[cur_off++];
 			*(cur++) = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
 			cur_off &= 0x1FFFF;
 		}
 	}
 }
 
-void s32x_fb_debug(pixel_t *fb, uint32_t pitch, s32x_video *video)
+static void s32x_fb_debug_one(pixel_t *fb, uint32_t pitch, s32x_video *video, uint8_t *buffer)
 {
 	pixel_t colors[256];
 	pixel_t black = render_map_color(0, 0, 0);
@@ -652,7 +652,7 @@ void s32x_fb_debug(pixel_t *fb, uint32_t pitch, s32x_video *video)
 	}
 	for (int i = 0; i < vblank_start; i++)
 	{
-		line_offsets[i] = video->front[i << 1] << 9 | video->front[i << 1 | 1] << 1;
+		line_offsets[i] = buffer[i << 1] << 9 | buffer[i << 1 | 1] << 1;
 	}
 	switch (video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK)
 	{
@@ -666,13 +666,19 @@ void s32x_fb_debug(pixel_t *fb, uint32_t pitch, s32x_video *video)
 			colors[i] = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
 		}
 		if ((video->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK) == S32X_VID_MODE_INDEXED) {
-			s32x_fb_debug_indexed(fb, pitch, video, vblank_start, colors, line_offsets);
+			s32x_fb_debug_indexed(fb, pitch, video, buffer, vblank_start, colors, line_offsets);
 		} else {
-			s32x_fb_debug_rle(fb, pitch, video, vblank_start, colors, line_offsets);
+			s32x_fb_debug_rle(fb, pitch, video, buffer, vblank_start, colors, line_offsets);
 		}
 		break;
 	case S32X_VID_MODE_DIRECT:
-		s32x_fb_debug_direct(fb, pitch, video, vblank_start, line_offsets);
+		s32x_fb_debug_direct(fb, pitch, video, buffer, vblank_start, line_offsets);
 		break;
 	}
+}
+
+void s32x_fb_debug(pixel_t *fb, uint32_t pitch, s32x_video *video)
+{
+	s32x_fb_debug_one(fb, pitch, video, video->front);
+	s32x_fb_debug_one(fb + pitch*512/sizeof(pixel_t), pitch, video, video->back);
 }
