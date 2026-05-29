@@ -428,21 +428,27 @@ sh2_reset
 	sh2_read8_data gpr.M
 	scratch1 = sext 16 scratch1
 	gpr.N = sext 32 scratch1
-	gpr.M += 1
+	if M != N
+		gpr.M += 1
+	end
 	sh2_fetch
 
 0110NNNNMMMM0101 load_postinc_rm_rn_w
 	cycles 1
 	sh2_read16_data gpr.M
 	gpr.N = sext 32 scratch1
-	gpr.M += 2
+	if M != N
+		gpr.M += 2
+	end
 	sh2_fetch
 
 0110NNNNMMMM0110 load_postinc_rm_rn_l
 	cycles 1
 	sh2_read32_data gpr.M
 	gpr.N = scratch1
-	gpr.M += 4
+	if M != N
+		gpr.M += 4
+	end
 	sh2_fetch
 
 10000000NNNNDDDD store_r0_disp_rn_b
