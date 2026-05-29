@@ -178,9 +178,9 @@ int main(int argc, char **argv)
 							defer_disasm(context, target);
 							reference(context, target);
 						} else if (masked < address_end_alt - 2 && masked >= address_off_alt) {
-							uint32_t target = filebuf_alt[(masked - address_off) >> 1] << 16;
+							uint32_t target = filebuf_alt[(masked - address_off_alt) >> 1] << 16;
 							masked += 2;
-							target |= filebuf_alt[(masked - address_off) >> 1];
+							target |= filebuf_alt[(masked - address_off_alt) >> 1];
 							defer_disasm(context, target);
 							reference(context, target);
 							use_alt = 1;
