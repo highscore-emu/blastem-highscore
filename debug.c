@@ -6057,8 +6057,10 @@ static uint8_t cmd_step_sh2(debug_root *root, parsed_command *cmd)
 	case SH2_BSR:
 		after += 2 + inst->immed;
 		break;
-	//TODO: SH2_BRAF
-	//TODO: SH2_BSRF
+	case SH2_BRAF:
+	case SH2_BSRF:
+		after += 2 + sh2->gpr[inst->src - SH2_IND_R0];
+		break;
 	case SH2_JMP:
 	case SH2_JSR:
 		after = sh2->gpr[inst->src - SH2_IND_R0];
@@ -6096,10 +6098,12 @@ static uint8_t cmd_next_sh2(debug_root *root, parsed_command *cmd)
 		break;
 	case SH2_BSR:
 	case SH2_JSR:
+	case SH2_BSRF:
 		after += 2; //skip over delay slot for now
 		break;
-	//TODO: SH2_BRAF
-	//TODO: SH2_BSRF
+	case SH2_BRAF:
+		after += 2 + sh2->gpr[inst->src - SH2_IND_R0];
+		break;
 	case SH2_JMP:
 		after = sh2->gpr[inst->src - SH2_IND_R0];
 		break;
@@ -6154,10 +6158,12 @@ static uint8_t cmd_over_sh2(debug_root *root, parsed_command *cmd)
 		break;
 	case SH2_BSR:
 	case SH2_JSR:
+	case SH2_BSRF:
 		after += 2; //skip over delay slot for now
 		break;
-	//TODO: SH2_BRAF
-	//TODO: SH2_BSRF
+	case SH2_BRAF:
+		after += 2 + sh2->gpr[inst->src = SH2_IND_R0];
+		break;
 	case SH2_JMP:
 		after = sh2->gpr[inst->src = SH2_IND_R0];
 		break;
