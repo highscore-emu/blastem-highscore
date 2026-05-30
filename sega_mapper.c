@@ -25,7 +25,7 @@ uint16_t s32x_read_sram_w(uint32_t address, void * vcontext)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			return 0xFFFF; // probably should return vector table
 		}
@@ -40,7 +40,7 @@ uint16_t s32x_read_bankable_w(uint32_t address, void * vcontext)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			return read_sram_w(address, context);
 		}
@@ -79,7 +79,7 @@ uint8_t s32x_read_sram_b(uint32_t address, void * vcontext)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			return 0xFF; // probably should return vector table
 		}
@@ -94,7 +94,7 @@ uint8_t s32x_read_bankable_b(uint32_t address, void * vcontext)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			return read_sram_b(address, context);
 		}
@@ -139,7 +139,7 @@ void *s32x_write_sram_area_w(uint32_t address, void *vcontext, uint16_t value)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			return vcontext;
 		}
@@ -154,7 +154,7 @@ void *s32x_write_bankable_w(uint32_t address, void *vcontext, uint16_t value)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			if ((mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) >= 2) {
 				return write_sram_area_w(address, context, value);
@@ -197,7 +197,7 @@ void *s32x_write_sram_area_b(uint32_t address, void *vcontext, uint8_t value)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			return vcontext;
 		}
@@ -212,7 +212,7 @@ void *s32x_write_bankable_b(uint32_t address, void *vcontext, uint8_t value)
 	s32x *mars = gen->mars;
 	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
 		//32X hardware enabled
-		if (!(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV)) {
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
 			//cart is mapped high
 			if ((mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) >= 2) {
 				return write_sram_area_b(address, context, value);
@@ -408,7 +408,7 @@ void *s32x_write_bank_reg_w(uint32_t address, void *vcontext, uint16_t value)
 		//TODO: implement full sega mapper/MED extension for 32X
 		return vcontext;
 	}
-	uint8_t cart_mapped_high = (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) && !(mars->regs[S32X_ADAPT_CTRL] & BIT_DREQ_RV);
+	uint8_t cart_mapped_high = (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) && !(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV);
 	if (cart_mapped_high && (mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) < 2) {
 		//SRAM area not currently mapped, nothing to do 
 		return vcontext;
