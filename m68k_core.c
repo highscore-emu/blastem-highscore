@@ -227,6 +227,9 @@ static void translate_m68k_jmp_jsr(m68k_options * opts, m68kinst * inst)
 			push_const(opts, inst->address+2);
 		}
 		areg_to_native(opts, inst->src.params.regs.pri, opts->gen.scratch1);
+		if (is_jsr && inst->src.params.regs.pri == 7) {
+			addi_native(opts, 4, opts->gen.scratch1);
+		}
 		call(code, opts->native_addr);
 		jmp_r(code, opts->gen.scratch1);
 		break;
