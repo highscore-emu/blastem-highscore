@@ -144,9 +144,13 @@ int main(int argc, char **argv)
 			add_label(context, "sub_sh2_start", sub_sh2_start);
 			if (main_vbr >= address_off && main_vbr + 0x100 + 15 * 4 <= address_end) {
 				process_sh2_vectors(context, filebuf + ((main_vbr - address_off) >> 1), "main_", main_vbr, only);
+			} else if (main_vbr >= address_off_alt && main_vbr + 0x100 + 15 * 4 <= address_end_alt) {
+				process_sh2_vectors(context, filebuf_alt + ((main_vbr - address_off_alt) >> 1), "main_", main_vbr, only);
 			}
 			if (sub_vbr >= address_off && sub_vbr + 0x100 + 15 * 4 <= address_end) {
 				process_sh2_vectors(context, filebuf + ((sub_vbr - address_off) >> 1), "sub_", sub_vbr, only);
+			} else if (sub_vbr >= address_off_alt && sub_vbr + 0x100 + 15 * 4 <= address_end_alt) {
+				process_sh2_vectors(context, filebuf_alt + ((sub_vbr - address_off_alt) >> 1), "sub_", sub_vbr, only);
 			}
 		}
 	}
