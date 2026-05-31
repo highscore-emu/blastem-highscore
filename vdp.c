@@ -3052,7 +3052,13 @@ static void advance_output_line(vdp_context *context)
 	//This function is kind of gross because of the need to deal with vertical border busting via mode changes
 	uint16_t lines_max = context->inactive_start + context->border_bot + context->border_top;
 	uint32_t output_line = context->vcounter;
+	if (!(context->regs[REG_MODE_2] & BIT_MODE_5)) {
+		//vcounter increment occurs much later in Mode 4
+		output_line++;
+	}
 	if (context->s32x_vid && context->output) {
+		//vcounter advances before output line does in Mode 5, so temporarily back it up here
+		output_line--;
 		if (output_line < context->inactive_start) {
 			s32x_video_run(context->s32x_vid, context->cycles);
 			s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT, context->compositebuf + BORDER_LEFT, output_line, (context->regs[REG_MODE_4] & BIT_H40) != 0);
@@ -3075,9 +3081,6 @@ static void advance_output_line(vdp_context *context)
 				h32_pos -= h32_dec;
 			}
 		}
-	} 
-	if (!(context->regs[REG_MODE_2] & BIT_MODE_5)) {
-		//vcounter increment occurs much later in Mode 4
 		output_line++;
 	}
 
