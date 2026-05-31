@@ -492,6 +492,7 @@ void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_c
 			info->save_size = 256;
 			info->save_buffer = calloc(info->save_size, 1);
 			info->save_type = SAVE_I2C;
+			info->eeprom_map = NULL;
 			//0 -> fixed ROM
 			//1 -> Fixed 32X ROM bank
 			//2 -> Mappable 32X ROM bank
