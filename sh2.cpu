@@ -1470,10 +1470,10 @@ sh2_reset
 	sh2_write32 r15 sr
 	cycles 2
 	r15 -= 4
-	scratch1 = pc - 2
+	scratch1 = pc + 2
 	sh2_write32 r15 scratch1
 	sh2_vector_read I
-	pc = scratch1 + 4
+	pc = scratch1 - 2
 	cycles 3
 	prefetch_full = 0
 	sh2_fetch
