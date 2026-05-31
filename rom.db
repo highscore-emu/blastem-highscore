@@ -2062,3 +2062,8 @@ T-16201F {
 		2 none
 	}
 }
+MK-84509 {
+	name Shadow Squadron
+	# Uses the ambiguous new-style E to indicate everything but Japan
+	regions UE
+}
