@@ -182,9 +182,9 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 			|| (vid->regs[S32X_VID_FB_CTRL] & (S32X_VID_BIT_VBLK|S32X_VID_BIT_HBLK))
 		) {
 			// palette access allowed during H or V blanking or when display is forcibly blanked (mode = 0)
-			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_PEN;
-		} else {
 			vid->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_PEN;
+		} else {
+			vid->regs[S32X_VID_FB_CTRL] &= ~S32X_VID_BIT_PEN;
 		}
 		vid->cycle = target - rest;
 	}
@@ -415,7 +415,7 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 			video->fill_remainder = 0;
 		}
 	} else if (address >= 0xA15200 && address < 0xA15400) {
-		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
+		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video);
 		}
 		printf("32X Palette Write: %06X: %04X\n", address, value);
@@ -459,7 +459,7 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
 		}
 	} else if (address >= 0xA15200 && address < 0xA15400) {
-		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
+		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video);
 		}
 		printf("32X Palette Write (byte): %06X: %04X\n", address, value);
@@ -495,7 +495,7 @@ uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t valu
 			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
 		}
 	} else if (address >= 0x0004200 && address < 0x0004400) {
-		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
+		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video) * 3;
 		}
 		printf("32X Palette Write: %06X: %04X\n", address, value);
@@ -539,7 +539,7 @@ uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t val
 			video->regs[S32X_VID_FB_CTRL] |= S32X_VID_BIT_FEN;
 		}
 	} else if (address >= 0x0004200 && address < 0x0004400) {
-		if (video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN) {
+		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video) * 3;
 		}
 		printf("32X Palette Write (byte): %06X: %04X\n", address, value);
