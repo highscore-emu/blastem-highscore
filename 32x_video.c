@@ -199,10 +199,59 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 	}
 }
 
+static pixel_t map_32x_color(uint16_t color)
+{
+	return render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
+}
+
+static void s32x_composite_indexed_h32(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line_start)
+{
+	uint8_t *cur = vid->front + line_start + 319;
+	uint16_t pri = (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PRI) << 8;
+	for (pixel_t *dst = output + 319; dst >= output; dst--)
+	{
+		uint16_t color = vid->palette[*(cur--)];
+		uint16_t on_top = (color & 0x8000) ^ pri;
+		if (on_top) {
+			*dst = map_32x_color(color);
+		} else {
+			uint32_t h32_pos = (dst - output) * 0x40000 / 5;
+			uint32_t base_index = h32_pos >> 16;
+			h32_pos &= 0xFFFF;
+			if (h32_pos > 0xE000) {
+				base_index++;
+			} else if (h32_pos >= 0x1000) {
+				//mix
+				uint8_t first_opaque = compositebuf[base_index] & 0xF;
+				uint8_t second_opaque = compositebuf[base_index+1] & 0xF;
+				if (first_opaque && second_opaque) {
+					*dst = mix_colors(output[base_index], output[base_index + 1], h32_pos);
+				} else if (first_opaque) {
+					*dst = mix_colors(output[base_index], map_32x_color(color), h32_pos);
+				} else if (second_opaque) {
+					*dst = mix_colors(map_32x_color(color), output[base_index + 1], h32_pos);
+				} else {
+					*dst = map_32x_color(color);
+				}
+				continue;
+			}
+			if (compositebuf[base_index] & 0xF) {
+				*dst = output[base_index];
+			} else {
+				*dst = map_32x_color(color);
+			}
+		}
+	}
+}
+
 static void s32x_composite_indexed(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line_start, uint8_t is_h40)
 {
 	if (vid->regs[S32X_VID_SHIFT] & 1) {
 		line_start += 1;
+	}
+	if (!is_h40) {
+		s32x_composite_indexed_h32(vid, output, compositebuf, line_start);
+		return;
 	}
 	uint8_t *cur = vid->front + line_start;
 	uint16_t pri = (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PRI) << 8;
@@ -211,14 +260,61 @@ static void s32x_composite_indexed(s32x_video *vid, pixel_t *output, uint8_t *co
 		uint16_t color = vid->palette[*(cur++)];
 		uint16_t on_top = (color & 0x8000) ^ pri;
 		if (on_top || !(*compositebuf & 0xF)) {
-			*output = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
+			*output = map_32x_color(color);
 		}
 		compositebuf++;
 	}
 }
 
+static void s32x_composite_direct_h32(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line_start)
+{
+	if (vid->regs[S32X_VID_SHIFT] & 1) {
+		line_start += 1;
+	}
+	uint8_t *cur = vid->front + line_start + 319 * 2;
+	uint16_t pri = (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PRI) << 8;
+	for (pixel_t *dst = output + 319; dst >= output; dst--)
+	{
+		uint16_t color = *(cur--);
+		color |= *(cur--) << 8;
+		uint16_t on_top = (color & 0x8000) ^ pri;
+		if (on_top) {
+			*dst = map_32x_color(color);
+		} else {
+			uint32_t h32_pos = (dst - output) * 0x40000 / 5;
+			uint32_t base_index = h32_pos >> 16;
+			h32_pos &= 0xFFFF;
+			if (h32_pos > 0xE000) {
+				base_index++;
+			} else if (h32_pos >= 0x1000) {
+				uint8_t first_opaque = compositebuf[base_index] & 0xF;
+				uint8_t second_opaque = compositebuf[base_index+1] & 0xF;
+				if (first_opaque && second_opaque) {
+					*dst = mix_colors(output[base_index], output[base_index + 1], h32_pos);
+				} else if (first_opaque) {
+					*dst = mix_colors(output[base_index], map_32x_color(color), h32_pos);
+				} else if (second_opaque) {
+					*dst = mix_colors(map_32x_color(color), output[base_index + 1], h32_pos);
+				} else {
+					*dst = map_32x_color(color);
+				}
+				continue;
+			}
+			if (compositebuf[base_index] & 0xF) {
+				*dst = output[base_index];
+			} else {
+				*dst = map_32x_color(color);
+			}
+		}
+	}
+}
+
 static void s32x_composite_direct(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line_start, uint8_t is_h40)
 {
+	if (!is_h40) {
+		s32x_composite_direct_h32(vid, output, compositebuf, line_start);
+		return;
+	}
 	//does shift do anything in this mode?
 	uint8_t *cur = vid->front + line_start;
 	uint16_t pri = (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PRI) << 8;
@@ -228,14 +324,67 @@ static void s32x_composite_direct(s32x_video *vid, pixel_t *output, uint8_t *com
 		cur += 2;
 		uint16_t on_top = (color & 0x8000) ^ pri;
 		if (on_top || !(*compositebuf & 0xF)) {
-			*output = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
+			*output = map_32x_color(color);
 		}
 		compositebuf++;
 	}
 }
 
+static void s32x_composite_rle_h32(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line_start)
+{
+	pixel_t md_layer[257];
+	memcpy(md_layer, output, sizeof(md_layer));
+	uint8_t *cur = vid->front + line_start;
+	uint16_t pri = (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PRI) << 8;
+	uint32_t count = 0;
+	uint16_t color;
+	pixel_t *start = output;
+	for (pixel_t *end = output + 320; output < end; output++)
+	{
+		if (!count) {
+			count = *(cur++) + 1;
+			color = vid->palette[*(cur++)];
+		}
+		count--;
+		uint16_t on_top = (color & 0x8000) ^ pri;
+		if (on_top) {
+			*output = map_32x_color(color);
+		} else {
+			uint32_t h32_pos = (output - start) * 0x40000 / 5;
+			uint32_t base_index = h32_pos >> 16;
+			h32_pos &= 0xFFFF;
+			if (h32_pos > 0xE000) {
+				base_index++;
+			} else if (h32_pos >= 0x1000) {
+				//mix
+				uint8_t first_opaque = compositebuf[base_index] & 0xF;
+				uint8_t second_opaque = compositebuf[base_index+1] & 0xF;
+				if (first_opaque && second_opaque) {
+					*output = mix_colors(md_layer[base_index], md_layer[base_index + 1], h32_pos);
+				} else if (first_opaque) {
+					*output = mix_colors(md_layer[base_index], map_32x_color(color), h32_pos);
+				} else if (second_opaque) {
+					*output = mix_colors(map_32x_color(color), md_layer[base_index + 1], h32_pos);
+				} else {
+					*output = map_32x_color(color);
+				}
+				continue;
+			}
+			if (compositebuf[base_index] & 0xF) {
+				*output = output[base_index];
+			} else {
+				*output = map_32x_color(color);
+			}
+		}
+	}
+}
+
 static void s32x_composite_rle(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line_start, uint8_t is_h40)
 {
+	if (!is_h40) {
+		s32x_composite_rle_h32(vid, output, compositebuf, line_start);
+		return;
+	}
 	//does shift do anything in this mode?
 	uint8_t *cur = vid->front + line_start;
 	uint16_t pri = (vid->regs[S32X_VID_MODE] & S32X_VID_BIT_PRI) << 8;
@@ -249,7 +398,7 @@ static void s32x_composite_rle(s32x_video *vid, pixel_t *output, uint8_t *compos
 		}
 		uint16_t on_top = (color & 0x8000) ^ pri;
 		if (on_top || !(*compositebuf & 0xF)) {
-			*output = render_map_color(color << 3 & 0xF8, color >> 2 & 0xF8, color >> 7 & 0xF8);
+			*output = map_32x_color(color);
 		}
 		compositebuf++;
 		count--;

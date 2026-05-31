@@ -57,6 +57,8 @@
 #define BORDER_BOT_V28_PAL 32
 #define BORDER_BOT_V30_PAL 24
 
+pixel_t mix_colors(pixel_t left, pixel_t right, uint32_t mix);
+
 enum {
 	INACTIVE = 0,
 	PREPARING, //used for line 0x1FF
@@ -3050,10 +3052,30 @@ static void advance_output_line(vdp_context *context)
 	//This function is kind of gross because of the need to deal with vertical border busting via mode changes
 	uint16_t lines_max = context->inactive_start + context->border_bot + context->border_top;
 	uint32_t output_line = context->vcounter;
-	if (context->s32x_vid && context->output && output_line < context->inactive_start) {
-		s32x_video_run(context->s32x_vid, context->cycles);
-		s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT, context->compositebuf + BORDER_LEFT, output_line, (context->regs[REG_MODE_4] & BIT_H40) != 0);
-	}
+	if (context->s32x_vid && context->output) {
+		if (output_line < context->inactive_start) {
+			s32x_video_run(context->s32x_vid, context->cycles);
+			s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT, context->compositebuf + BORDER_LEFT, output_line, (context->regs[REG_MODE_4] & BIT_H40) != 0);
+		} else if (!(context->output && (context->regs[REG_MODE_4] & BIT_H40))) {
+			pixel_t *output = context->output;
+			pixel_t *dst = output + LINEBUF_SIZE - 1;
+			uint32_t h32_pos = (LINEBUF_SIZE - 1) * 0x40000 / 5;
+			uint32_t h32_dec = 0x40000 / 5;
+			for (; dst >= output; dst--)
+			{
+				uint32_t base_index = h32_pos >> 16;
+				uint32_t mix = h32_pos & 0xFFFF;
+				if (mix < 0x1000) {
+					*dst = output[base_index];
+				} else if (mix > 0xE000) {
+					*dst = output[base_index + 1];
+				} else {
+					*dst = mix_colors(output[base_index], output[base_index + 1], mix);
+				}
+				h32_pos -= h32_dec;
+			}
+		}
+	} 
 	if (!(context->regs[REG_MODE_2] & BIT_MODE_5)) {
 		//vcounter increment occurs much later in Mode 4
 		output_line++;
@@ -3111,7 +3133,7 @@ static void advance_output_line(vdp_context *context)
 		context->output[i] = 0xFFFF00FF;
 	}
 #endif
-	if (context->output && (context->regs[REG_MODE_4] & BIT_H40)) {
+	if ((context->output && (context->regs[REG_MODE_4] & BIT_H40)) || context->s32x_vid) {
 		context->h40_lines++;
 	}
 }
