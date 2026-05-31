@@ -318,8 +318,8 @@ void add_segacd_subcpu_labels(disasm_context *context)
 	weak_label(context, "_traceAddress", 0x5F66);
 	weak_label(context, "_nocod0", 0x5F6A);
 	weak_label(context, "_nocod0Address", 0x5F6C);
-	weak_label(context, "_nocod0", 0x5F70);
-	weak_label(context, "_nocod0Address", 0x5F72);
+	weak_label(context, "_nocod1", 0x5F70);
+	weak_label(context, "_nocod1Address", 0x5F72);
 	weak_label(context, "_slevel1", 0x5F76);
 	weak_label(context, "_slevel1Address", 0x5F78);
 	weak_label(context, "_slevel2", 0x5F7C);
