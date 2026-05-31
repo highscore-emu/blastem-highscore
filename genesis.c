@@ -2350,6 +2350,9 @@ static void free_genesis(system_header *system)
 	if (gen->expansion) {
 		free_segacd(gen->expansion);
 	}
+	if (gen->mars) {
+		free_32x(gen->mars);
+	}
 	vdp_free(gen->vdp);
 	memmap_chunk *map = (memmap_chunk *)gen->m68k->opts->gen.memmap;
 	m68k_options_free(gen->m68k->opts);

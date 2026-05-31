@@ -1367,3 +1367,20 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	return ret;
 }
 
+void free_32x(s32x *mars)
+{
+	render_free_source(mars->pwm);
+	free(mars->vector_rom);
+	s32x_video_free(&mars->video);
+	sh7095_free(mars->sub);
+	sh7095_free(mars->main);
+	free(mars->main->opts->gen.memmap[5].buffer);
+	free(mars->sub->opts->gen.memmap[5].buffer);
+	free(mars->main->opts);
+	free(mars->sub->opts);
+	free(mars->main);
+	free(mars->sub);
+	free(mars->sdram);
+	free(mars);
+}
+

@@ -135,6 +135,7 @@ typedef struct {
 } sh7095_periph;
 
 void sh7095_setup(sh2_context *sh2);
+void sh7095_free(sh2_context *sh2);
 void sh7095_adjust_cycles(sh2_context *sh2, uint32_t deduction);
 void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte);
 void sh7095_next_int(sh2_context *sh2, uint32_t priority_mask);

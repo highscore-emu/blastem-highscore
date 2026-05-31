@@ -14,6 +14,15 @@ void s32x_video_init(s32x_video *vid, uint8_t pal)
 	}
 }
 
+void s32x_video_free(s32x_video *vid)
+{
+	if (vid->front > vid->back) {
+		free(vid->back);
+	} else {
+		free(vid->front);
+	}
+}
+
 #define MCLKS_PIXEL 8
 #define HSYNC_START 368
 #define HSYNC_END (HSYNC_START+17*2)

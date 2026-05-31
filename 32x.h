@@ -110,6 +110,7 @@ typedef struct {
 } s32x;
 
 s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot);
+void free_32x(s32x *mars);
 void s32x_run(s32x *mars, uint32_t target);
 void s32x_adjust_cycles(s32x *mars, uint32_t deduction);
 uint16_t s32x_68k_read(uint32_t address, void *vcontext);

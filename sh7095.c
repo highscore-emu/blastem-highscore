@@ -801,6 +801,11 @@ void sh7095_setup(sh2_context *sh2)
 	}
 }
 
+void sh7095_free(sh2_context *sh2)
+{
+	free(sh2->periph_state);
+}
+
 void sh7095_adjust_cycles(sh2_context *sh2, uint32_t deduction)
 {
 	sh7095_periph *p = sh2->periph_state;
