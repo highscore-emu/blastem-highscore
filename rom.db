@@ -2055,3 +2055,10 @@ c5cf589ddd0a7f353c90dd5a3636eb3f1822e33d {
 		}
 	}
 }
+T-16201F {
+	name Corpse Killer 32X
+	# game is unplayable if a normal controller is in port 2
+	device_overrides {
+		2 none
+	}
+}
