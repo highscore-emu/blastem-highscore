@@ -671,6 +671,12 @@ static void sh7095_write_8(uint32_t address, sh2_context *sh2, uint8_t value)
 		//except for bit 1, most of the settable bits in this reg can only be cleared
 		mask = 1 | (value ^ 0xF8);
 		value = (value & mask) | (sh2->peripherals[SH_SSR] & ~mask);
+		changes = value ^ sh2->peripherals[SH_SSR];
+		if ((changes & BIT_SSR_TDRE) && (sh2->peripherals[SH_SCR] & BIT_SCR_TE)) {
+			p->tsr = sh2->peripherals[SH_TDR];
+			start_transmit(sh2);
+			value |= BIT_SSR_TDRE;
+		}
 		break;
 	}
 	sh7095_write_byte(address, sh2, value);
