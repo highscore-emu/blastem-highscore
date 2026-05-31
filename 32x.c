@@ -495,7 +495,7 @@ static void check_cart_map_change(uint32_t reg, m68k_context *m68k, uint16_t cha
 			// This is either for SRAM with the cart mapped low or unused
 			m68k->mem_pointers[3] = mars->vector_rom;
 			uint32_t bank_start = (mars->regs[S32X_CART_BANK] & S32X_BANK_MASK) << 20;
-			const memmap_chunk *chunk = find_map_chunk(bank_start, &m68k->opts->gen, 0, NULL);
+			const memmap_chunk *chunk = find_map_chunk(gen->save_type == SAVE_I2C ? bank_start + 2 : bank_start, &m68k->opts->gen, 0, NULL);
 			if (!chunk) {
 				m68k->mem_pointers[2] = NULL;
 				return;
