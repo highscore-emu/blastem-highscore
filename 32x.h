@@ -98,7 +98,10 @@ typedef struct {
 	pwm_fifo     fifo_right;
 	int16_t      pwm_left;
 	int16_t      pwm_right;
+	int16_t      pwm_left_accum;
+	int16_t      pwm_right_accum;
 	uint16_t     pwm_counter;
+	uint8_t      pwm_decimate;
 	uint8_t      pwm_timer;
 	uint8_t      pwm_main_int_pending;
 	uint8_t      pwm_sub_int_pending;

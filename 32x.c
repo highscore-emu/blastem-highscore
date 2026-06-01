@@ -11,6 +11,12 @@
 
 #define MAX_SH2_CYCLES 500
 
+#ifdef DO_DEBUG_PRINT
+#define dprintf printf
+#else
+#define dprintf
+#endif
+
 void pwm_fifo_write(pwm_fifo *fifo, uint16_t *status, uint16_t value)
 {
 	fifo->fifo[fifo->write++] = value & 0xFFF;
@@ -32,7 +38,7 @@ void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t cycle, int16_t *ou
 		if (sample > cycle) {
 			sample = cycle;
 		}
-		*out =  sample * 0x8000 / cycle - 0x4000;
+		*out =  sample * 0x200 / cycle - 0x100;
 		fifo->read %= 3;
 		if (fifo->read == fifo->write) {
 			*status |= BIT_PWM_EMPTY;
@@ -42,11 +48,41 @@ void pwm_fifo_read(pwm_fifo *fifo, uint16_t *status, uint16_t cycle, int16_t *ou
 	}
 }
 
+#define PWM_DECIMATE 64
+
+static uint32_t pwm_tick(s32x *mars, uint32_t ticks)
+{
+	if (ticks >= mars->pwm_decimate) {
+		ticks = mars->pwm_decimate;
+		mars->pwm_counter -= mars->pwm_decimate;
+		mars->pwm_left_accum += mars->pwm_left * mars->pwm_decimate;
+		mars->pwm_right_accum += mars->pwm_right * mars->pwm_decimate;
+		render_put_stereo_sample(mars->pwm, mars->pwm_left_accum, mars->pwm_right_accum);
+		mars->pwm_left_accum = mars->pwm_right_accum = 0;
+		mars->pwm_decimate = PWM_DECIMATE;
+	} else {
+		mars->pwm_left_accum += mars->pwm_left * ticks;
+		mars->pwm_right_accum += mars->pwm_right * ticks;
+		mars->pwm_decimate -= ticks;
+		mars->pwm_counter -= ticks;
+	}
+	return ticks;
+}
+
 static void s32x_pwm_run(s32x *mars, uint32_t target)
 {
-	for (; mars->pwm_cycle < target; mars->pwm_cycle += 7)
-	{
-		if (mars->regs[S32X_PWM_CTRL] & S32X_PWM_LRMD) {
+	if (target <= mars->pwm_cycle) {
+		return;
+	}
+	uint32_t ticks = (target - mars->pwm_cycle) / 7;
+	mars->pwm_cycle += 7 * ticks;
+	if (mars->pwm_cycle < target) {
+		ticks++;
+		mars->pwm_cycle += 7;
+	}
+	if (mars->regs[S32X_PWM_CTRL] & S32X_PWM_LRMD) {
+		while (ticks)
+		{
 			if (mars->pwm_counter == 2) {
 				mars->pwm_counter = mars->regs[S32X_PWM_CYCLE];
 				switch (mars->regs[S32X_PWM_CTRL] & 3)
@@ -79,14 +115,29 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 					sh7095_assert_dreq1(mars->main);
 					sh7095_assert_dreq1(mars->sub);
 				}
+				ticks -= pwm_tick(mars, 1);
 			} else if (mars->pwm_counter != 1) {
-				mars->pwm_counter--;
+				if (mars->pwm_counter > 2 + mars->pwm_decimate || !mars->pwm_counter) {
+					ticks -= pwm_tick(mars, ticks);
+				} else {
+					ticks -= pwm_tick(mars, 1);
+				}
 				mars->pwm_counter &= 0xFFF;
 			} else {
 				mars->pwm_counter = mars->regs[S32X_PWM_CYCLE];
+				if (mars->pwm_counter == 1) {
+					ticks -= pwm_tick(mars, ticks);
+					mars->pwm_counter = 1;
+				} else {
+					ticks -= pwm_tick(mars, 1);
+				}
 			}
 		}
-		render_put_stereo_sample(mars->pwm, mars->pwm_left, mars->pwm_right);
+	} else {
+		while (ticks)
+		{
+			ticks -= pwm_tick(mars, ticks);
+		}
 	}
 }
 
@@ -690,7 +741,7 @@ void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value)
 	if (address < 0xA15100 + (S32X_NUM_REGS * 2)) {
 		uint32_t reg = (address & 0xFF) >> 1;
 		uint16_t mask = reg_write_masks[reg];
-		printf("32X 68K Write: %06X: %04X\n", address, value);
+		dprintf("32X 68K Write: %06X: %04X\n", address, value);
 		s32x_68k_sysreg_write(reg, m68k, mars, mask, value);
 	} else if (address >= 0xA15180) {
 		if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADCT_FM) {
@@ -733,7 +784,7 @@ void *s32x_68k_write_b(uint32_t address, void *vcontext, uint8_t value)
 	s32x *mars = gen->mars;
 	s32x_run(mars, m68k->cycles);
 	if (address < 0xA15100 + (S32X_NUM_REGS * 2)) {
-		printf("32X 68K Write (byte): %06X: %02X\n", address, value);
+		dprintf("32X 68K Write (byte): %06X: %02X\n", address, value);
 		uint32_t reg = (address & 0xFF) >> 1;
 		uint16_t mask = reg_write_masks[reg];
 		uint16_t extended;
@@ -917,7 +968,7 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 		}
 		uint32_t reg = (address & 0xFE) >> 1;
 		uint16_t mask = sh2_write_masks[reg];
-		printf("32X SH2 %c Write: %06X: %04X\n", sh2 == mars->main ? 'M' : 'S', address, value);
+		dprintf("32X SH2 %c Write: %06X: %04X\n", sh2 == mars->main ? 'M' : 'S', address, value);
 		s32x_sh2_sysreg_write(reg, sh2, mars, mask, value);
 	} else if (address >= 0x0004100) {
 		//SH2 writes seem to always go through for some reason, even when FM is clear
@@ -962,7 +1013,7 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 			extended = value << 8;
 			mask &= 0xFF00;
 		}
-		printf("32X SH2 Write: %06X: %04X\n", address, value);
+		dprintf("32X SH2 Write: %06X: %04X\n", address, value);
 		s32x_sh2_sysreg_write(reg, sh2, mars, mask, extended);
 	} else if (address >= 0x0004100) {
 		//SH2 writes seem to always go through for some reason, even when FM is clear
@@ -1363,7 +1414,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	if (cd_boot) {
 		ret->sh2_regs[S32X_SH2_INT_CTRL] |= BIT_CART_SH2;
 	}
-	ret->pwm = render_audio_source("PWM", (pal ? MCLKS_PAL : MCLKS_NTSC) * 3, 7, 2);
+	ret->pwm = render_audio_source("PWM", (pal ? MCLKS_PAL : MCLKS_NTSC) * 3, 7 * PWM_DECIMATE, 2);
 	return ret;
 }
 
