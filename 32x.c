@@ -9,7 +9,7 @@
 #include "util.h"
 #include "debug.h"
 
-#define MAX_SH2_CYCLES 500
+#define MAX_SH2_CYCLES 2000
 
 #ifdef DO_DEBUG_PRINT
 #define dprintf printf
