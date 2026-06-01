@@ -4,6 +4,12 @@
 #include "vdp.h"
 #include "render.h"
 
+#ifdef DO_DEBUG_PRINT
+#define dprintf printf
+#else
+#define dprintf
+#endif
+
 void s32x_video_init(s32x_video *vid, uint8_t pal)
 {
 	vid->front = calloc(256*1024, sizeof(uint8_t));
@@ -565,7 +571,7 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 				new |= old & S32X_VID_BIT_FS;
 			}
 		}
-		printf("32X VDP Write: %06X: %04X\n", address, value);
+		dprintf("32X VDP Write: %06X: %04X\n", address, value);
 		video->regs[reg] = new;
 		if (reg == S32X_VID_FILL_DATA) {
 			video->fill_count = video->regs[S32X_VID_FILL_LEN];
@@ -576,7 +582,7 @@ uint32_t s32x_video_68k_write(uint32_t address, s32x_video *video, uint16_t valu
 		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video);
 		}
-		printf("32X Palette Write: %06X: %04X\n", address, value);
+		dprintf("32X Palette Write: %06X: %04X\n", address, value);
 		video->palette[(address & 0x1FF) >> 1] = value;
 	}
 	return 0;
@@ -610,7 +616,7 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 				new |= old & S32X_VID_BIT_FS;
 			}
 		}
-		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
+		dprintf("32X VDP Write (byte): %06X: %04X\n", address, value);
 		video->regs[reg] = new;
 		if (reg == S32X_VID_FILL_DATA) {
 			video->fill_count = video->regs[S32X_VID_FILL_LEN];
@@ -620,7 +626,7 @@ uint32_t s32x_video_68k_write_b(uint32_t address, s32x_video *video, uint16_t va
 		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video);
 		}
-		printf("32X Palette Write (byte): %06X: %04X\n", address, value);
+		dprintf("32X Palette Write (byte): %06X: %04X\n", address, value);
 		//manual says this isn't allowed, what actually happens here?
 	}
 	return 0;
@@ -646,7 +652,7 @@ uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t valu
 				new |= old & S32X_VID_BIT_FS;
 			}
 		}
-		printf("32X VDP Write: %06X: %04X\n", address, value);
+		dprintf("32X VDP Write: %06X: %04X\n", address, value);
 		video->regs[reg] = new;
 		if (reg == S32X_VID_FILL_DATA) {
 			video->fill_count = video->regs[S32X_VID_FILL_LEN];
@@ -656,7 +662,7 @@ uint32_t s32x_video_sh2_write(uint32_t address, s32x_video *video, uint16_t valu
 		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video) * 3;
 		}
-		printf("32X Palette Write: %06X: %04X\n", address, value);
+		dprintf("32X Palette Write: %06X: %04X\n", address, value);
 		video->palette[(address & 0x1FF) >> 1] = value;
 	}
 	return 0;
@@ -690,7 +696,7 @@ uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t val
 				new |= old & S32X_VID_BIT_FS;
 			}
 		}
-		printf("32X VDP Write (byte): %06X: %04X\n", address, value);
+		dprintf("32X VDP Write (byte): %06X: %04X\n", address, value);
 		video->regs[reg] = new;
 		if (reg == S32X_VID_FILL_DATA) {
 			video->fill_count = video->regs[S32X_VID_FILL_LEN];
@@ -700,7 +706,7 @@ uint32_t s32x_video_sh2_write_b(uint32_t address, s32x_video *video, uint8_t val
 		if (!(video->regs[S32X_VID_FB_CTRL] & S32X_VID_BIT_PEN)) {
 			return cycles_to_pen(video) * 3;
 		}
-		printf("32X Palette Write (byte): %06X: %04X\n", address, value);
+		dprintf("32X Palette Write (byte): %06X: %04X\n", address, value);
 		//manual says this isn't allowed, what actually happens here?
 	}
 	return 0;

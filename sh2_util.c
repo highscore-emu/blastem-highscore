@@ -4,6 +4,12 @@
 #include "gen_x86.h"
 #endif
 
+#ifdef DO_DEBUG_PRINT
+#define dprintf printf
+#else
+#define dprintf
+#endif
+
 void sh2_read_8(sh2_context *sh2)
 {
 	//TODO: cache
@@ -64,7 +70,7 @@ void sh2_write_8(sh2_context *sh2)
 	//TODO: cache
 	uint32_t address = sh2->scratch2;
 	if (address >= 0xFFFFFE00) {
-		printf("SH7095 write.b - %03X: %02X\n", address & 0x1FF, sh2->scratch1 & 0xFF);
+		dprintf("SH7095 write.b - %03X: %02X\n", address & 0x1FF, sh2->scratch1 & 0xFF);
 		sh2->periph_write8(address, sh2, sh2->scratch1);
 	} else if (address < 0x28000000) {
 #if defined(X86_32) || defined(X86_64)
@@ -80,7 +86,7 @@ void sh2_write_16(sh2_context *sh2)
 	//TODO: cache
 	uint32_t address = sh2->scratch2;
 	if (address >= 0xFFFFFE00) {
-		printf("SH7095 write.w - %03X: %04X\n", address, sh2->scratch1 & 0xFFFF);
+		dprintf("SH7095 write.w - %03X: %04X\n", address, sh2->scratch1 & 0xFFFF);
 		sh2->periph_write16(address, sh2, sh2->scratch1);
 	} else if (address < 0x28000000) {
 #if defined(X86_32) || defined(X86_64)
@@ -96,7 +102,7 @@ void sh2_write_32(sh2_context *sh2)
 	//TODO: cache
 	uint32_t address = sh2->scratch2;
 	if (address >= 0xFFFFFE00) {
-		printf("SH7095 write.l - %03X: %08X\n", address, sh2->scratch1);
+		dprintf("SH7095 write.l - %03X: %08X\n", address, sh2->scratch1);
 		sh2->periph_write32(address, sh2, sh2->scratch1);
 	} else if (address < 0x28000000) {
 #if defined(X86_32) || defined(X86_64)

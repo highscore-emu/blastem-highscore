@@ -2,6 +2,12 @@
 #include <stdlib.h>
 #include "sh7095.h"
 
+#ifdef DO_DEBUG_PRINT
+#define dprintf printf
+#else
+#define dprintf
+#endif
+
 static void sh7095_reset(sh2_context *sh2)
 {
 	memset(sh2->peripherals, 0, sizeof(sh2->peripherals));
@@ -71,14 +77,14 @@ void sh7095_sci_to_sh7095_sci(void *data, uint32_t cycle, uint8_t byte)
 	sh7095_periph *p = other_sh2->periph_state;
 	if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RE) {
 		if (other_sh2->peripherals[SH_SSR] & BIT_SSR_RDRF) {
-			printf("SCI received %X, setting ORER SH2: %p\n", byte, other_sh2);
+			dprintf("SCI received %X, setting ORER SH2: %p\n", byte, other_sh2);
 			other_sh2->peripherals[SH_SSR] |= BIT_SSR_ORER;
 			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RIE) {
 				p->eri_pending = 1;
 				other_sh2->calc_next_interrupt(other_sh2);
 			}
 		} else {
-			printf("SCI received %X, setting RDRF SH2: %p\n", byte, other_sh2);
+			dprintf("SCI received %X, setting RDRF SH2: %p\n", byte, other_sh2);
 			other_sh2->peripherals[SH_RDR] = byte;
 			other_sh2->peripherals[SH_SSR] |= BIT_SSR_RDRF;
 			if (other_sh2->peripherals[SH_SCR] & BIT_SCR_RIE) {
