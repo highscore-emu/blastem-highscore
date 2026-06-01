@@ -944,6 +944,7 @@ static void s32x_sh2_sysreg_write(uint32_t reg, sh2_context *sh2, s32x *mars, ui
 		s32x_pwm_run(mars, sh2->cycles);
 		if (changes & BIT_PWM_RTP) {
 			if (new & BIT_PWM_RTP) {
+				base[reg] = new;
 				maybe_update_pwm_dreq(mars);
 			} else {
 				sh7095_clear_dreq1(mars->main);
