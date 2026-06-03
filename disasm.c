@@ -550,7 +550,7 @@ void process_sh2_vectors(disasm_context *context, uint16_t *table, const char *p
 	if (!labels_only) {
 		visit(context, offset + 0x100);
 		label_def *def = reference(context, offset + 0x100);
-		def->data_count = 15;
+		def->data_count = 8;
 		def->data_size = 4;
 		def->is_pointer = 1;
 	}
