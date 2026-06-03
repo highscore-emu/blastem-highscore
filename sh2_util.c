@@ -3,6 +3,9 @@
 #if defined(X86_32) || defined(X86_64)
 #include "gen_x86.h"
 #endif
+#ifdef SH2_DEBUG_LOG
+#include "sh2_decode.h"
+#endif
 
 #ifdef DO_DEBUG_PRINT
 #define dprintf printf
@@ -201,3 +204,74 @@ void sh2_remove_breakpoint(sh2_context *sh2, uint32_t address)
 	char buf[MAX_INT_KEY_SIZE];
 	tern_delete(&sh2->breakpoints, tern_int_key(address, buf), NULL);
 }
+
+#ifdef SH2_DEBUG_LOG
+void sh2_debug_log(sh2_context *sh2)
+{
+	static sh2_context *comp[2];
+	static const char *disasm[65536];
+	if (!sh2->main) {
+		return;
+	}
+	if (!comp[sh2->main]) {
+		comp[sh2->main] = calloc(1, sizeof(sh2_context));
+		memcpy(comp[sh2->main], sh2, sizeof(sh2_context));
+	}
+	sh2_inst inst = sh2_decode(sh2->prefetch_cur);
+	if (!disasm[sh2->prefetch_cur]) {
+		char buf[128];
+		sh2_disasm(buf, inst, sh2->pc, NULL);
+		disasm[sh2->prefetch_cur] = strdup(buf);
+	}
+	printf("%c %X %s %d%d%d%d", sh2->main ? 'M' : 'S', sh2->pc, disasm[sh2->prefetch_cur], sh2->t, sh2->s, sh2->q, sh2->m);
+	uint8_t print_gpr[16];
+	for (int i = 0; i < 16; i++)
+	{
+		if (sh2->gpr[i] != comp[sh2->main]->gpr[i]) {
+			comp[sh2->main]->gpr[i] = sh2->gpr[i];
+			print_gpr[i] = 1;
+		} else {
+			print_gpr[i] = 0;
+		}
+	}
+	if (inst.src >= SH2_R0 && inst.src <= SH2_DISP_SP) {
+		print_gpr[(inst.src - SH2_R0) & 15] = 1;
+		if (inst.src >= SH2_IDX_R0_R0 && inst.src <= SH2_IDX_R0_SP) {
+			print_gpr[0] = 1;
+		}
+	}
+	if (inst.dst >= SH2_R0 && inst.dst <= SH2_DISP_SP) {
+		print_gpr[(inst.dst - SH2_R0) & 15] = 1;
+		if (inst.dst >= SH2_IDX_R0_R0 && inst.dst <= SH2_IDX_R0_SP) {
+			print_gpr[0] = 1;
+		}
+	}
+	for (int i = 0; i < 16; i++)
+	{
+		if (print_gpr[i]) {
+			printf(" r%d:%X", i, sh2->gpr[i]);
+		}
+	}
+	uint8_t print_mach = 0;
+	if (sh2->mach != comp[sh2->main]->mach) {
+		print_mach = 1;
+		comp[sh2->main]->mach = sh2->mach;
+	} else if (inst.src == SH2_MACH || inst.dst == SH2_MACH) {
+		print_mach = 1;
+	}
+	if (print_mach) {
+		printf(" mach:%X", sh2->mach);
+	}
+	uint8_t print_macl = 0;
+	if (sh2->macl != comp[sh2->main]->macl) {
+		print_macl = 1;
+		comp[sh2->main]->macl = sh2->macl;
+	} else if (inst.src == SH2_MACL || inst.dst == SH2_MACL) {
+		print_macl = 1;
+	}
+	if (print_macl) {
+		printf(" macl:%X", sh2->macl);
+	}
+	putchar('\n');
+}
+#endif
