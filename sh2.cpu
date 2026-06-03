@@ -889,6 +889,7 @@ sh2_reset
 		tmp2 = mach << 32
 		tmp2 |= macl
 		tmp1 += tmp2
+		mach = tmp1 >> 32
 	end
 	macl = tmp1
 	sh2_fetch
