@@ -232,11 +232,48 @@ class Instruction(Block):
 		return funName
 		
 	def generateBody(self, value, prog, otype):
-		output = []
 		prog.meta = {}
 		prog.declaredLocals.clear()
 		prog.pushScope(self)
 		self.regValues = {}
+		if otype == 'c':
+			return self.generateBodyC(value, prog)
+		elif 'interp' in otype:
+			return self.generateBodyInterp(value, prog, otype)
+
+	def generateBodyInterp(self, value, prog, otype):
+		output = []
+		self.newLocals = []
+		fieldVals,_ = self.getFieldVals(value)
+		ops = []
+		for name in self.noSpecialize:
+			del fieldVals[name]
+			self.locals[name] = prog.opsize
+			if len(prog.mainDispatch) != 1:
+				raise Exception('nospecialize requires exactly 1 field used for main table dispatch')
+			shift,bits = self.fields[name]
+			mask = (1 << bits) - 1
+			opfield = list(prog.mainDispatch)[0]
+			if shift:
+				ops += NormalOp(['lsr', opfield, str(shift), name])
+				ops += NormalOp(['and', name, str(mask), name])
+			else:
+				ops += NormalOp(['and', opfield, str(mask), name])
+				
+		ops += self.implementation
+		#TODO: 3-op to 2-op transform
+		#TODO: Temporaries for non-register operands when needed
+		#TODO: Register allocation for temporaries/locals
+		self.processOps(prog, fieldVals, output, otype, ops)
+		for name in self.noSpecialize:
+			del self.locals[name]
+		
+		prog.popScope()
+		output += prog.nextInstruction('c')
+		return ''.join(output)
+
+	def generateBodyC(self, value, prog):
+		output = []
 		for var in self.locals:
 			output.append('\n\tuint{sz}_t {name};'.format(sz=self.locals[var], name=var))
 		self.newLocals = []
@@ -253,7 +290,7 @@ class Instruction(Block):
 				output.append(f'\n\tuint{prog.opsize}_t {name} = context->{opfield} >> {shift} & {mask};')
 			else:
 				output.append(f'\n\tuint{prog.opsize}_t {name} = context->{opfield} & {mask};')
-		self.processOps(prog, fieldVals, output, otype, self.implementation)
+		self.processOps(prog, fieldVals, output, 'c', self.implementation)
 		for name in self.noSpecialize:
 			del self.locals[name]
 		
@@ -264,9 +301,9 @@ class Instruction(Block):
 		else:
 			raise Exception('Unsupported dispatch type ' + prog.dispatch)
 		if prog.needFlagCoalesce:
-			begin += prog.flags.coalesceFlags(prog, otype)
+			begin += prog.flags.coalesceFlags(prog, 'c')
 		if prog.needFlagDisperse:
-			output.append(prog.flags.disperseFlags(prog, otype))
+			output.append(prog.flags.disperseFlags(prog, 'c'))
 		for var in self.newLocals:
 			begin += '\n\tuint{sz}_t {name};'.format(sz=self.locals[var], name=var)
 		for size in prog.temp:
@@ -275,7 +312,7 @@ class Instruction(Block):
 			begin += f'\n\tuint{prog.declaredLocals[name]}_t {name};'
 		prog.popScope()
 		if prog.dispatch == 'goto':
-			output += prog.nextInstruction(otype)
+			output += prog.nextInstruction('c')
 		return begin + ''.join(output) + '\n}'
 		
 	def __str__(self):
@@ -2247,7 +2284,6 @@ class Program:
 		hFile.close()
 		
 	def _buildTable(self, otype, table, body, lateBody):
-		pieces = []
 		opmap = [None] * (1 << self.opsize)
 		bodymap = {}
 		if table in self.instructions:
@@ -2266,6 +2302,39 @@ class Program:
 						if not name in bodymap:
 							bodymap[name] = inst.generateBody(val, self, otype)
 		
+		if otype == 'c':
+			self._addTableC(table, body, lateBody, opmap, bodymap)
+		elif 'interp' in otype:
+			self._addTableAsm(table, otype, body, lateBody, opmap, bodymap)
+		else:
+			raise ValueError(f'Unsupported target {otype}')
+
+	def _addTableAsm(self, otype, table, body, lateBody, opmap, bodymap):
+		alreadyAppended = set()
+		if '64' in otype:
+			directive = '.quad'
+		else:
+			directive = '.int'
+		lateBody.append(f'\nimpl_{table}:')
+		lineCounter = 0
+		for inst in range(0, len(opmap)):
+			op = opmap[inst]
+			if lineCounter == 8:
+				lineCounter = 0
+			if lineCounter:
+				lateBody.append(', ')
+			else:
+				lateBody.append(f'\n\t{directive} ')
+			if op is None:
+				lateBody.append('unimplemented')
+			else:
+				lateBody.append(op)
+				if not op in alreadyAppended:
+						body.append(bodymap[op])
+						alreadyAppended.add(op)
+		lateBody.append('\n')
+		
+	def _addTableC(self, table, body, lateBody, opmap, bodymap):
 		alreadyAppended = set()
 		if self.dispatch == 'call':
 			lateBody.append('\nstatic impl_fun impl_{name}[{sz}] = {{'.format(name = table, sz=len(opmap)))
@@ -2292,7 +2361,6 @@ class Program:
 			body.append('\n\t};')
 		else:
 			raise Exception("unimplmeneted dispatch type " + self.dispatch)
-		body.extend(pieces)
 		
 	def nextInstruction(self, otype):
 		output = []
@@ -2322,6 +2390,27 @@ class Program:
 		return output
 	
 	def build(self, otype):
+		for table in self.instructions:
+			for inst in self.instructions[table]:
+				inst.processDispatch(self)
+		for sub in self.subroutines:
+			self.subroutines[sub].processDispatch(self)
+		if otype == 'c':
+			return self.build_c()
+		elif otype == 'x64_interp':
+			return self.build_x64_interp()
+		else:
+			raise ValueError(f'Unsupported target {otype}')
+	
+	def build_x64_interp(self):
+		body = []
+		lateBody = []
+		for table in self.extra_tables:
+			self._buildTable('c', table, body, lateBody)
+		self._buildTable('c', 'main', body, lateBody)
+		return ''.join(body) +  ''.join(pieces)
+
+	def build_c(self):
 		body = []
 		pieces = []
 		for include in self.includes:
@@ -2334,16 +2423,10 @@ class Program:
 		elif self.dispatch == 'goto':
 			body.append('\nvoid {pre}execute({type} *context, uint32_t target_cycle)'.format(pre = self.prefix, type = self.context_type))
 			body.append('\n{')
-		
-		for table in self.instructions:
-			for inst in self.instructions[table]:
-				inst.processDispatch(self)
-		for sub in self.subroutines:
-			self.subroutines[sub].processDispatch(self)
 			
 		for table in self.extra_tables:
-			self._buildTable(otype, table, body, pieces)
-		self._buildTable(otype, 'main', body, pieces)
+			self._buildTable('c', table, body, pieces)
+		self._buildTable('c', 'main', body, pieces)
 		if self.dispatch == 'call':
 			if self.body in self.subroutines:
 				pieces.append('\nvoid {pre}execute({type} *context, uint32_t target_cycle)'.format(pre = self.prefix, type = self.context_type))
@@ -2362,7 +2445,7 @@ class Program:
 						bodyPieces.append(f'\n\t\t\t\t{self.sync_cycle}(context, target_cycle);')
 						bodyPieces.append('\n\t\t\t}')
 						self.meta = {}
-						self.subroutines[self.interrupt].inline(self, [], bodyPieces, otype, None)
+						self.subroutines[self.interrupt].inline(self, [], bodyPieces, 'c', None)
 					if self.pc_offset:
 						bodyPieces.append(f'\n\t\t\tuint32_t debug_pc = context->{self.pc_reg} - {self.pc_offset};')
 						pc_reg = 'debug_pc'
@@ -2374,7 +2457,7 @@ class Program:
 					bodyPieces.append(f'\n\t\t\t\thandler(context, {pc_reg});')
 					bodyPieces.append('\n\t\t\t}')
 					self.meta = {}
-					self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
+					self.subroutines[self.body].inline(self, [], bodyPieces, 'c', None)
 					bodyPieces.append('\n\t}')
 					bodyPieces.append('\n\t} else {')
 				bodyPieces.append('\n\twhile (context->cycles < target_cycle)')
@@ -2384,9 +2467,9 @@ class Program:
 					bodyPieces.append(f'\n\t\t\t{self.sync_cycle}(context, target_cycle);')
 					bodyPieces.append('\n\t\t}')
 					self.meta = {}
-					self.subroutines[self.interrupt].inline(self, [], bodyPieces, otype, None)
+					self.subroutines[self.interrupt].inline(self, [], bodyPieces, 'c', None)
 				self.meta = {}
-				self.subroutines[self.body].inline(self, [], bodyPieces, otype, None)
+				self.subroutines[self.body].inline(self, [], bodyPieces, 'c', None)
 				for name in self.declaredLocals:
 					pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
 				for size in self.temp:
@@ -2414,7 +2497,7 @@ class Program:
 			body.append('\n}\n')
 		elif self.dispatch == 'goto':
 			body.append('\n\t{sync}(context, target_cycle);'.format(sync=self.sync_cycle))
-			body += self.nextInstruction(otype)
+			body += self.nextInstruction('c')
 			pieces.append('\nunimplemented:')
 			if len(self.mainDispatch) == 1:
 				dispatch = list(self.mainDispatch)[0]
@@ -2433,7 +2516,7 @@ class Program:
 			pieces.append(')\n{')
 			export_body = []
 			self.declaredLocals.clear()
-			self.subroutines[name].inline(self, argnames, export_body, otype, None)
+			self.subroutines[name].inline(self, argnames, export_body, 'c', None)
 			for name in self.declaredLocals:
 				pieces.append(f'\n\tuint{self.declaredLocals[name]}_t {name};')
 			pieces += export_body
@@ -2584,6 +2667,8 @@ class Program:
 		
 	def getRootScope(self):
 		return self.scopes[0]
+		
+valid_targets = ('c', 'x64_interp')
 
 def parse(args):
 	f = args.source
@@ -2594,6 +2679,7 @@ def parse(args):
 	declares = []
 	errors = []
 	info = {}
+	target_params = {}
 	line_num = 0
 	cur_object = None
 	usedInstNames = set()
@@ -2688,6 +2774,9 @@ def parse(args):
 				cur_object = flags
 			elif line.strip() == 'declare':
 				cur_object = declares
+			elif line.strip() in valid_targets:
+				cur_object = dict()
+				target_params[line.strip()] = cur_object
 			else:
 				cur_object = SubRoutine(line.strip())
 				subroutines[cur_object.name] = cur_object
@@ -2701,7 +2790,7 @@ def parse(args):
 		p.booleans['interp'] = True
 		if args.define:
 			for define in args.define:
-				name,sep,val = define.partition('=')
+				name,sep,val = define.partition('=')	
 				name = name.strip()
 				val = val.strip()
 				if sep:
@@ -2710,11 +2799,13 @@ def parse(args):
 					p.booleans[name] = True
 		
 		if 'header' in info:
-			print('#include "{0}"'.format(info['header'][0]))
+			if args.target == 'c':
+				print('#include "{0}"'.format(info['header'][0]))
 			p.writeHeader('c', info['header'][0])
-		print('#include "util.h"')
-		print('#include <stdlib.h>')
-		print(p.build('c'))
+		if args.target == 'c':
+			print('#include "util.h"')
+			print('#include <stdlib.h>')
+		print(p.build(args.target))
 
 def main(argv):
 	from argparse import ArgumentParser, FileType
@@ -2722,6 +2813,7 @@ def main(argv):
 	argParser.add_argument('source', type=FileType('r'))
 	argParser.add_argument('-D', '--define', action='append')
 	argParser.add_argument('-d', '--dispatch', choices=('call', 'switch', 'goto'), default='call')
+	argParser.add_argument('-t', '--target', choices=('c', 'x64_interp'), default='c')
 	parse(argParser.parse_args(argv[1:]))
 
 if __name__ == '__main__':

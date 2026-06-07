@@ -77,6 +77,22 @@ flags
 	V 0 overflow t
 	C 0 carry t
 
+x64_interp
+	context rsi
+	cycles rax
+	limit rbp
+	scratch1 rcx
+	scratch2 rdi
+	pc rbx
+	r0 rdx
+	r1 r9
+	r2 r10
+	r4 r12
+	r5 r13
+	r6 r14
+	r15 r15
+	temp r11 r8
+
 sh2_read32
 	arg addr 32
 	if addr >=U 0xC0000000
