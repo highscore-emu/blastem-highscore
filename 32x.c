@@ -84,24 +84,27 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 		while (ticks)
 		{
 			if (mars->pwm_counter == 2) {
-				mars->pwm_counter = mars->regs[S32X_PWM_CYCLE];
+				uint16_t cycle = mars->pwm_counter = mars->regs[S32X_PWM_CYCLE];
+				if (!cycle) {
+					cycle = 0x1000;
+				}
 				switch (mars->regs[S32X_PWM_CTRL] & 3)
 				{
 				case 1:
-					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, mars->pwm_counter, &mars->pwm_left);
+					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, cycle, &mars->pwm_left);
 					break;
 				case 2:
-					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, mars->pwm_counter, &mars->pwm_left);
+					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, cycle, &mars->pwm_left);
 					break;
 				//TODO: what happens if the illegal 3 value is used
 				}
 				switch (mars->regs[S32X_PWM_CTRL] >> 2 & 3)
 				{
 				case 1:
-					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, mars->pwm_counter, &mars->pwm_right);
+					pwm_fifo_read(&mars->fifo_right, mars->regs + S32X_PWM_WIDTH_R, cycle, &mars->pwm_right);
 					break;
 				case 2:
-					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, mars->pwm_counter, &mars->pwm_right);
+					pwm_fifo_read(&mars->fifo_left, mars->regs + S32X_PWM_WIDTH_L, cycle, &mars->pwm_right);
 					break;
 				}
 				mars->pwm_timer--;
@@ -130,6 +133,7 @@ static void s32x_pwm_run(s32x *mars, uint32_t target)
 					mars->pwm_counter = 1;
 				} else {
 					ticks -= pwm_tick(mars, 1);
+					mars->pwm_counter &= 0xFFF;
 				}
 			}
 		}
