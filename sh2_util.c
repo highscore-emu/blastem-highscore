@@ -150,6 +150,7 @@ sh2_context *init_sh2_context(sh2_options *opts, sh2_fun *next_int)
 	sh2->native_write8 = (sh2_periph_write8 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, WRITE_8, NULL, 1);
 	opts->gen.code.stack_off = 0;
 	sh2->native_read8 = (sh2_periph_read8 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, READ_8, NULL, 1);
+	sh2->burst_read = (sh2_burst_read *)gen_burst_read(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks);
 #endif
 	return sh2;
 }

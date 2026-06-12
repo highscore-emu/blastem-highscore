@@ -529,3 +529,276 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 	retn(code);
 	return start;
 }
+
+code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_t num_chunks)
+{
+	code_info *code = &opts->code;
+	code_ptr start = code->cur;
+	uint8_t context_reg, adr_reg, dst_reg;
+	//assumes caller ensures burst alignment
+	//currently assumes 16-byte/8-word burst needed for SH2
+	//from_c is assumed for now
+#if defined(X86_64)
+#if defined(_WIN32)
+	//RCX, RDX, R8
+	adr_reg = RCX;
+	context_reg = RDX;
+	dst_reg = R8;
+#else
+	//RDI, RSI, RDX
+	adr_reg = RDI;
+	context_reg = RSI;
+	dst_reg = RDX;
+#endif
+#else
+	//rtl on stack, EAX, ECX, EDX are caller saved
+	adr_reg = RCX;
+	context_reg = RDX;
+	dst_reg = RAX;
+	mov_rr(code, RSP, RAX, SZ_D);
+	mov_rdispr(code, RAX, 4, adr_reg, opts->address_size);
+	mov_rdispr(code, RAX, 8, context_reg, SZ_PTR);
+	mov_rdispr(code, RAX, 12, dst_reg, SZ_PTR);
+#endif
+
+	if (opts->address_size == SZ_D && opts->address_mask != 0xFFFFFFFF) {
+		and_ir(code, opts->address_mask, adr_reg, SZ_D);
+	} else if (opts->address_size == SZ_W && opts->address_mask != 0xFFFF) {
+		and_ir(code, opts->address_mask, adr_reg, SZ_W);
+	}
+	code_ptr lb_jcc = NULL, ub_jcc = NULL;
+	uint32_t min_address = 0;
+	uint32_t max_address = opts->max_address;
+	uint8_t use_sse2 = cpu_has_sse2();
+	uint8_t need_wide_jcc = 0;
+	for (uint32_t chunk = 0; chunk < num_chunks; chunk++)
+	{
+		code_info chunk_start = *code;
+		if (memmap[chunk].start > min_address) {
+			cmp_ir(code, memmap[chunk].start, adr_reg, opts->address_size);
+			lb_jcc = code->cur + 1;
+			if (need_wide_jcc) {
+				jcc(code, CC_C, code->cur + 130);
+				lb_jcc++;
+			} else {
+				jcc(code, CC_C, code->cur + 2);
+			}
+		} else {
+			min_address = memmap[chunk].end;
+		}
+		if (memmap[chunk].end < max_address) {
+			cmp_ir(code, memmap[chunk].end, adr_reg, opts->address_size);
+			ub_jcc = code->cur + 1;
+			if (need_wide_jcc) {
+				jcc(code, CC_NC, code->cur + 130);
+				ub_jcc++;
+			} else {
+				jcc(code, CC_NC, code->cur + 2);
+			}
+		} else {
+			max_address = memmap[chunk].start;
+		}
+
+		if (memmap[chunk].mask != opts->address_mask) {
+			and_ir(code, memmap[chunk].mask, adr_reg, opts->address_size);
+		}
+		if (memmap[chunk].flags & MMAP_READ) {
+			uint8_t need_pop_rbp = 0;
+			if (memmap[chunk].flags & MMAP_PTR_IDX) {
+				if (memmap[chunk].flags & MMAP_FUNC_NULL) {
+					cmp_irdisp(code, 0, context_reg, opts->mem_ptr_off + sizeof(void*) * memmap[chunk].ptr_index, SZ_PTR);
+					code_ptr not_null = code->cur + 1;
+					jcc(code, CC_NZ, code->cur + 2);
+					push_r(code, RBX);//counter
+#if defined(X86_64)
+					push_r(code, RBP);
+					push_r(code, R12);
+					push_r(code, R13);
+					mov_rr(code, dst_reg, RBP, SZ_PTR);
+					uint8_t my_dst_reg = RBP;
+					mov_rr(code, adr_reg, R12, opts->address_size);
+					uint8_t my_adr_reg = R12;
+					mov_rr(code, context_reg, R13, SZ_PTR);
+					uint8_t my_context_reg = R13;
+#else
+					
+					push_r(code, RBP);
+					push_r(code, RDI);
+					push_r(code, RSI);
+					mov_rr(code, dst_reg, RBP, SZ_PTR);
+					uint8_t my_dst_reg = RBP;
+					mov_rr(code, adr_reg, RDI, opts->address_size);
+					uint8_t my_adr_reg = RDI;
+					mov_rr(code, context_reg, RSI, SZ_PTR);
+					uint8_t my_context_reg = RSI;
+#endif
+					mov_ir(code, 8, RBX, SZ_D);
+					code_ptr loop_top = code->cur;
+					//caller saved
+					//32-bit: EAX, ECX, EDX
+					//SYSV 64: RAX, RCX, RDX, RDI, RSI, R8, R9, R10, R11
+					//WIN64: RAX, RCX, RDX, R8, R9, R10, R11
+					//callee saved
+					//32-bit: EBX, EDI, ESI, EBP
+					//SYSV 64: RBX, RBP, R12-R15
+					//WIN64: RBX, RDI, RSI, RBP, R12-R15
+					call_args_abi(code, (code_ptr)memmap[chunk].read_16, 2, my_adr_reg, my_context_reg);
+					mov_rrind(code, RAX, my_dst_reg, SZ_W);
+					add_ir(code, 2, my_dst_reg, SZ_PTR);
+					add_ir(code, 2, my_adr_reg, opts->address_size);
+					dec_r(code, RBX, SZ_D);
+					jcc(code, CC_NZ, loop_top);
+#if defined(X86_64)
+					pop_r(code, R13);
+					pop_r(code, R12);
+					pop_r(code, RBP);
+#else
+					pop_r(code, RSI);
+					pop_r(code, RDI);
+					pop_r(code, RBP);
+#endif
+					pop_r(code, RBX);
+					retn(code);
+					*not_null = code->cur - (not_null + 1);
+				}
+				if (opts->address_size != SZ_D) {
+					movzx_rr(code, adr_reg, adr_reg, opts->address_size, SZ_D);
+				}
+				add_rdispr(code, context_reg, opts->mem_ptr_off + sizeof(void*) * memmap[chunk].ptr_index, adr_reg, SZ_PTR);
+				//TODO: Don't shuffle if byteswap is not set
+				if (use_sse2) {
+					//   10 11 00 01
+					pshuflw_rindr(code, adr_reg, XMM0, 0xB1);
+				} else {
+					pshufw_rindr(code, adr_reg, MM0, 0xB1);
+					pshufw_rdispr(code, adr_reg, 8, MM1, 0xB1);
+				}
+			} else {
+				if (opts->address_size != SZ_D) {
+					movzx_rr(code, adr_reg, adr_reg, opts->address_size, SZ_D);
+				}
+#if defined(X86_64)
+				if ((intptr_t)memmap[chunk].buffer <= 0x7FFFFFFF && (intptr_t)memmap[chunk].buffer >= -2147483648) {
+#endif
+					//TODO: Don't shuffle if byteswap is not set
+					if (use_sse2) {
+						pshuflw_rdispr(code, adr_reg, (intptr_t)memmap[chunk].buffer, XMM0, 0xB1);
+					} else {
+						pshufw_rdispr(code, adr_reg, (intptr_t)memmap[chunk].buffer, MM0, 0xB1);
+						pshufw_rdispr(code, adr_reg, ((intptr_t)memmap[chunk].buffer) + 8, MM1, 0xB1);
+					}
+#if defined(X86_64)
+				} else {
+					mov_ir(code, (intptr_t)memmap[chunk].buffer, RAX, SZ_PTR);
+					//TODO: Don't shuffle if byteswap is not set
+					//SSE2 always available on 64-bit
+					pshuflw_rindexr(code, RAX, adr_reg, 1, XMM0, 0xB1);
+				}
+#endif
+			}
+			if (use_sse2) {
+				pshufhw_rr(code, XMM0, XMM0, 0xB1);
+				movdqa_rrind(code, XMM0, dst_reg);
+			} else {
+				movq_rrind(code, MM0, dst_reg);
+				movq_rrdisp(code, MM1, dst_reg, 8);
+				emms(code);
+			}
+			retn(code);
+		} else if (memmap[chunk].read_16) {
+			push_r(code, RBX);//counter
+#if defined(X86_64)
+			push_r(code, RBP);
+			push_r(code, R12);
+			push_r(code, R13);
+			mov_rr(code, dst_reg, RBP, SZ_PTR);
+			uint8_t my_dst_reg = RBP;
+			mov_rr(code, adr_reg, R12, opts->address_size);
+			uint8_t my_adr_reg = R12;
+			mov_rr(code, context_reg, R13, SZ_PTR);
+			uint8_t my_context_reg = R13;
+#else
+			push_r(code, RBP);
+			push_r(code, RDI);
+			push_r(code, RSI);
+			mov_rr(code, dst_reg, RBP, SZ_PTR);
+			uint8_t my_dst_reg = RBP;
+			mov_rr(code, adr_reg, RDI, opts->address_size);
+			uint8_t my_adr_reg = RDI;
+			mov_rr(code, context_reg, RSI, SZ_PTR);
+			uint8_t my_context_reg = RSI;
+#endif
+			mov_ir(code, 8, RBX, SZ_D);
+			code_ptr loop_top = code->cur;
+			//caller saved
+			//32-bit: EAX, ECX, EDX
+			//SYSV 64: RAX, RCX, RDX, RDI, RSI, R8, R9, R10, R11
+			//WIN64: RAX, RCX, RDX, R8, R9, R10, R11
+			//callee saved
+			//32-bit: EBX, EDI, ESI, EBP
+			//SYSV 64: RBX, RBP, R12-R15
+			//WIN64: RBX, RDI, RSI, RBP, R12-R15
+			call_args_abi(code, (code_ptr)memmap[chunk].read_16, 2, my_adr_reg, my_context_reg);
+			mov_rrind(code, RAX, my_dst_reg, SZ_W);
+			add_ir(code, 2, my_dst_reg, SZ_PTR);
+			add_ir(code, 2, my_adr_reg, opts->address_size);
+			dec_r(code, RBX, SZ_D);
+			jcc(code, CC_NZ, loop_top);
+#if defined(X86_64)
+			pop_r(code, R13);
+			pop_r(code, R12);
+			pop_r(code, RBP);
+#else
+			pop_r(code, RSI);
+			pop_r(code, RDI);
+			pop_r(code, RBP);
+#endif
+			pop_r(code, RBX);
+			retn(code);
+		} else {
+#if defined(X86_64)
+			mov_ir(code, 0xFFFFFFFFFFFFFFFFULL, adr_reg, SZ_Q);
+			mov_rrind(code, adr_reg, dst_reg, SZ_Q);
+			mov_rrdisp(code, adr_reg, dst_reg, 8, SZ_Q);
+#else
+			mov_ir(code, 0xFFFFFFFF, adr_reg, SZ_D);
+			mov_rrind(code, adr_reg, dst_reg, SZ_D);
+			mov_rrdisp(code, adr_reg, dst_reg, 4, SZ_D);
+			mov_rrdisp(code, adr_reg, dst_reg, 8, SZ_D);
+			mov_rrdisp(code, adr_reg, dst_reg, 12, SZ_D);
+#endif
+			retn(code);
+		}
+		if (lb_jcc) {
+			if (need_wide_jcc) {
+				*((int32_t*)lb_jcc) = code->cur - (lb_jcc+4);
+			} else if (code->cur - (lb_jcc+1) > 0x7f) {
+				need_wide_jcc = 1;
+				chunk--;
+				*code = chunk_start;
+				continue;
+			} else {
+				*lb_jcc = code->cur - (lb_jcc+1);
+			}
+			lb_jcc = NULL;
+		}
+		if (ub_jcc) {
+			if (need_wide_jcc) {
+				*((int32_t*)ub_jcc) = code->cur - (ub_jcc+4);
+			} else if (code->cur - (ub_jcc+1) > 0x7f) {
+				need_wide_jcc = 1;
+				chunk--;
+				*code = chunk_start;
+				continue;
+			} else {
+				*ub_jcc = code->cur - (ub_jcc+1);
+			}
+
+			ub_jcc = NULL;
+		}
+		if (need_wide_jcc) {
+			need_wide_jcc = 0;
+		}
+	}
+	return start;
+}

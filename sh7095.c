@@ -154,7 +154,7 @@ void sh7095_clear_dreq1(sh2_context *sh2)
 	sh7095_check_start_dma(sh2, SH_SAR1 - SH_SAR0);
 }
 
-static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *dst, uint32_t ts, int32_t src_delta, int32_t dst_delta)
+static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *dst, uint32_t ts, int32_t src_delta, int32_t dst_delta, uint32_t *tcr)
 {
 	//TODO: real cycles
 	//TODO: test how 16-byte burst mode behaves on 16-bit bus
@@ -164,28 +164,64 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 	switch (ts)
 	{
 	case 1:
+#if defined(X86_32) | defined(X86_64)
+		val8 = sh2->native_read8(*src, sh2);
+		sh2->native_write8(*dst, sh2, val8);
+#else
 		val8 = read_byte(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_byte(*dst, val8, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+#endif
 		*src += src_delta;
 		*dst += dst_delta;
 		cycles = 2 * sh2->opts->gen.clock_divider;
+		--*tcr;
 		break;
 	case 2:
+#if defined(X86_32) | defined(X86_64)
+		val16 = sh2->native_read16(*src, sh2);
+		sh2->native_write16(*dst, sh2, val16);
+#else
 		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+#endif
 		*src += src_delta;
 		*dst += dst_delta;
 		cycles = 2 * sh2->opts->gen.clock_divider;
+		--*tcr;
 		break;
-	case 4:
+
 	case 16:
+#if defined(X86_32) | defined(X86_64)
+		cycles = 16 * sh2->opts->gen.clock_divider;
+		//GCC won't actually give us our requested alignemnt on the stack unless it's <= system stack alignemnt
+		//Windows only guarantees 4-byte alignment in its 32-bit ABI so this will crash there if not static
+		static uint32_t data[4] __attribute__((aligned(16)));
+		sh2->burst_read(*src, sh2, data);
+		for (int i = 0; i < 4 && *tcr; i++, --*tcr)
+		{
+			sh2->native_write16(*dst, sh2, data[i] >> 16);
+			sh2->native_write16(*dst + 2, sh2, data[i]);
+			*dst += dst_delta;
+		}
+		*src += 4 * src_delta;
+		break;
+#endif
+	case 4:
 		cycles = 4 * sh2->opts->gen.clock_divider;
+#if defined(X86_32) | defined(X86_64)
+		val16 = sh2->native_read16(*src, sh2);
+		sh2->native_write16(*dst, sh2, val16);
+		val16 = sh2->native_read16(*src + 2, sh2);
+		sh2->native_write16(*dst + 2, sh2, val16);
+#else
 		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		val16 = read_word(*src + 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 		write_word(*dst + 2, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+#endif
 		*src += src_delta;
 		*dst += dst_delta;
+		--*tcr;
 		break;
 	}
 	return cycles;
@@ -362,8 +398,7 @@ static void sh7095_run(sh2_context *sh2)
 				{
 					uint32_t cycles;
 					if (p->dmac_which) {
-						cycles = sh7095_dmac_transfer(sh2, &sar1, &dar1, chcr1_ts, src_delta1, dst_delta1);
-						tcr1--;
+						cycles = sh7095_dmac_transfer(sh2, &sar1, &dar1, chcr1_ts, src_delta1, dst_delta1, &tcr1);
 						if (!tcr1) {
 							p->dmac1_run = 0;
 							sh2->peripherals[SH_CHCR1+3] |= BIT_CHCR_TE;
@@ -375,8 +410,7 @@ static void sh7095_run(sh2_context *sh2)
 							p->dmac1_run = 0;
 						}
 					} else {
-						cycles = sh7095_dmac_transfer(sh2, &sar0, &dar0, chcr0_ts, src_delta0, dst_delta0);
-						tcr0--;
+						cycles = sh7095_dmac_transfer(sh2, &sar0, &dar0, chcr0_ts, src_delta0, dst_delta0, &tcr0);
 						if (!tcr0) {
 							p->dmac0_run = 0;
 							sh2->peripherals[SH_CHCR0+3] |= BIT_CHCR_TE;
@@ -399,8 +433,7 @@ static void sh7095_run(sh2_context *sh2)
 			}
 			while (dmac_delta && p->dmac0_run)
 			{
-				uint32_t cycles = sh7095_dmac_transfer(sh2, &sar0, &dar0, chcr0_ts, src_delta0, dst_delta0);
-				tcr0--;
+				uint32_t cycles = sh7095_dmac_transfer(sh2, &sar0, &dar0, chcr0_ts, src_delta0, dst_delta0, &tcr0);
 				if (!tcr0) {
 					p->dmac0_run = 0;
 					sh2->peripherals[SH_CHCR0+3] |= BIT_CHCR_TE;
@@ -419,8 +452,7 @@ static void sh7095_run(sh2_context *sh2)
 			}
 			while (dmac_delta && p->dmac1_run)
 			{
-				uint32_t cycles = sh7095_dmac_transfer(sh2, &sar1, &dar1, chcr1_ts, src_delta1, dst_delta1);
-				tcr1--;
+				uint32_t cycles = sh7095_dmac_transfer(sh2, &sar1, &dar1, chcr1_ts, src_delta1, dst_delta1, &tcr1);
 				if (!tcr1) {
 					p->dmac1_run = 0;
 					sh2->peripherals[SH_CHCR1+3] |= BIT_CHCR_TE;

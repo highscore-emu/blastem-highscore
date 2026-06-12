@@ -24,6 +24,7 @@ declare
 	typedef uint32_t (sh2_periph_read32)(uint32_t address, sh2_context *sh2);
 	typedef uint16_t (sh2_periph_read16)(uint32_t address, sh2_context *sh2);
 	typedef uint8_t (sh2_periph_read8)(uint32_t address, sh2_context *sh2);
+	typedef void (sh2_burst_read)(uint32_t address, sh2_context *sh2, uint32_t *dst);
 	
 regs
 	gpr 32 r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
@@ -66,6 +67,7 @@ regs
 	native_read16 ptrsh2_periph_read16
 	native_write8 ptrsh2_periph_write8
 	native_read8 ptrsh2_periph_read8
+	burst_read ptrsh2_burst_read
 	mem_pointers ptr8 4
 	cache 32 1024
 	peripherals 8 512

@@ -112,6 +112,7 @@ void patch_for_retranslate(cpu_options *opts, code_ptr native_address, code_ptr 
 void defer_translation(cpu_options *opts, uint32_t address, code_ptr handler);
 
 code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t num_chunks, ftype fun_type, code_ptr *after_inc, uint8_t from_c);
+code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_t num_chunks);
 void * get_native_pointer(uint32_t address, void ** mem_pointers, cpu_options * opts);
 void * get_native_write_pointer(uint32_t address, void ** mem_pointers, cpu_options * opts);
 uint16_t read_word(uint32_t address, void **mem_pointers, cpu_options *opts, void *context);
