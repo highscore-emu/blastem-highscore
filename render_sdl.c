@@ -1095,7 +1095,11 @@ static int32_t handle_event(SDL_Event *event)
 	case SDL_FINGERMOTION:
 	case SDL_FINGERDOWN:
 	case SDL_FINGERUP:
+#if SDL_VERSION_ATLEAST(2, 0, 12)
 		event_win = SDL_GetWindowFromID(event->tfinger.windowID);
+#else
+		event_win = main_window;
+#endif
 		break;
 	case SDL_WINDOWEVENT:
 		switch (event->window.event)
