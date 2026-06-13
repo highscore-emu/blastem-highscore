@@ -13,109 +13,159 @@
 #define dprintf
 #endif
 
-void sh2_read_8(sh2_context *sh2)
+uint8_t sh2_read_external_8(uint32_t address, sh2_context *sh2)
 {
-	//TODO: cache
-	uint32_t address = sh2->scratch1;
-	if (address >= 0xFFFFFE00) {
-		sh2->scratch1 = sh2->periph_read8(address, sh2);
-	} else if (address < 0x28000000) {
-#if defined(X86_32) || defined(X86_64)
-		sh2->scratch1 = sh2->native_read8(address, sh2);
-#else
-		sh2->scratch1 = read_byte(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
-	}
+	return read_byte(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 }
 
-void sh2_read_16(sh2_context *sh2)
+uint16_t sh2_read_external_16(uint32_t address, sh2_context *sh2)
 {
-	//TODO: cache
-	uint32_t address = sh2->scratch1;
-	if (address >= 0xFFFFFE00) {
-		sh2->scratch1 = sh2->periph_read16(address, sh2);
-	} else if (address < 0x28000000) {
-#if defined(X86_32) || defined(X86_64)
-		sh2->scratch1 = sh2->native_read16(address, sh2);
-#else
-		sh2->scratch1 = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
-	}
+	uint16_t ret = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 	/*if (address == sh2->pc) {
 		uint8_t is_main = sh2 == ((sh2_context **)sh2->system)[1];
-		printf("%s SH2 fetch16: %06X: %04X\n", is_main ? "Main" : "Sub", address, sh2->scratch1);
+		printf("%s SH2 fetch16: %06X: %04X\n", is_main ? "Main" : "Sub", address, ret);
 	}*/
+	return ret;
 }
 
-void sh2_read_32(sh2_context *sh2)
+uint32_t sh2_read_external_32(uint32_t address, sh2_context *sh2)
 {
-	//TODO: cache
-	uint32_t address = sh2->scratch1;
-	if (address >= 0xFFFFFE00) {
-		sh2->scratch1 = sh2->periph_read32(address, sh2);
-	} else if (address < 0x28000000) {
-#if defined(X86_32) || defined(X86_64)
-		sh2->scratch1 = sh2->native_read16(address, sh2) << 16;
-		sh2->scratch1 |= sh2->native_read16(address | 2, sh2);
-#else
-		sh2->scratch1 = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
-		sh2->scratch1 |= read_word(address | 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
-	}
+	uint32_t ret = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
+	ret |= read_word(address | 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 	/*if (address == sh2->pc) {
 		uint8_t is_main = sh2 == ((sh2_context **)sh2->system)[1];
-		printf("%s SH2 fetch32: %06X: %04X %04X\n", is_main ? "Main" : "Sub", address, sh2->scratch1 >> 16, sh2->scratch1 & 0xFFFF);
+		printf("%s SH2 fetch32: %06X: %04X %04X\n", is_main ? "Main" : "Sub", address, ret >> 16, ret & 0xFFFF);
 	}*/
+	return ret;
 }
 
-void sh2_write_8(sh2_context *sh2)
+uint32_t sh2_read_external_32_native_wrapper(uint32_t address, sh2_context *sh2)
 {
-	//TODO: cache
-	uint32_t address = sh2->scratch2;
-	if (address >= 0xFFFFFE00) {
-		dprintf("SH7095 write.b - %03X: %02X\n", address & 0x1FF, sh2->scratch1 & 0xFF);
-		sh2->periph_write8(address, sh2, sh2->scratch1);
-	} else if (address < 0x28000000) {
-#if defined(X86_32) || defined(X86_64)
-		sh2->native_write8(address, sh2, sh2->scratch1);
-#else
-		write_byte(address, sh2->scratch1, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
-	}
+	uint32_t ret = sh2->read16[1](address, sh2) << 16;
+	ret |= sh2->read16[1](address | 2, sh2);
+	/*if (address == sh2->pc) {
+		uint8_t is_main = sh2 == ((sh2_context **)sh2->system)[1];
+		printf("%s SH2 fetch32: %06X: %04X %04X\n", is_main ? "Main" : "Sub", address, ret >> 16, ret & 0xFFFF);
+	}*/
+	return ret;
 }
 
-void sh2_write_16(sh2_context *sh2)
+void sh2_write_external_8(uint32_t address, sh2_context *sh2, uint8_t value)
 {
-	//TODO: cache
-	uint32_t address = sh2->scratch2;
-	if (address >= 0xFFFFFE00) {
-		dprintf("SH7095 write.w - %03X: %04X\n", address, sh2->scratch1 & 0xFFFF);
-		sh2->periph_write16(address, sh2, sh2->scratch1);
-	} else if (address < 0x28000000) {
-#if defined(X86_32) || defined(X86_64)
-		sh2->native_write16(address, sh2, sh2->scratch1);
-#else
-		write_word(address, sh2->scratch1, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
-	}
+	write_byte(address, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
 }
 
-void sh2_write_32(sh2_context *sh2)
+void sh2_write_external_16(uint32_t address, sh2_context *sh2, uint16_t value)
 {
-	//TODO: cache
-	uint32_t address = sh2->scratch2;
-	if (address >= 0xFFFFFE00) {
-		dprintf("SH7095 write.l - %03X: %08X\n", address, sh2->scratch1);
-		sh2->periph_write32(address, sh2, sh2->scratch1);
-	} else if (address < 0x28000000) {
-#if defined(X86_32) || defined(X86_64)
-		sh2->native_write16(address, sh2, sh2->scratch1 >> 16);
-		sh2->native_write16(address | 2, sh2, sh2->scratch1);
-#else
-		write_word(address, sh2->scratch1 >> 16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		write_word(address | 2, sh2->scratch1, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
+	write_word(address, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+}
+
+void sh2_write_external_32(uint32_t address, sh2_context *sh2, uint32_t value)
+{
+	write_word(address, value >> 16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	write_word(address | 2, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+}
+
+void sh2_write_external_32_native_wrapper(uint32_t address, sh2_context *sh2, uint32_t value)
+{
+	sh2->write16[1](address, sh2, value >> 16);
+	sh2->write16[1](address | 2, sh2, value);
+}
+
+uint8_t sh2_read_cache_8(uint32_t address, sh2_context *sh2)
+{
+	uint32_t val = sh2->cache[address >> 2 & 0x3FF];
+	if (!(address & 2)) {
+		val >>= 16;
 	}
+	if (!(address & 1)) {
+		val >>= 8;
+	}
+	return val;
+}
+
+uint16_t sh2_read_cache_16(uint32_t address, sh2_context *sh2)
+{
+	uint32_t val = sh2->cache[address >> 2 & 0x3FF];
+	if (!(address & 2)) {
+		val >>= 16;
+	}
+	return val;
+}
+
+uint32_t sh2_read_cache_32(uint32_t address, sh2_context *sh2)
+{
+	return sh2->cache[address >> 2 & 0x3FF];
+}
+
+void sh2_write_cache_8(uint32_t address, sh2_context *sh2, uint8_t value)
+{
+	uint32_t val = sh2->cache[address >> 2 & 0x3FF];
+	switch (address & 3)
+	{
+	case 0:
+		val &= 0x00FFFFFF;
+		val |= value << 24;
+		break;
+	case 1:
+		val &= 0xFF00FFFF;
+		val |= value << 16;
+		break;
+	case 2:
+		val &= 0xFFFF00FF;
+		val |= value << 8;
+		break;
+	case 3:
+		val &= 0xFFFFFF00;
+		val |= value;
+		break;
+	}
+	sh2->cache[address >> 2 & 0x3FF] = val;
+}
+
+void sh2_write_cache_16(uint32_t address, sh2_context *sh2, uint16_t value)
+{
+	uint32_t val = sh2->cache[address >> 2 & 0x3FF];
+	if (address & 2) {
+		val &= 0xFFFF0000;
+		val |= value;
+	} else {
+		val &= 0x0000FFFF;
+		val |= value << 16;
+	}
+	sh2->cache[address >> 2 & 0x3FF] = val;
+}
+
+void sh2_write_cache_32(uint32_t address, sh2_context *sh2, uint32_t value)
+{
+	sh2->cache[address >> 2 & 0x3FF] = value;
+}
+
+uint8_t sh2_read_unmapped_8(uint32_t address, sh2_context *sh2)
+{
+	return 0xFF;
+}
+
+uint16_t sh2_read_unmapped_16(uint32_t address, sh2_context *sh2)
+{
+	return 0xFFFF;
+}
+
+uint32_t sh2_read_unmapped_32(uint32_t address, sh2_context *sh2)
+{
+	return 0xFFFFFFFF;
+}
+
+void sh2_write_unmapped_8(uint32_t address, sh2_context *sh2, uint8_t value)
+{
+}
+
+void sh2_write_unmapped_16(uint32_t address, sh2_context *sh2, uint16_t value)
+{
+}
+
+void sh2_write_unmapped_32(uint32_t address, sh2_context *sh2, uint32_t value)
+{
 }
 
 void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_chunks)
@@ -143,15 +193,39 @@ sh2_context *init_sh2_context(sh2_options *opts, sh2_fun *next_int)
 	sh2->calc_next_interrupt = next_int;
 #if defined(X86_32) || defined(X86_64)
 	opts->gen.code.stack_off = 0;
-	sh2->native_write16 = (sh2_periph_write16 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, WRITE_16, NULL, 1);
+	sh2->write16[0] = sh2->write16[1] = (sh2_write16 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, WRITE_16, NULL, 1);
 	opts->gen.code.stack_off = 0;
-	sh2->native_read16 = (sh2_periph_read16 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, READ_16, NULL, 1);
+	sh2->read16[0] = sh2->read16[1] = (sh2_read16 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, READ_16, NULL, 1);
 	opts->gen.code.stack_off = 0;
-	sh2->native_write8 = (sh2_periph_write8 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, WRITE_8, NULL, 1);
+	sh2->write8[0] = sh2->write8[1] = (sh2_write8 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, WRITE_8, NULL, 1);
 	opts->gen.code.stack_off = 0;
-	sh2->native_read8 = (sh2_periph_read8 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, READ_8, NULL, 1);
+	sh2->read8[0] = sh2->read8[1] = (sh2_read8 *)gen_mem_fun(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks, READ_8, NULL, 1);
 	sh2->burst_read = (sh2_burst_read *)gen_burst_read(&opts->gen, opts->gen.memmap, opts->gen.memmap_chunks);
+	sh2->write32[0] = sh2->write32[1] = sh2_write_external_32_native_wrapper;
+	sh2->read32[0] = sh2->read32[1] = sh2_read_external_32_native_wrapper;
+#else
+	sh2->write32[0] = sh2->write32[1] = sh2_write_external_32;
+	sh2->read32[0] = sh2->read32[1] = sh2_read_external_32;
+	sh2->write16[0] = sh2->write16[1] = sh2_write_external_16;
+	sh2->read16[0] = sh2->read16[1] = sh2_read_external_16;
+	sh2->write8[0] = sh2->write8[1] = sh2_write_external_8;
+	sh2->read8[0] = sh2->read8[1] = sh2_read_external_8;
 #endif
+	for (int i = 2; i < 8; i++)
+	{
+		sh2->write32[i] = sh2_write_unmapped_32;
+		sh2->write16[i] = sh2_write_unmapped_16;
+		sh2->write8[i] = sh2_write_unmapped_8;
+		sh2->read32[i] = sh2_read_unmapped_32;
+		sh2->read16[i] = sh2_read_unmapped_16;
+		sh2->read8[i] = sh2_read_unmapped_8;
+	}
+	sh2->write32[6] = sh2_write_cache_32;
+	sh2->write16[6] = sh2_write_cache_16;
+	sh2->write8[6] = sh2_write_cache_8;
+	sh2->read32[6] = sh2_read_cache_32;
+	sh2->read16[6] = sh2_read_cache_16;
+	sh2->read8[6] = sh2_read_cache_8;
 	return sh2;
 }
 

@@ -1355,6 +1355,21 @@ def _updateSyncCImpl(prog, params):
 	ret += f'\n\t{prog.sync_cycle}(context, target_cycle);'
 	return ret
 
+def _ocallCImpl(prog, params):
+	if prog.retreg:
+		pre = f'{prog.retreg} = '
+		prog.retreg = None
+	else:
+		pre = ''
+	if not params[0].startswith('context->'):
+		pre += prog.prefix
+	args = ', '.join([str(p) for p in (params[1:2] + ['context'] + params[2:])])
+	return f'\n\t{pre}{params[0]}({args});'
+
+def _retregCImpl(prog, params):
+	prog.retreg = params[0]
+	return ''
+
 _opMap = {
 	'mov': Op(lambda val: val).cUnaryOperator(''),
 	'not': Op(lambda val: ~val).cUnaryOperator('~'),
@@ -1382,9 +1397,8 @@ _opMap = {
 	),
 	'cmp': Op().addImplementation('c', None, _cmpCImpl),
 	'sext': Op(_sext).addImplementation('c', 2, _sextCImpl),
-	'ocall': Op().addImplementation('c', None, lambda prog, params: '\n\t{pre}{fun}({args});'.format(
-		pre = '' if params[0].startswith('context->') else prog.prefix, fun = params[0], args = ', '.join(['context'] + [str(p) for p in params[1:]])
-	)),
+	'retreg': Op().addImplementation('c', None, _retregCImpl),
+	'ocall': Op().addImplementation('c', None, _ocallCImpl),
 	'ccall': Op().addImplementation('c', None, lambda prog, params: '\n\t{fun}({args});'.format(
 		pre = prog.prefix, fun = params[0], args = ', '.join([str(p) for p in params[1:]])
 	)),
@@ -1465,6 +1479,9 @@ class NormalOp:
 			for param in self.params:
 				isDst = (not opDef is None) and len(procParams) in opDef.outOp
 				allowConst = (self.op in prog.subroutines or not isDst) and param in parent.regValues
+				if self.op == 'retreg':
+					allowConst = False
+					isDst = True
 				param = prog.resolveParam(param, parent, fieldVals, allowConst, isDst)
 				
 				if (not type(param) is int) and len(procParams) != len(self.params) - 1:
@@ -1954,7 +1971,9 @@ class Registers:
 		return name in self.regs
 	
 	def isRegArray(self, name):
-		return name in self.regArrays
+		if name in self.regArrays:
+			return True
+		return name in self.pointers and self.pointers[name][1] > 1
 		
 	def isRegArrayMember(self, name):
 		return name in self.regToArray
@@ -2232,6 +2251,7 @@ class Program:
 		self.mainDispatch = set()
 		self.declaredLocals = {}
 		self.needFlagCoalesce = False
+		self.retreg = None
 		
 	def __str__(self):
 		pieces = []

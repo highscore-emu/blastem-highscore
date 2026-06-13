@@ -164,26 +164,16 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 	switch (ts)
 	{
 	case 1:
-#if defined(X86_32) | defined(X86_64)
-		val8 = sh2->native_read8(*src, sh2);
-		sh2->native_write8(*dst, sh2, val8);
-#else
-		val8 = read_byte(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		write_byte(*dst, val8, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
+		val8 = sh2->read8[1](*src, sh2);
+		sh2->write8[1](*dst, sh2, val8);
 		*src += src_delta;
 		*dst += dst_delta;
 		cycles = 2 * sh2->opts->gen.clock_divider;
 		--*tcr;
 		break;
 	case 2:
-#if defined(X86_32) | defined(X86_64)
-		val16 = sh2->native_read16(*src, sh2);
-		sh2->native_write16(*dst, sh2, val16);
-#else
-		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
+		val16 = sh2->read16[1](*src, sh2);
+		sh2->write16[1](*dst, sh2, val16);
 		*src += src_delta;
 		*dst += dst_delta;
 		cycles = 2 * sh2->opts->gen.clock_divider;
@@ -199,8 +189,8 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		sh2->burst_read(*src, sh2, data);
 		for (int i = 0; i < 4 && *tcr; i++, --*tcr)
 		{
-			sh2->native_write16(*dst, sh2, data[i] >> 16);
-			sh2->native_write16(*dst + 2, sh2, data[i]);
+			sh2->write16[1](*dst, sh2, data[i] >> 16);
+			sh2->write16[1](*dst + 2, sh2, data[i]);
 			*dst += dst_delta;
 		}
 		*src += 4 * src_delta;
@@ -208,17 +198,10 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 #endif
 	case 4:
 		cycles = 4 * sh2->opts->gen.clock_divider;
-#if defined(X86_32) | defined(X86_64)
-		val16 = sh2->native_read16(*src, sh2);
-		sh2->native_write16(*dst, sh2, val16);
-		val16 = sh2->native_read16(*src + 2, sh2);
-		sh2->native_write16(*dst + 2, sh2, val16);
-#else
-		val16 = read_word(*src, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		write_word(*dst, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		val16 = read_word(*src + 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-		write_word(*dst + 2, val16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-#endif
+		val16 = sh2->read16[1](*src, sh2);
+		sh2->write16[1](*dst, sh2, val16);
+		val16 = sh2->read16[1](*src + 2, sh2);
+		sh2->write16[1](*dst + 2, sh2, val16);
 		*src += src_delta;
 		*dst += dst_delta;
 		--*tcr;
@@ -768,12 +751,12 @@ static uint8_t sh7095_read_8(uint32_t address, sh2_context *sh2)
 void sh7095_setup(sh2_context *sh2)
 {
 	sh2->periph_state = calloc(1, sizeof(sh7095_periph));
-	sh2->periph_write32 = sh7095_write_32;
-	sh2->periph_write16 = sh7095_write_16;
-	sh2->periph_write8 = sh7095_write_8;
-	sh2->periph_read32 = sh7095_read_32;
-	sh2->periph_read16 = sh7095_read_16;
-	sh2->periph_read8 = sh7095_read_8;
+	sh2->write32[7] = sh7095_write_32;
+	sh2->write16[7] = sh7095_write_16;
+	sh2->write8[7] = sh7095_write_8;
+	sh2->read32[7] = sh7095_read_32;
+	sh2->read16[7] = sh7095_read_16;
+	sh2->read8[7] = sh7095_read_8;
 	sh2->periph_reset = sh7095_reset;
 	sh2->periph_run = sh7095_run;
 	if (!did_write_mask_setup) {
