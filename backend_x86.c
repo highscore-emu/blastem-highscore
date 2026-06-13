@@ -804,5 +804,17 @@ code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_
 			need_wide_jcc = 0;
 		}
 	}
+#if defined(X86_64)
+	mov_ir(code, 0xFFFFFFFFFFFFFFFFULL, adr_reg, SZ_Q);
+	mov_rrind(code, adr_reg, dst_reg, SZ_Q);
+	mov_rrdisp(code, adr_reg, dst_reg, 8, SZ_Q);
+#else
+	mov_ir(code, 0xFFFFFFFF, adr_reg, SZ_D);
+	mov_rrind(code, adr_reg, dst_reg, SZ_D);
+	mov_rrdisp(code, adr_reg, dst_reg, 4, SZ_D);
+	mov_rrdisp(code, adr_reg, dst_reg, 8, SZ_D);
+	mov_rrdisp(code, adr_reg, dst_reg, 12, SZ_D);
+#endif
+	retn(code);
 	return start;
 }
