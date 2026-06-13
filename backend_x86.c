@@ -642,8 +642,10 @@ code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_
 					//32-bit: EBX, EDI, ESI, EBP
 					//SYSV 64: RBX, RBP, R12-R15
 					//WIN64: RBX, RDI, RSI, RBP, R12-R15
+					xor_ir(code, 2, my_dst_reg, SZ_PTR);
 					call_args_abi(code, (code_ptr)memmap[chunk].read_16, 2, my_adr_reg, my_context_reg);
 					mov_rrind(code, RAX, my_dst_reg, SZ_W);
+					xor_ir(code, 2, my_dst_reg, SZ_PTR);
 					add_ir(code, 2, my_dst_reg, SZ_PTR);
 					add_ir(code, 2, my_adr_reg, opts->address_size);
 					dec_r(code, RBX, SZ_D);
@@ -738,8 +740,10 @@ code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_
 			//32-bit: EBX, EDI, ESI, EBP
 			//SYSV 64: RBX, RBP, R12-R15
 			//WIN64: RBX, RDI, RSI, RBP, R12-R15
+			xor_ir(code, 2, my_dst_reg, SZ_PTR);
 			call_args_abi(code, (code_ptr)memmap[chunk].read_16, 2, my_adr_reg, my_context_reg);
 			mov_rrind(code, RAX, my_dst_reg, SZ_W);
+			xor_ir(code, 2, my_dst_reg, SZ_PTR);
 			add_ir(code, 2, my_dst_reg, SZ_PTR);
 			add_ir(code, 2, my_adr_reg, opts->address_size);
 			dec_r(code, RBX, SZ_D);
