@@ -510,14 +510,41 @@ static void fix_slashes(wchar_t *path)
 wchar_t *to_windows_path(const char *path)
 {
 	char *tmp = NULL;
+	uint8_t need_working = 0;
 	if (!startswith(path, "\\\\?\\")) {
-		//TODO: avoid this extra allocation
-		tmp = alloc_concat("\\\\?\\", path);
-		path = tmp;
+		if (path[0] == '\\' || path[0] == '/' || (path[1] == ':' && (path[2] == '\\' || path[2] == '/'))) {
+			//TODO: avoid this extra allocation
+			tmp = alloc_concat("\\\\?\\", path);
+			path = tmp;
+		} else {
+			need_working = 1;
+		}
 	}
 	wchar_t *widepath = utf8_to_utf16(path);
 	free(tmp);
 	fix_slashes(widepath);
+	if (need_working) {
+		DWORD res = GetCurrentDirectoryW(0, NULL);
+		if (!res) {
+			return widepath;
+		}
+		wchar_t *working = calloc(sizeof(wchar_t), res);
+		res = GetCurrentDirectoryW(res, working);
+		if (res) {
+			size_t rel_len = wcslen(widepath);
+			wchar_t *final = calloc(sizeof(wchar_t), res + rel_len + 5);
+			final[0] = '\\';
+			final[1] = '\\';
+			final[2] = '?';
+			final[3] = '\\';
+			memcpy(final + 4, working, sizeof(*working) * res);
+			final[4 + res] = '\\';
+			memcpy(final + 5 + res, widepath, sizeof(*widepath) * (rel_len + 1));
+			free(widepath);
+			widepath = final;
+		}
+		free(working);
+	}
 	return widepath;
 }
 
