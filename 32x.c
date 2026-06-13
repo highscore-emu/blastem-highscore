@@ -1434,8 +1434,8 @@ void free_32x(s32x *mars)
 	free(mars->sub->opts->gen.memmap[5].buffer);
 	free(mars->main->opts);
 	free(mars->sub->opts);
-	free(mars->main);
-	free(mars->sub);
+	sh2_free(mars->main);
+	sh2_free(mars->sub);
 	free(mars->sdram);
 	free(mars);
 }

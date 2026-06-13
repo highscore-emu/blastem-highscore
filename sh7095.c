@@ -535,6 +535,23 @@ static void sh7095_write_byte(uint32_t reg, sh2_context *sh2, uint8_t value)
 		if (changes) {
 			sh2->calc_next_interrupt(sh2);
 		}
+		break;
+	case SH_CCR:
+		changes = old ^ value;
+		sh2->current_way_off = value & 0xC0;
+		sh2->cache_tw = value & BIT_CCR_TW;
+		sh2->cache_od = value & BIT_CCR_OD;
+		sh2->cache_id = value & BIT_CCR_ID;
+		if (changes & BIT_CCR_CE) {
+			sh2_set_cache_enabled(sh2, value & BIT_CCR_CE);
+		}
+		if (value & BIT_CCR_CP) {
+			memset(sh2->cache_lru, 0, sizeof(sh2->cache_lru));
+			//does this clear addresses or just valid bit
+			memset(sh2->cache_address, 0, sizeof(sh2->cache_address));
+			//does the cache data array need to be cleared too?
+		}
+		break;
 	}
 }
 
@@ -819,6 +836,7 @@ void sh7095_setup(sh2_context *sh2)
 		write_masks[SH_RTCNT] = 0;
 		write_masks[SH_RTCOR] = 0;
 		write_masks[SH_SBYCR] = 0xDF;
+		write_masks[SH_CCR] = 0xCF;//CP is writeable, but always reads 0
 	}
 }
 

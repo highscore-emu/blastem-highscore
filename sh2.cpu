@@ -13,8 +13,10 @@ declare
 	typedef void (sh2_fun)(sh2_context *sh2);
 	void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_chunks);
 	sh2_context *init_sh2_context(sh2_options *opts, sh2_fun *next_int);
+	void sh2_free(sh2_context *sh2);
 	void sh2_assert_reset(sh2_context *sh2);
 	void sh2_clear_reset(sh2_context *sh2);
+	void sh2_set_cache_enabled(sh2_context *sh2, uint8_t enabled);
 	void sh2_run(sh2_context *sh2, uint32_t target_cycle);
 	void sh2_insert_breakpoint(sh2_context *sh2, uint32_t address, sh2_fun *handler);
 	void sh2_remove_breakpoint(sh2_context *sh2, uint32_t address);
@@ -39,6 +41,7 @@ regs
 	scratch2 32
 	int_cycle 32
 	int_vector 32
+	current_way_off 32
 	prefetch_cur 16
 	prefetch_next 16
 	prefetch_full 8
@@ -51,7 +54,10 @@ regs
 	reset 8
 	need_reset 8
 	sleeping 8
-	ccr 8
+	cache_enabled 8
+	cache_od 8
+	cache_id 8
+	cache_tw 8
 	system ptrvoid
 	periph_state ptrvoid
 	read32 ptrsh2_read32 8
@@ -67,7 +73,8 @@ regs
 	burst_read ptrsh2_burst_read
 	mem_pointers ptr8 4
 	cache 32 1024
-	cache_address 32 1024
+	cache_address 32 256
+	cache_lru 32 64
 	peripherals 8 512
 	delay_slot 8
 	main 8
