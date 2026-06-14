@@ -237,7 +237,7 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 					int one_more = romgetc(f);
 					if (one_more >= 0) {
 						filesize *= 2;
-						uint16_t *tmp = buf;
+						char *tmp = buf;
 						buf = aligned_calloc(1, filesize, 16);
 						memcpy(buf, tmp, filesize >> 1);
 						aligned_free(tmp);
