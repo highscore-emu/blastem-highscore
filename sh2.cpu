@@ -910,8 +910,12 @@ sh2_reset
 
 0100NNNN00011011 tas
 	cycles 1
-	#TAS reads are always treated as cache-through
-	scratch1 = gpr.N | 0x20000000
+	if 0x20000000 >=U gpr.N
+		#TAS reads are always treated as cache-through
+		scratch1 = gpr.N | 0x20000000
+	else
+		scratch1 = gpr.N
+	end
 	sh2_read8_data scratch1
 	cycles 3
 	t = !scratch1
