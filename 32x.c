@@ -407,6 +407,11 @@ void s32x_enable_scope(s32x *mars, oscilloscope *scope, uint32_t main_clock)
 	mars->scope_right = scope_add_channel(scope, "PWM Right", main_clock * 3 / (7 * PWM_DECIMATE));
 }
 
+void s32x_set_speed(s32x *mars, uint32_t main_clock)
+{
+	render_audio_adjust_clock(mars->pwm, main_clock * 3, 7 * PWM_DECIMATE);
+}
+
 uint16_t s32x_68k_read(uint32_t address, void *vcontext)
 {
 	m68k_context *m68k = vcontext;

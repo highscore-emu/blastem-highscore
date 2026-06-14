@@ -1993,6 +1993,9 @@ static void set_speed_percent(system_header * system, uint32_t percent)
 			segacd_context *cd = context->expansion;
 			segacd_set_speed_percent(cd, percent);
 		}
+		if (context->mars) {
+			s32x_set_speed(context->mars, context->master_clock);
+		}
 		ym_adjust_master_clock(context->ym, context->master_clock);
 	} else {
 		while (context->adpcm->cycle != context->psg->cycles) {

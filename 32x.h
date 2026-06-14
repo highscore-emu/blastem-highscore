@@ -121,6 +121,7 @@ void free_32x(s32x *mars);
 void s32x_run(s32x *mars, uint32_t target);
 void s32x_adjust_cycles(s32x *mars, uint32_t deduction);
 void s32x_enable_scope(s32x *mars, oscilloscope *scope, uint32_t main_clock);
+void s32x_set_speed(s32x *mars, uint32_t main_clock);
 uint16_t s32x_68k_read(uint32_t address, void *vcontext);
 void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value);
 uint8_t s32x_68k_read_b(uint32_t address, void *vcontext);
