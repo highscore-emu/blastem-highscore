@@ -3061,7 +3061,8 @@ static void advance_output_line(vdp_context *context)
 		output_line--;
 		if (output_line < context->inactive_start) {
 			s32x_video_run(context->s32x_vid, context->cycles);
-			s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT, context->compositebuf + BORDER_LEFT, output_line, (context->regs[REG_MODE_4] & BIT_H40) != 0);
+			uint8_t is_h40 = (context->regs[REG_MODE_4] & BIT_H40) != 0;
+			s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT + (is_h40 ? 0 : 3), context->compositebuf + BORDER_LEFT + (is_h40 ? 0 : 3), output_line, is_h40);
 		} else if (!(context->output && (context->regs[REG_MODE_4] & BIT_H40))) {
 			pixel_t *output = context->output;
 			pixel_t *dst = output + LINEBUF_SIZE - 1;
