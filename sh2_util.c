@@ -72,6 +72,39 @@ void sh2_write_external_32_native_wrapper(uint32_t address, sh2_context *sh2, ui
 	sh2->write16[1](address | 2, sh2, value);
 }
 
+uint32_t sh2_cache_fill(uint32_t address, sh2_context *sh2, uint32_t tag, uint32_t way_off)
+{
+	uint32_t lru = sh2->cache_lru[way_off];
+	if (sh2->cache_tw) {
+		lru &= 0x10;
+	}
+	if (lru & 0xB0) {
+		if ((lru & 0x150) == 0x10) {
+			sh2->cache_lru[way_off] |= 0x140; //way 2 LRU update
+			sh2->cache_lru[way_off] &= 0x3E0;
+			sh2->cache_address[0x80 | way_off] = tag;
+			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x200 + (way_off << 2));
+			return sh2->cache[0x200 | (address >> 2 & 0xFF)];
+		} else if ((lru & 0x380) == 0x380) {
+			sh2->cache_lru[way_off] &= 0x70; //way 0 LRU update
+			sh2->cache_address[way_off] = tag;
+			sh2->burst_read(address & ~0xF, sh2, sh2->cache + (way_off << 2));
+			return sh2->cache[address >> 2 & 0xFF];
+		} else {
+			sh2->cache_lru[way_off] |= 0x200; //way 1 LRU update
+			sh2->cache_lru[way_off] &= 0x390;
+			sh2->cache_address[0x40 | way_off] = tag;
+			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x100 + (way_off << 2));
+			return sh2->cache[0x100 | (address >> 2 & 0xFF)];
+		}
+	} else {
+		sh2->cache_lru[way_off] |= 0xB0; //way 3 LRU update
+		sh2->cache_address[0xC0 | way_off] = tag;
+		sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x300 + (way_off << 2));
+		return sh2->cache[0x300 | (address >> 2 & 0xFF)];
+	}
+}
+
 uint8_t sh2_cached_read_8(uint32_t address, sh2_context *sh2)
 {
 	uint32_t tag = (address & 0x1FFFFC00) | 4;
@@ -117,35 +150,7 @@ uint8_t sh2_cached_read_8(uint32_t address, sh2_context *sh2)
 	} else if (sh2->cache_od) {
 		return sh2->read8[1](address, sh2);
 	}
-	uint32_t lru = sh2->cache_lru[way_off];
-	if (sh2->cache_tw) {
-		lru &= 0x10;
-	}
-	if (lru & 0xB0) {
-		if ((lru & 0x150) == 0x10) {
-			sh2->cache_lru[way_off] |= 0x140; //way 2 LRU update
-			sh2->cache_lru[way_off] &= 0x3E0;
-			sh2->cache_address[0x80 | way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x200 + (way_off << 2));
-			ret = sh2->cache[0x200 | (address >> 2 & 0xFF)];
-		} else if ((lru & 0x380) == 0x380) {
-			sh2->cache_lru[way_off] &= 0x70; //way 0 LRU update
-			sh2->cache_address[way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + (way_off << 2));
-			ret = sh2->cache[address >> 2 & 0xFF];
-		} else {
-			sh2->cache_lru[way_off] |= 0x200; //way 1 LRU update
-			sh2->cache_lru[way_off] &= 0x390;
-			sh2->cache_address[0x40 | way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x100 + (way_off << 2));
-			ret = sh2->cache[0x100 | (address >> 2 & 0xFF)];
-		}
-	} else {
-		sh2->cache_lru[way_off] |= 0xB0; //way 3 LRU update
-		sh2->cache_address[0xC0 | way_off] = tag;
-		sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x300 + (way_off << 2));
-		ret = sh2->cache[0x300 | (address >> 2 & 0xFF)];
-	}
+	ret = sh2_cache_fill(address, sh2, tag, way_off);
 hit:
 	if (!(address & 2)) {
 		ret >>= 16;
@@ -201,35 +206,7 @@ uint16_t sh2_cached_read_16(uint32_t address, sh2_context *sh2)
 	} else if (sh2->cache_od) {
 		return sh2->read16[1](address, sh2);
 	}
-	uint32_t lru = sh2->cache_lru[way_off];
-	if (sh2->cache_tw) {
-		lru &= 0x10;
-	}
-	if (lru & 0xB0) {
-		if ((lru & 0x150) == 0x10) {
-			sh2->cache_lru[way_off] |= 0x140; //way 2 LRU update
-			sh2->cache_lru[way_off] &= 0x3E0;
-			sh2->cache_address[0x80 | way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x200 + (way_off << 2));
-			ret = sh2->cache[0x200 | (address >> 2 & 0xFF)];
-		} else if ((lru & 0x380) == 0x380) {
-			sh2->cache_lru[way_off] &= 0x70; //way 0 LRU update
-			sh2->cache_address[way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + (way_off << 2));
-			ret = sh2->cache[address >> 2 & 0xFF];
-		} else {
-			sh2->cache_lru[way_off] |= 0x200; //way 1 LRU update
-			sh2->cache_lru[way_off] &= 0x390;
-			sh2->cache_address[0x40 | way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x100 + (way_off << 2));
-			ret = sh2->cache[0x100 | (address >> 2 & 0xFF)];
-		}
-	} else {
-		sh2->cache_lru[way_off] |= 0xB0; //way 3 LRU update
-		sh2->cache_address[0xC0 | way_off] = tag;
-		sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x300 + (way_off << 2));
-		ret = sh2->cache[0x300 | (address >> 2 & 0xFF)];
-	}
+	ret = sh2_cache_fill(address, sh2, tag, way_off);
 hit:
 	if (address & 2) {
 		return ret;
@@ -277,35 +254,7 @@ uint32_t sh2_cached_read_32(uint32_t address, sh2_context *sh2)
 	} else if (sh2->cache_od) {
 		return sh2->read32[1](address, sh2);
 	}
-	uint32_t lru = sh2->cache_lru[way_off];
-	if (sh2->cache_tw) {
-		lru &= 0x10;
-	}
-	if (lru & 0xB0) {
-		if ((lru & 0x150) == 0x10) {
-			sh2->cache_lru[way_off] |= 0x140; //way 2 LRU update
-			sh2->cache_lru[way_off] &= 0x3E0;
-			sh2->cache_address[0x80 | way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x200 + (way_off << 2));
-			return sh2->cache[0x200 | (address >> 2 & 0xFF)];
-		} else if ((lru & 0x380) == 0x380) {
-			sh2->cache_lru[way_off] &= 0x70; //way 0 LRU update
-			sh2->cache_address[way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + (way_off << 2));
-			return sh2->cache[address >> 2 & 0xFF];
-		} else {
-			sh2->cache_lru[way_off] |= 0x200; //way 1 LRU update
-			sh2->cache_lru[way_off] &= 0x390;
-			sh2->cache_address[0x40 | way_off] = tag;
-			sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x100 + (way_off << 2));
-			return sh2->cache[0x100 | (address >> 2 & 0xFF)];
-		}
-	} else {
-		sh2->cache_lru[way_off] |= 0xB0; //way 3 LRU update
-		sh2->cache_address[0xC0 | way_off] = tag;
-		sh2->burst_read(address & ~0xF, sh2, sh2->cache + 0x300 + (way_off << 2));
-		return sh2->cache[0x300 | (address >> 2 & 0xFF)];
-	}
+	return sh2_cache_fill(address, sh2, tag, way_off);
 }
 
 void sh2_cached_write_8(uint32_t address, sh2_context *sh2, uint8_t value)
