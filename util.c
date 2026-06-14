@@ -572,7 +572,7 @@ wchar_t *to_windows_path(const char *path)
 					res = 3;
 				}
 			}
-			wchar_t *final = calloc(sizeof(wchar_t), res + rel_len + 5);
+			wchar_t *final = calloc(sizeof(wchar_t), res + rel_len + 6);
 			final[0] = L'\\';
 			final[1] = L'\\';
 			final[2] = L'?';
