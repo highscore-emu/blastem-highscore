@@ -58,6 +58,10 @@ static uint32_t pwm_tick(s32x *mars, uint32_t ticks)
 		mars->pwm_left_accum += mars->pwm_left * mars->pwm_decimate;
 		mars->pwm_right_accum += mars->pwm_right * mars->pwm_decimate;
 		render_put_stereo_sample(mars->pwm, mars->pwm_left_accum, mars->pwm_right_accum);
+		if (mars->scope) {
+			scope_add_sample(mars->scope, mars->scope_left, mars->pwm_left_accum, 0);
+			scope_add_sample(mars->scope, mars->scope_right, mars->pwm_right_accum, 0);
+		}
 		mars->pwm_left_accum = mars->pwm_right_accum = 0;
 		mars->pwm_decimate = PWM_DECIMATE;
 	} else {
@@ -394,6 +398,13 @@ void s32x_adjust_cycles(s32x *mars, uint32_t deduction)
 	}
 	main_sh2_next_int(mars->main);
 	sub_sh2_next_int(mars->sub);
+}
+
+void s32x_enable_scope(s32x *mars, oscilloscope *scope, uint32_t main_clock)
+{
+	mars->scope = scope;
+	mars->scope_left = scope_add_channel(scope, "PWM Left", main_clock * 3 / (7 * PWM_DECIMATE));
+	mars->scope_right = scope_add_channel(scope, "PWM Right", main_clock * 3 / (7 * PWM_DECIMATE));
 }
 
 uint16_t s32x_68k_read(uint32_t address, void *vcontext)

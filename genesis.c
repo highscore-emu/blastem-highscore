@@ -2658,6 +2658,9 @@ static void toggle_debug_view(system_header *system, uint8_t debug_view)
 				segacd_context *cd = gen->expansion;
 				cd->pcm.scope = NULL;
 			}
+			if (gen->mars) {
+				gen->mars->scope = NULL;
+			}
 			scope_close(scope);
 		} else {
 			oscilloscope *scope = create_oscilloscope();
@@ -2670,6 +2673,9 @@ static void toggle_debug_view(system_header *system, uint8_t debug_view)
 			if (gen->expansion) {
 				segacd_context *cd = gen->expansion;
 				rf5c164_enable_scope(&cd->pcm, scope);
+			}
+			if (gen->mars) {
+				s32x_enable_scope(gen->mars, scope, gen->normal_clock);
 			}
 		}
 	} else if (debug_view == DEBUG_CD_GRAPHICS && gen->expansion) {

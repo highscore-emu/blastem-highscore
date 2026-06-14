@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "sh2.h"
 #include "32x_video.h"
+#include "oscilloscope.h"
 #include "render_audio.h"
 
 enum {
@@ -88,6 +89,7 @@ typedef struct {
 	uint16_t     *rom;
 	uint16_t     *vector_rom;
 	audio_source *pwm;
+	oscilloscope *scope;
 	s32x_video   video;
 	uint32_t     pwm_cycle;
 	uint32_t     cur_sh2_target;
@@ -105,6 +107,8 @@ typedef struct {
 	uint8_t      pwm_timer;
 	uint8_t      pwm_main_int_pending;
 	uint8_t      pwm_sub_int_pending;
+	uint8_t      scope_left;
+	uint8_t      scope_right;
 	uint8_t      dreq_fifo_write;
 	uint8_t      dreq_fifo_read;
 	uint8_t      main_enter_debugger;
@@ -116,6 +120,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot);
 void free_32x(s32x *mars);
 void s32x_run(s32x *mars, uint32_t target);
 void s32x_adjust_cycles(s32x *mars, uint32_t deduction);
+void s32x_enable_scope(s32x *mars, oscilloscope *scope, uint32_t main_clock);
 uint16_t s32x_68k_read(uint32_t address, void *vcontext);
 void *s32x_68k_write(uint32_t address, void *vcontext, uint16_t value);
 uint8_t s32x_68k_read_b(uint32_t address, void *vcontext);
