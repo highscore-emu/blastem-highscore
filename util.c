@@ -527,8 +527,11 @@ wchar_t *to_windows_path(const char *path)
 	char *tmp = NULL;
 	uint8_t need_working = 0;
 	if (!startswith(path, "\\\\?\\")) {
-		if (path[0] == '\\' || path[0] == '/' || (path[1] == ':' && (path[2] == '\\' || path[2] == '/'))) {
-			//TODO: avoid this extra allocation
+		if ((path[0] == '\\' || path[0] == '/') && (path[1] == '\\' || path[1] == '/')) {
+			//absolute UNC path
+			tmp = alloc_concat("\\\\?\\UNC", path + 1);
+		} else if (isalpha(path[0]) && path[1] == ':' && (path[2] == '\\' || path[2] == '/')) {
+			//full absolute path with drive letter
 			tmp = alloc_concat("\\\\?\\", path);
 			path = tmp;
 		} else {
@@ -538,6 +541,7 @@ wchar_t *to_windows_path(const char *path)
 	wchar_t *widepath = utf8_to_utf16(path);
 	free(tmp);
 	fix_slashes(widepath);
+	DWORD unc_length = 0;
 	if (need_working) {
 		DWORD res = GetCurrentDirectoryW(0, NULL);
 		if (!res) {
@@ -547,18 +551,76 @@ wchar_t *to_windows_path(const char *path)
 		res = GetCurrentDirectoryW(res, working);
 		if (res) {
 			size_t rel_len = wcslen(widepath);
+			if (widepath[0] == L'\\') {
+				//path is relative to current drive root rather than current directory
+				//truncate the 
+				if (working[0] == L'\\') {
+					//current drive is a network share
+					uint8_t found_server_share_sep = 0;
+					for (DWORD i = 2; i < res; i++)
+					{
+						if (working[i] == L'\\') {
+							if (found_server_share_sep) {
+								unc_length = res = i;
+								break;
+							} else {
+								found_server_share_sep = 1;
+							}
+						}
+					}
+				} else {
+					res = 3;
+				}
+			}
 			wchar_t *final = calloc(sizeof(wchar_t), res + rel_len + 5);
-			final[0] = '\\';
-			final[1] = '\\';
-			final[2] = '?';
-			final[3] = '\\';
+			final[0] = L'\\';
+			final[1] = L'\\';
+			final[2] = L'?';
+			final[3] = L'\\';
 			memcpy(final + 4, working, sizeof(*working) * res);
-			final[4 + res] = '\\';
-			memcpy(final + 5 + res, widepath, sizeof(*widepath) * (rel_len + 1));
+			if (final[3 + res] != L'\\') {
+				final[4 + res] = L'\\';
+				res++;
+			}
+			if (*widepath == L'\\') {
+				res--;
+			}
+			memcpy(final + 4 + res, widepath, sizeof(*widepath) * (rel_len + 1));
 			free(widepath);
 			widepath = final;
 		}
 		free(working);
+	}
+	// the \\?\ prefix disables processing of .. and . so we need to do it manually
+	//portion of the path after drive specification
+	wchar_t *dir_start = widepath + (unc_length ? unc_length : 6);
+	uint8_t last_was_sep = 0;
+	for (wchar_t *cur = dir_start; *cur; cur++)
+	{
+		if (*cur == L'\\') {
+			last_was_sep = 1;
+		} else if (last_was_sep && *cur == L'.') {
+			if (cur[1] == L'.' && cur[2] == L'\\') {
+				//.. -> remove the last path component
+				wchar_t *src = cur + 2;
+				cur -= 2;
+				for(; cur > dir_start; --cur)
+				{
+					if (*cur == L'\\') {
+						break;
+					}
+				}
+				memmove(cur, src, sizeof(wchar_t) * (wcslen(src) + 1));
+			} else if (cur[1] == L'\\') {
+				//. -> just remove this path component
+				cur--;
+				memmove(cur, cur + 2, sizeof(wchar_t) * (wcslen(cur + 2) + 1));
+			} else {
+				last_was_sep = 0;
+			}
+		} else {
+			last_was_sep = 0;
+		}
 	}
 	return widepath;
 }
