@@ -129,7 +129,7 @@ uint32_t load_media_zip(const char *filename, system_media *dst)
 		{
 			if (!strcasecmp(ext, valid_exts[j])) {
 				size_t out_size = nearest_pow2(z->entries[i].size);
-				dst->buffer = zip_read(z, i, &out_size);
+				dst->buffer = zip_read(z, i, &out_size, 16);
 				if (dst->buffer) {
 					if (is_smd_format(z->entries[i].name, dst->buffer)) {
 						size_t offset;
@@ -487,7 +487,7 @@ void* load_media_subfile(const system_media *media, char *path, uint32_t *sizeou
 		}
 		if (i < media->zip->num_entries) {
 			size_t zsize = media->zip->entries[i].size + 1;
-			buffer = zip_read(media->zip, i, &zsize);
+			buffer = zip_read(media->zip, i, &zsize, 0);
 			size = zsize;
 			if (buffer) {
 				((uint8_t *)buffer)[size] = 0;
