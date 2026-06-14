@@ -2359,7 +2359,7 @@ static void free_genesis(system_header *system)
 	vdp_free(gen->vdp);
 	memmap_chunk *map = (memmap_chunk *)gen->m68k->opts->gen.memmap;
 	m68k_options_free(gen->m68k->opts);
-	free(gen->cart);
+	aligned_free(gen->cart);
 	free(gen->m68k);
 	free(gen->work_ram);
 	if (gen->header.type == SYSTEM_GENESIS) {

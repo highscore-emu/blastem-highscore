@@ -36,6 +36,11 @@ wchar_t *to_windows_path(const char *path);
 
 //Utility functions
 
+//equivalent to calloc, but with forced alignment
+//align must be a power of 2
+void *aligned_calloc(size_t nmemb, size_t size, size_t align);
+//memory allocated with aligned_alloc must be freed with align_free
+void aligned_free(void *ptr);
 //Allocates a new string containing the concatenation of first and second
 char * alloc_concat(char const * first, char const * second);
 //Allocates a new string containing the concatenation of the strings pointed to by parts

@@ -1354,7 +1354,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	};
 	static const size_t num_chunks = sizeof(base_sh2_map)/sizeof(*base_sh2_map);
 	s32x *ret = calloc(1, sizeof(s32x));
-	ret->sdram = calloc(128*1024, sizeof(uint16_t));
+	ret->sdram = aligned_calloc(128*1024, sizeof(uint16_t), 16);
 
 	memmap_chunk *main_map = calloc(num_chunks, sizeof(memmap_chunk));
 	memcpy(main_map, base_sh2_map, sizeof(base_sh2_map));
@@ -1366,7 +1366,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 		main_map[3].buffer = media->buffer;
 		main_map[3].mask &= nearest_pow2(media->size) - 1;
 	}
-	main_map[5].buffer = calloc(1, main_map[5].end);
+	main_map[5].buffer = aligned_calloc(1, main_map[5].end, 16);
 	char *main_path = tern_find_path_default(config, "system\0s32x_main_bios\0", (tern_val){.ptrval = "32X_M_BIOS.bin"}, TVAL_PTR).ptrval;
 	FILE *f = fopen(main_path, "rb");
 	if (f) {
@@ -1396,7 +1396,7 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 		sub_map[3].mask &= nearest_pow2(media->size) - 1;
 	
 	}
-	sub_map[5].buffer = calloc(1, sub_map[5].end);
+	sub_map[5].buffer = aligned_calloc(1, sub_map[5].end, 16);
 	char *sub_path = tern_find_path_default(config, "system\0s32x_sub_bios\0", (tern_val){.ptrval = "32X_S_BIOS.bin"}, TVAL_PTR).ptrval;
 	f = fopen(sub_path, "rb");
 	if (f) {
@@ -1446,13 +1446,13 @@ void free_32x(s32x *mars)
 	s32x_video_free(&mars->video);
 	sh7095_free(mars->sub);
 	sh7095_free(mars->main);
-	free(mars->main->opts->gen.memmap[5].buffer);
-	free(mars->sub->opts->gen.memmap[5].buffer);
+	aligned_free(mars->main->opts->gen.memmap[5].buffer);
+	aligned_free(mars->sub->opts->gen.memmap[5].buffer);
 	free(mars->main->opts);
 	free(mars->sub->opts);
 	sh2_free(mars->main);
 	sh2_free(mars->sub);
-	free(mars->sdram);
+	aligned_free(mars->sdram);
 	free(mars);
 }
 

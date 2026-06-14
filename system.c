@@ -65,14 +65,16 @@ int load_smd_rom(ROMFILE f, void **buffer)
 	size_t filesize = 512 * 1024;
 	size_t readsize = 0;
 	uint16_t *dst, *buf;
-	dst = buf = malloc(filesize);
-
+	dst = buf = aligned_calloc(1, filesize, 16);
 
 	size_t read;
 	do {
 		if ((readsize + SMD_BLOCK_SIZE > filesize)) {
 			filesize *= 2;
-			buf = realloc(buf, filesize);
+			uint16_t *tmp = buf;
+			buf = aligned_calloc(1, filesize, 16);
+			memcpy(buf, tmp, filesize >> 1);
+			aligned_free(tmp);
 			dst = buf + readsize/sizeof(uint16_t);
 		}
 		read = romread(block, 1, SMD_BLOCK_SIZE, f);
@@ -223,7 +225,7 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 		size_t filesize = 512 * 1024;
 		size_t readsize = sizeof(header);
 
-		char *buf = malloc(filesize);
+		char *buf = aligned_calloc(1, filesize, 16);
 		memcpy(buf, header, readsize);
 
 		size_t read;
@@ -235,7 +237,10 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 					int one_more = romgetc(f);
 					if (one_more >= 0) {
 						filesize *= 2;
-						buf = realloc(buf, filesize);
+						uint16_t *tmp = buf;
+						buf = aligned_calloc(1, filesize, 16);
+						memcpy(buf, tmp, filesize >> 1);
+						aligned_free(tmp);
 						buf[readsize++] = one_more;
 					} else {
 						read = 0;

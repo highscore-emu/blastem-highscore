@@ -36,6 +36,21 @@ android_LogPriority log_level_to_android(log_level)
 
 #include "util.h"
 
+void *aligned_calloc(size_t nmemb, size_t size, size_t align)
+{
+	uint8_t *ret = calloc(1, nmemb * size + align);
+	ret += align - (((intptr_t)ret) & (align - 1));
+	ret[-1] = (uint8_t)align;
+	return ret;
+}
+
+void aligned_free(void *ptr)
+{
+	uint8_t *buf = ptr;
+	buf -= buf[-1];
+	free(buf);
+}
+
 char * alloc_concat(char const * first, char const * second)
 {
 	int flen = strlen(first);
