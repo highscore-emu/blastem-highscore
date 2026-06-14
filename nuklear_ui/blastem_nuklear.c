@@ -153,7 +153,7 @@ EM_JS(void, show_html_chooser, (const char *title, const char *extensions, int n
 				if (prevPath && window[prevPath]) {
 					FS.unlink(window[prevPath]);
 				} else {
-					FS.mkdir(prefix);
+					FS.mkdirTree(prefix);
 				}
 				
 				let buffer = new Uint8Array(event.target.result);
