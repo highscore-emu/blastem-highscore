@@ -294,8 +294,9 @@ void sh2_cached_write_8(uint32_t address, sh2_context *sh2, uint8_t value)
 	}
 	sh2->write8[1](address, sh2, value);
 	return;
+	uint32_t mask;
 hit:
-	uint32_t mask = 0xFF000000 >> ((address & 3) << 3);
+	mask = 0xFF000000 >> ((address & 3) << 3);
 	uint32_t extended = value << ((3 - (address & 3)) << 3);
 	sh2->cache[way_off] &= ~mask;
 	sh2->cache[way_off] |= extended;
