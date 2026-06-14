@@ -2155,6 +2155,7 @@ void movdqa_rrind(code_info *code, uint8_t src, uint8_t dst)
 {
 	check_alloc_code(code, 6);
 	code_ptr out = code->cur;
+	*(out++) = PRE_SIZE;
 	if (src >= XMM8 || dst >= R8) {
 #ifdef X86_64
 		*out = PRE_REX;
@@ -2171,7 +2172,6 @@ void movdqa_rrind(code_info *code, uint8_t src, uint8_t dst)
 		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s, size: %s\n", PRE_SIZE, PRE_2BYTE, OP2_MOVD, src, x86_reg_names[dst]);
 #endif
 	}
-	*(out++) = PRE_SIZE;
 	*(out++) = PRE_2BYTE;
 	*(out++) = OP2_MOVD | BIT_SIZE | BIT_DIR_MMX;
 	if (dst == RBP) {
@@ -2193,6 +2193,7 @@ void pshuflw_rindr(code_info *code, uint8_t src, uint8_t dst, uint8_t shuff)
 {
 	check_alloc_code(code, 7);
 	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_DOUBLE;
 	if (dst >= XMM8 || src >= R8) {
 #ifdef X86_64
 		*out = PRE_REX;
@@ -2209,7 +2210,6 @@ void pshuflw_rindr(code_info *code, uint8_t src, uint8_t dst, uint8_t shuff)
 		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_DOUBLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
 #endif
 	}
-	*(out++) = PRE_SCALAR_DOUBLE;
 	*(out++) = PRE_2BYTE;
 	*(out++) = OP2_PSHUFW;
 	if (src == RBP) {
@@ -2232,6 +2232,7 @@ void pshuflw_rdispr(code_info *code, uint8_t src, int32_t src_disp, uint8_t dst,
 {
 	check_alloc_code(code, 11);
 	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_DOUBLE;
 	if (dst >= XMM8 || src >= R8) {
 #ifdef X86_64
 		*out = PRE_REX;
@@ -2248,7 +2249,6 @@ void pshuflw_rdispr(code_info *code, uint8_t src, int32_t src_disp, uint8_t dst,
 		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_DOUBLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
 #endif
 	}
-	*(out++) = PRE_SCALAR_DOUBLE;
 	*(out++) = PRE_2BYTE;
 	*(out++) = OP2_PSHUFW;
 	if (src_disp < 128 && src_disp >= -128) {
@@ -2274,6 +2274,7 @@ void pshuflw_rindexr(code_info *code, uint8_t src_base, uint8_t src_index, uint8
 {
 	check_alloc_code(code, 7);
 	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_DOUBLE;
 	if (dst >= XMM8 || src_base >= R8) {
 #ifdef X86_64
 		*out = PRE_REX;
@@ -2290,7 +2291,6 @@ void pshuflw_rindexr(code_info *code, uint8_t src_base, uint8_t src_index, uint8
 		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_DOUBLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src_base]);
 #endif
 	}
-	*(out++) = PRE_SCALAR_DOUBLE;
 	*(out++) = PRE_2BYTE;
 	*(out++) = OP2_PSHUFW;
 	*(out++) = MODE_REG_INDIRECT | RSP | (dst << 3);
@@ -2310,6 +2310,7 @@ void pshufhw_rr(code_info *code, uint8_t src, uint8_t dst, uint8_t shuff)
 {
 	check_alloc_code(code, 6);
 	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_SINGLE;
 	if (dst >= XMM8 || src >= R8) {
 #ifdef X86_64
 		*out = PRE_REX;
@@ -2326,7 +2327,6 @@ void pshufhw_rr(code_info *code, uint8_t src, uint8_t dst, uint8_t shuff)
 		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_SINGLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
 #endif
 	}
-	*(out++) = PRE_SCALAR_SINGLE;
 	*(out++) = PRE_2BYTE;
 	*(out++) = OP2_PSHUFW;
 	*(out++) = MODE_REG_DIRECT | src | (dst << 3);
