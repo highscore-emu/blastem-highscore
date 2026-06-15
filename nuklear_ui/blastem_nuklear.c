@@ -146,7 +146,7 @@ EM_JS(void, show_html_chooser, (const char *title, const char *extensions, int n
 				if (normal_open) {
 					prevPath = 'previousRomPath';
 				} else if (is_settings) {
-					prefix = '/firmware';
+					prefix = '/home/web_user/firmware';
 				} else {
 					prevPath = 'previousSpecialPath';
 				}
@@ -157,8 +157,8 @@ EM_JS(void, show_html_chooser, (const char *title, const char *extensions, int n
 				}
 				
 				let buffer = new Uint8Array(event.target.result);
-				FS.createDataFile(prefix, name, buffer, true, false, false);
 				let fullPath = prefix + "/" + name;
+				FS.writeFile(fullPath, buffer);
 				if (prevPath) {
 					window[prevPath] = fullPath;
 				}
