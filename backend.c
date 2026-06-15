@@ -413,6 +413,30 @@ void interp_write_ignored_8(uint32_t address, void *context, uint8_t value, void
 {
 }
 
+uint16_t interp_read_func_16(uint32_t address, void *context, void *data)
+{
+	read_16_fun f = (read_16_fun)data;
+	return f(address, context);
+}
+
+uint8_t interp_read_func_8(uint32_t address, void *context, void *data)
+{
+	read_8_fun f = (read_8_fun)data;
+	return f(address, context);
+}
+
+void interp_write_func_16(uint32_t address, void *context, uint16_t value, void *data)
+{
+	write_16_fun f = (write_16_fun)data;
+	f(address, context, value);
+}
+
+void interp_write_func_8(uint32_t address, void *context, uint8_t value, void *data)
+{
+	write_8_fun f = (write_8_fun)data;
+	f(address, context, value);
+}
+
 uint16_t interp_read_map_16(uint32_t address, void *context, void *data)
 {
 	const memmap_chunk *chunk = data;
@@ -671,10 +695,15 @@ interp_read_16 get_interp_read_16(void *context, cpu_options *opts, uint32_t sta
 		}
 	}
 	if (chunk->read_16 && chunk->mask == opts->address_mask) {
+#ifdef __EMSCRIPTEN__
+		*data_out = chunk->read_16;
+		return interp_read_func_16;
+#else
 		*data_out = NULL;
 		//This is not safe for all calling conventions due to the extra param
-		//but should work for the ones we actually care about
+		//but should work for the ones we actually care about except WASM
 		return (interp_read_16)chunk->read_16;
+#endif
 	}
 use_map:
 	*data_out = (void *)chunk;
@@ -721,10 +750,15 @@ interp_read_8 get_interp_read_8(void *context, cpu_options *opts, uint32_t start
 		}
 	}
 	if (chunk->read_8 && chunk->mask == opts->address_mask) {
+#ifdef __EMSCRIPTEN__
+		*data_out = chunk->read_8;
+		return interp_read_func_8;
+#else
 		*data_out = NULL;
 		//This is not safe for all calling conventions due to the extra param
-		//but should work for the ones we actually care about
+		//but should work for the ones we actually care about except WASM
 		return (interp_read_8)chunk->read_8;
+#endif
 	}
 use_map:
 	*data_out = (void *)chunk;
@@ -763,10 +797,15 @@ interp_write_16 get_interp_write_16(void *context, cpu_options *opts, uint32_t s
 		}
 	}
 	if (chunk->write_16 && chunk->mask == opts->address_mask) {
+#ifdef __EMSCRIPTEN__
+		*data_out = chunk->write_16;
+		return interp_write_func_16;
+#else
 		*data_out = NULL;
 		//This is not safe for all calling conventions due to the extra param
-		//but should work for the ones we actually care about
+		//but should work for the ones we actually care about except WASM
 		return (interp_write_16)chunk->write_16;
+#endif
 	}
 use_map:
 	*data_out = (void *)chunk;
@@ -807,10 +846,15 @@ interp_write_8 get_interp_write_8(void *context, cpu_options *opts, uint32_t sta
 		}
 	}
 	if (chunk->write_8 && chunk->mask == opts->address_mask) {
+#ifdef __EMSCRIPTEN__
+		*data_out = chunk->write_8;
+		return interp_write_func_8;
+#else
 		*data_out = NULL;
 		//This is not safe for all calling conventions due to the extra param
 		//but should work for the ones we actually care about
 		return (interp_write_8)chunk->write_8;
+#endif
 	}
 use_map:
 	*data_out = (void *)chunk;
