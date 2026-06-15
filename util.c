@@ -38,17 +38,25 @@ android_LogPriority log_level_to_android(log_level)
 
 void *aligned_calloc(size_t nmemb, size_t size, size_t align)
 {
+#ifdef __EMSCRIPTEN__
+	return calloc(nmemb, size);
+#else
 	uint8_t *ret = calloc(1, nmemb * size + align);
 	ret += align - (((intptr_t)ret) & (align - 1));
 	ret[-1] = (uint8_t)align;
 	return ret;
+#endif
 }
 
 void aligned_free(void *ptr)
 {
+#ifdef __EMSCRIPTEN__
+	free(ptr);
+#else
 	uint8_t *buf = ptr;
 	buf -= buf[-1];
 	free(buf);
+#endif
 }
 
 char * alloc_concat(char const * first, char const * second)
