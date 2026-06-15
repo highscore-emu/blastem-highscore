@@ -72,6 +72,22 @@ void sh2_write_external_32_native_wrapper(uint32_t address, sh2_context *sh2, ui
 	sh2->write16[1](address | 2, sh2, value);
 }
 
+void sh2_generic_burst_read(uint32_t address, sh2_context *sh2, uint32_t *dst)
+{
+	uint32_t val = sh2->read16[1](address, sh2) << 16;
+	val |= sh2->read16[1](address | 2, sh2);
+	*(dst++) = val;
+	val = sh2->read16[1](address | 4, sh2) << 16;
+	val |= sh2->read16[1](address | 6, sh2);
+	*(dst++) = val;
+	val = sh2->read16[1](address | 8, sh2) << 16;
+	val |= sh2->read16[1](address | 10, sh2);
+	*(dst++) = val;
+	val = sh2->read16[1](address | 12, sh2) << 16;
+	val |= sh2->read16[1](address | 14, sh2);
+	*(dst++) = val;
+}
+
 uint32_t sh2_cache_fill(uint32_t address, sh2_context *sh2, uint32_t tag, uint32_t way_off)
 {
 	uint32_t lru = sh2->cache_lru[way_off];
@@ -616,6 +632,7 @@ sh2_context *init_sh2_context(sh2_options *opts, sh2_fun *next_int)
 	sh2->read16[0] = sh2->read16[1] = sh2_read_external_16;
 	sh2->write8[0] = sh2->write8[1] = sh2_write_external_8;
 	sh2->read8[0] = sh2->read8[1] = sh2_read_external_8;
+	sh2->burst_read = sh2_generic_burst_read;
 #endif
 	//associative purge space
 	sh2->write32[2] = sh2_write_purge_32;
