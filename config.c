@@ -482,7 +482,6 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		}
 		free(exts[0]);//All extensions in this list share an allocation, first one is a pointer to the buffer
 		free(exts);
-		break;
 	}
 	case 9: {
 		//Add pre-SMS 8-bit image formats to ui.extensions
@@ -518,7 +517,6 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		}
 		char *combined = alloc_join(new_size, (char const **)ext_list, ' ');
 		config = tern_insert_path(config, "ui\0extensions\0", (tern_val){.ptrval = combined}, TVAL_PTR);
-		break;
 	}
 	case 10: {
 		//Add default bindings for cassette actions
@@ -534,7 +532,6 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		if (!bind) {
 			config = tern_insert_path(config, "bindings\0keys\0f4\0", (tern_val){.ptrval = strdup("cassette.rewind")}, TVAL_PTR);
 		}
-		break;
 	}
 	case 11: {
 		//Add default bindings for pause and frame advance
@@ -546,7 +543,6 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		if (!bind) {
 			config = tern_insert_path(config, "bindings\0keys\0f8\0", (tern_val){.ptrval = strdup("ui.advance")}, TVAL_PTR);
 		}
-		break;
 	}
 	case 12: {
 		uint32_t num_exts;
@@ -583,7 +579,6 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		}
 		free(exts[0]);//All extensions in this list share an allocation, first one is a pointer to the buffer
 		free(exts);
-		break;
 	}
 	}
 	char buffer[16];
