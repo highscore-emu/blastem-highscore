@@ -7,5 +7,6 @@ uint32_t make_iso_media(system_media *media, const char *filename);
 void cdimage_serialize(system_media *media, serialize_buffer *buf);
 void cdimage_deserialize(deserialize_buffer *buf, void *vmedia);
 uint8_t cdrom_scramble(uint16_t *lsfr, uint8_t data);
+void cdimage_free(system_media *media);
 
 #endif //CUE_H_

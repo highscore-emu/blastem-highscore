@@ -1705,6 +1705,7 @@ void free_segacd(segacd_context *cd)
 	free(cd->word_ram);
 	free(cd->prog_ram);
 	free(cd->rom_mut);
+	cdimage_free(cd->cdd.media);
 }
 
 void segacd_serialize(segacd_context *cd, serialize_buffer *buf, uint8_t all)

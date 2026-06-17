@@ -53,6 +53,9 @@ void aligned_free(void *ptr)
 #ifdef __EMSCRIPTEN__
 	free(ptr);
 #else
+	if (!ptr) {
+		return;
+	}
 	uint8_t *buf = ptr;
 	buf -= buf[-1];
 	free(buf);
