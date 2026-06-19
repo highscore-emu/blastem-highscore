@@ -987,6 +987,7 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 		if (sh2->main) {
 			sh2_run(mars->sub, sh2->cycles);
 		}
+		sh2->cycles += 3 * sh2->opts->gen.clock_divider;
 		uint32_t reg = (address & 0xFE) >> 1;
 		uint16_t mask = sh2_write_masks[reg];
 		dprintf("32X SH2 %c Write: %06X: %04X\n", sh2 == mars->main ? 'M' : 'S', address, value);
@@ -995,6 +996,7 @@ void *s32x_sh2_write(uint32_t address, void *vcontext, uint16_t value)
 		//SH2 writes seem to always go through for some reason, even when FM is clear
 		//have occasionally seen the writes be delayed, but not consistent
 		//needs more testing
+		sh2->cycles += 6 * sh2->opts->gen.clock_divider;
 		for (;;)
 		{
 			if (sh2->main) {
@@ -1027,6 +1029,7 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 		if (sh2->main) {
 			sh2_run(mars->sub, sh2->cycles);
 		}
+		sh2->cycles += 3 * sh2->opts->gen.clock_divider;
 		if (address & 1) {
 			extended = value;
 			mask &= 0x00FF;;
@@ -1040,6 +1043,7 @@ void *s32x_sh2_write_b(uint32_t address, void *vcontext, uint8_t value)
 		//SH2 writes seem to always go through for some reason, even when FM is clear
 		//have occasionally seen the writes be delayed, but not consistent
 		//needs more testing
+		sh2->cycles += 6 * sh2->opts->gen.clock_divider;
 		for (;;)
 		{
 			if (sh2->main) {
@@ -1342,15 +1346,18 @@ void *s32x_sh2_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value
 s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 {
 	static const memmap_chunk base_sh2_map[] = {
-		{0x6000000, 0x6040000, .mask = 0x3FFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
+		{0x6000000, 0x6040000, .mask = 0x3FFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE,
+			.read_cycles = 12, .write_cycles = 2, .burst_cycles = 12},
 		{0x4000000, 0x4020000, .mask = 0x7FFFFFF, .read_16 = s32x_sh2_fb_read_w, .write_16 = s32x_sh2_fb_write_w,
 			.read_8 = s32x_sh2_fb_read_b, .write_8 = s32x_sh2_fb_write_b},
 		{0x4020000, 0x4040000, .mask = 0x7FFFFFF, .read_16 = s32x_sh2_fb_read_w, .write_16 = s32x_sh2_overwrite_write_w,
 			.read_8 = s32x_sh2_fb_read_b, .write_8 = s32x_sh2_overwrite_write_b},
-		{0x2000000, 0x2400000, .mask = 0x3FFFFF, .flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF, .ptr_index = 0},
+		{0x2000000, 0x2400000, .mask = 0x3FFFFF, .flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF, .ptr_index = 0,
+			.read_cycles = 6, .write_cycles = 3, .burst_cycles = 6 * 8},
 		{0x0004000, 0x0004400, .mask = 0x7FFFFFF, .read_16 = s32x_sh2_read, .write_16 = s32x_sh2_write,
 			.read_8 = s32x_sh2_read_b, .write_8 = s32x_sh2_write_b},
-		{0x0000000, 0x0004000, .mask = 0x7FFFFFF, .flags = MMAP_READ},
+		{0x0000000, 0x0004000, .mask = 0x7FFFFFF, .flags = MMAP_READ,
+			.read_cycles = 3, .write_cycles = 3, .burst_cycles = 3 * 8},
 	};
 	static const size_t num_chunks = sizeof(base_sh2_map)/sizeof(*base_sh2_map);
 	s32x *ret = calloc(1, sizeof(s32x));

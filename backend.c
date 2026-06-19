@@ -196,6 +196,50 @@ uint16_t read_word(uint32_t address, void **mem_pointers, cpu_options *opts, voi
 	return 0xFFFF;
 }
 
+uint16_t read_word_cycles(uint32_t address, void **mem_pointers, cpu_options *opts, void *context, uint32_t *cycles)
+{
+	memmap_chunk const *chunk = find_map_chunk(address, opts, 0, NULL);
+	if (!chunk) {
+		return 0xFFFF;
+	}
+	uint32_t offset = address & chunk->mask;
+	if (chunk->shift > 0) {
+		offset <<= chunk->shift;
+	} else if (chunk->shift < 0){
+		offset >>= -chunk->shift;
+	}
+	if (chunk->read_cycles) {
+		*cycles += chunk->read_cycles * opts->clock_divider;
+	}
+	if (chunk->flags & MMAP_READ) {
+		uint8_t *base;
+		if (chunk->flags & MMAP_PTR_IDX) {
+			base = mem_pointers[chunk->ptr_index];
+		} else {
+			base = chunk->buffer;
+		}
+		if (base) {
+			uint16_t val;
+			if ((chunk->flags & MMAP_ONLY_ODD) || (chunk->flags & MMAP_ONLY_EVEN)) {
+				offset /= 2;
+				val = base[offset];
+				if (chunk->flags & MMAP_ONLY_ODD) {
+					val |= 0xFF00;
+				} else {
+					val = val << 8 | 0xFF;
+				}
+			} else {
+				val = *(uint16_t *)(base + offset);
+			}
+			return val;
+		}
+	}
+	if ((!(chunk->flags & MMAP_READ) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->read_16) {
+		return chunk->read_16(offset, context);
+	}
+	return 0xFFFF;
+}
+
 void write_word(uint32_t address, uint16_t value, void **mem_pointers, cpu_options *opts, void *context)
 {
 	memmap_chunk const *chunk = find_map_chunk(address, opts, 0, NULL);
@@ -207,6 +251,47 @@ void write_word(uint32_t address, uint16_t value, void **mem_pointers, cpu_optio
 		offset <<= chunk->shift;
 	} else if (chunk->shift < 0){
 		offset >>= -chunk->shift;
+	}
+	
+	if (chunk->flags & MMAP_WRITE) {
+		uint8_t *base;
+		if (chunk->flags & MMAP_PTR_IDX) {
+			base = mem_pointers[chunk->ptr_index];
+		} else {
+			base = chunk->buffer;
+		}
+		if (base) {
+			if ((chunk->flags & MMAP_ONLY_ODD) || (chunk->flags & MMAP_ONLY_EVEN)) {
+				offset /= 2;
+				if (chunk->flags & MMAP_ONLY_EVEN) {
+					value >>= 16;
+				}
+				base[offset] = value;
+			} else {
+				*(uint16_t *)(base + offset) = value;
+			}
+			return;
+		}
+	}
+	if ((!(chunk->flags & MMAP_WRITE) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->write_16) {
+		chunk->write_16(offset, context, value);
+	}
+}
+
+void write_word_cycles(uint32_t address, uint16_t value, void **mem_pointers, cpu_options *opts, void *context, uint32_t *cycles)
+{
+	memmap_chunk const *chunk = find_map_chunk(address, opts, 0, NULL);
+	if (!chunk) {
+		return;
+	}
+	uint32_t offset = address & chunk->mask;
+	if (chunk->shift > 0) {
+		offset <<= chunk->shift;
+	} else if (chunk->shift < 0){
+		offset >>= -chunk->shift;
+	}
+	if (chunk->write_cycles) {
+		*cycles += chunk->write_cycles * opts->clock_divider;
 	}
 	if (chunk->flags & MMAP_WRITE) {
 		uint8_t *base;
@@ -279,6 +364,56 @@ uint8_t read_byte(uint32_t address, void **mem_pointers, cpu_options *opts, void
 	return 0xFF;
 }
 
+uint8_t read_byte_cycles(uint32_t address, void **mem_pointers, cpu_options *opts, void *context, uint32_t *cycles)
+{
+	memmap_chunk const *chunk = find_map_chunk(address, opts, 0, NULL);
+	if (!chunk) {
+		return 0xFF;
+	}
+	uint32_t offset = address & chunk->mask;
+	if (offset) {
+		uint32_t low_bit = offset & 1;
+		offset &= ~1;
+		if (chunk->shift > 0) {
+			offset <<= chunk->shift;
+		} else {
+			offset >>= -chunk->shift;
+		}
+		offset |= low_bit;
+	}
+	
+	if (chunk->read_cycles) {
+		*cycles += chunk->read_cycles * opts->clock_divider;
+	}
+	if (chunk->flags & MMAP_READ) {
+		uint8_t *base;
+		if (chunk->flags & MMAP_PTR_IDX) {
+			base = mem_pointers[chunk->ptr_index];
+		} else {
+			base = chunk->buffer;
+		}
+		if (base) {
+			if ((chunk->flags & MMAP_ONLY_ODD) || (chunk->flags & MMAP_ONLY_EVEN)) {
+				if (address & 1) {
+					if (chunk->flags & MMAP_ONLY_EVEN) {
+						return 0xFF;
+					}
+				} else if (chunk->flags & MMAP_ONLY_ODD) {
+					return 0xFF;
+				}
+				offset /= 2;
+			} else if(opts->byte_swap) {
+				offset ^= 1;
+			}
+			return base[offset];
+		}
+	}
+	if ((!(chunk->flags & MMAP_READ) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->read_8) {
+		return chunk->read_8(offset, context);
+	}
+	return 0xFF;
+}
+
 void write_byte(uint32_t address, uint8_t value, void **mem_pointers, cpu_options *opts, void *context)
 {
 	memmap_chunk const *chunk = find_map_chunk(address, opts, 0, NULL);
@@ -295,6 +430,54 @@ void write_byte(uint32_t address, uint8_t value, void **mem_pointers, cpu_option
 			offset >>= -chunk->shift;
 		}
 		offset |= low_bit;
+	}
+	if (chunk->flags & MMAP_WRITE) {
+		uint8_t *base;
+		if (chunk->flags & MMAP_PTR_IDX) {
+			base = mem_pointers[chunk->ptr_index];
+		} else {
+			base = chunk->buffer;
+		}
+		if (base) {
+			if ((chunk->flags & MMAP_ONLY_ODD) || (chunk->flags & MMAP_ONLY_EVEN)) {
+				if (address & 1) {
+					if (chunk->flags & MMAP_ONLY_EVEN) {
+						return;
+					}
+				} else if (chunk->flags & MMAP_ONLY_ODD) {
+					return;
+				}
+				offset /= 2;
+			} else if(opts->byte_swap) {
+				offset ^= 1;
+			}
+			base[offset] = value;
+		}
+	}
+	if ((!(chunk->flags & MMAP_WRITE) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->write_8) {
+		chunk->write_8(offset, context, value);
+	}
+}
+
+void write_byte_cycles(uint32_t address, uint8_t value, void **mem_pointers, cpu_options *opts, void *context, uint32_t *cycles)
+{
+	memmap_chunk const *chunk = find_map_chunk(address, opts, 0, NULL);
+	if (!chunk) {
+		return;
+	}
+	uint32_t offset = address & chunk->mask;
+	if (chunk->shift) {
+		uint32_t low_bit = offset & 1;
+		offset &= ~1;
+		if (chunk->shift > 0) {
+			offset <<= chunk->shift;
+		} else {
+			offset >>= -chunk->shift;
+		}
+		offset |= low_bit;
+	}
+	if (chunk->write_cycles) {
+		*cycles += chunk->write_cycles * opts->clock_divider;
 	}
 	if (chunk->flags & MMAP_WRITE) {
 		uint8_t *base;

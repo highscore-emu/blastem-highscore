@@ -37,6 +37,9 @@ typedef struct {
 	write_16_fun write_16;
 	read_8_fun   read_8;
 	write_8_fun  write_8;
+	uint32_t     read_cycles;
+	uint32_t     write_cycles;
+	uint32_t     burst_cycles;
 } memmap_chunk;
 
 #endif //MEMMAP_H_

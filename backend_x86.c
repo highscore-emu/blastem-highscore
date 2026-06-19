@@ -4,7 +4,9 @@
 
 void cycles(cpu_options *opts, uint32_t num)
 {
-	if (opts->limit < 0) {
+	if (opts->cycles < 0) {
+		add_irdisp(&opts->code, num*opts->clock_divider, opts->context_reg, opts->cycles_off, SZ_D);
+	} else if (opts->limit < 0) {
 		sub_ir(&opts->code, num*opts->clock_divider, opts->cycles, SZ_D);
 	} else {
 		add_ir(&opts->code, num*opts->clock_divider, opts->cycles, SZ_D);
@@ -112,7 +114,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 	code_info *code = &opts->code;
 	code_ptr start = code->cur;
 	uint8_t is_write = fun_type == WRITE_16 || fun_type == WRITE_8;
-	uint8_t adr_reg, context_reg, value_reg, dst_reg;
+	uint8_t adr_reg, context_reg, value_reg, dst_reg, tmp_context_reg;
 	uint8_t size =  (fun_type == READ_16 || fun_type == WRITE_16) ? SZ_W : SZ_B;
 	
 	if (from_c) {
@@ -140,6 +142,8 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 			mov_rdispr(code, RAX, 12, value_reg, size);
 		}
 #endif
+		tmp_context_reg = opts->context_reg;
+		opts->context_reg = context_reg;
 	} else {
 		adr_reg = is_write ? opts->scratch2 : opts->scratch1;
 		value_reg = opts->scratch1;
@@ -226,6 +230,11 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 
 		if (memmap[chunk].mask != opts->address_mask) {
 			and_ir(code, memmap[chunk].mask, adr_reg, opts->address_size);
+		}
+		if (!is_write && memmap[chunk].read_cycles) {
+			cycles(opts, memmap[chunk].read_cycles);
+		} else if (is_write & memmap[chunk].write_cycles) {
+			cycles(opts, memmap[chunk].write_cycles);
 		}
 		code_ptr after_normal = NULL;
 		uint8_t need_addr_pop = 0;
@@ -527,6 +536,9 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 		mov_ir(code, size == SZ_B ? 0xFF : 0xFFFF, value_reg, size);
 	}
 	retn(code);
+	if (from_c) {
+		opts->context_reg = tmp_context_reg;
+	}
 	return start;
 }
 
@@ -601,6 +613,9 @@ code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_
 
 		if (memmap[chunk].mask != opts->address_mask) {
 			and_ir(code, memmap[chunk].mask, adr_reg, opts->address_size);
+		}
+		if (memmap[chunk].burst_cycles) {
+			cycles(opts, memmap[chunk].burst_cycles);
 		}
 		if (memmap[chunk].flags & MMAP_READ) {
 			uint8_t need_pop_rbp = 0;

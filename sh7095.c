@@ -161,6 +161,7 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 	uint32_t cycles;
 	uint8_t val8;
 	uint16_t val16;
+	uint32_t cycles_start = sh2->cycles;
 	switch (ts)
 	{
 	case 1:
@@ -168,7 +169,6 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		sh2->write8[1](*dst, sh2, val8);
 		*src += src_delta;
 		*dst += dst_delta;
-		cycles = 2 * sh2->opts->gen.clock_divider;
 		--*tcr;
 		break;
 	case 2:
@@ -176,13 +176,11 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		sh2->write16[1](*dst, sh2, val16);
 		*src += src_delta;
 		*dst += dst_delta;
-		cycles = 2 * sh2->opts->gen.clock_divider;
 		--*tcr;
 		break;
 
 	case 16:
 #if defined(X86_32) | defined(X86_64)
-		cycles = 16 * sh2->opts->gen.clock_divider;
 		//GCC won't actually give us our requested alignemnt on the stack unless it's <= system stack alignemnt
 		//Windows only guarantees 4-byte alignment in its 32-bit ABI so this will crash there if not static
 		static uint32_t data[4] __attribute__((aligned(16)));
@@ -197,7 +195,6 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		break;
 #endif
 	case 4:
-		cycles = 4 * sh2->opts->gen.clock_divider;
 		val16 = sh2->read16[1](*src, sh2);
 		sh2->write16[1](*dst, sh2, val16);
 		val16 = sh2->read16[1](*src + 2, sh2);
@@ -207,6 +204,8 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		--*tcr;
 		break;
 	}
+	cycles = sh2->cycles - cycles_start;
+	sh2->cycles = cycles_start;
 	return cycles;
 }
 
@@ -376,6 +375,7 @@ static void sh7095_run(sh2_context *sh2)
 			int32_t dst_delta1 = sh7095_dmac_dst_delta(chcr1_mdsz, chcr1_ts);
 			uint8_t ar1 = chcr1_mdsz & 2;
 			
+			//TODO: DMAC/CPU contention
 			if (sh2->peripherals[SH_DMAOR+3] & BIT_DMAOR_PR) {
 				while (dmac_delta && p->dmac0_run && p->dmac1_run)
 				{
@@ -724,6 +724,8 @@ static uint32_t sh7095_read_32(uint32_t address, sh2_context *sh2)
 {
 	sh7095_run(sh2);
 	sh7095_periph *p = sh2->periph_state;
+	//FIXME: probably wrong for 8-bit wide peripheral addresses
+	sh2->cycles += sh2->opts->gen.clock_divider;
 	address &= 0x1FC;
 	uint8_t start_if_loaded = 1;
 	switch (address)
@@ -754,6 +756,8 @@ static uint32_t sh7095_read_32(uint32_t address, sh2_context *sh2)
 static uint16_t sh7095_read_16(uint32_t address, sh2_context *sh2)
 {
 	sh7095_run(sh2);
+	//FIXME: probably wrong for 8-bit wide peripheral addresses
+	sh2->cycles += sh2->opts->gen.clock_divider;
 	address &= 0x1FE;
 	return sh2->peripherals[address] << 8 | sh2->peripherals[address | 1];
 }
@@ -761,6 +765,7 @@ static uint16_t sh7095_read_16(uint32_t address, sh2_context *sh2)
 static uint8_t sh7095_read_8(uint32_t address, sh2_context *sh2)
 {
 	sh7095_run(sh2);
+	sh2->cycles += sh2->opts->gen.clock_divider;
 	address &= 0x1FF;
 	return sh2->peripherals[address];
 }

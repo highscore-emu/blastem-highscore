@@ -15,12 +15,12 @@
 
 uint8_t sh2_read_external_8(uint32_t address, sh2_context *sh2)
 {
-	return read_byte(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	return read_byte_cycles(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles);
 }
 
 uint16_t sh2_read_external_16(uint32_t address, sh2_context *sh2)
 {
-	uint16_t ret = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	uint16_t ret = read_word_cycles(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles);
 	/*if (address == sh2->pc) {
 		uint8_t is_main = sh2 == ((sh2_context **)sh2->system)[1];
 		printf("%s SH2 fetch16: %06X: %04X\n", is_main ? "Main" : "Sub", address, ret);
@@ -30,8 +30,8 @@ uint16_t sh2_read_external_16(uint32_t address, sh2_context *sh2)
 
 uint32_t sh2_read_external_32(uint32_t address, sh2_context *sh2)
 {
-	uint32_t ret = read_word(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2) << 16;
-	ret |= read_word(address | 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	uint32_t ret = read_word_cycles(address, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles) << 16;
+	ret |= read_word_cycles(address | 2, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles);
 	/*if (address == sh2->pc) {
 		uint8_t is_main = sh2 == ((sh2_context **)sh2->system)[1];
 		printf("%s SH2 fetch32: %06X: %04X %04X\n", is_main ? "Main" : "Sub", address, ret >> 16, ret & 0xFFFF);
@@ -52,18 +52,18 @@ uint32_t sh2_read_external_32_native_wrapper(uint32_t address, sh2_context *sh2)
 
 void sh2_write_external_8(uint32_t address, sh2_context *sh2, uint8_t value)
 {
-	write_byte(address, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	write_byte_cycles(address, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles);
 }
 
 void sh2_write_external_16(uint32_t address, sh2_context *sh2, uint16_t value)
 {
-	write_word(address, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	write_word_cycles(address, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles);
 }
 
 void sh2_write_external_32(uint32_t address, sh2_context *sh2, uint32_t value)
 {
-	write_word(address, value >> 16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
-	write_word(address | 2, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2);
+	write_word_cycles(address, value >> 16, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles);
+	write_word_cycles(address | 2, value, (void**)sh2->mem_pointers, &sh2->opts->gen, sh2, &sh2->cycles);
 }
 
 void sh2_write_external_32_native_wrapper(uint32_t address, sh2_context *sh2, uint32_t value)
@@ -74,18 +74,49 @@ void sh2_write_external_32_native_wrapper(uint32_t address, sh2_context *sh2, ui
 
 void sh2_generic_burst_read(uint32_t address, sh2_context *sh2, uint32_t *dst)
 {
-	uint32_t val = sh2->read16[1](address, sh2) << 16;
-	val |= sh2->read16[1](address | 2, sh2);
-	*(dst++) = val;
-	val = sh2->read16[1](address | 4, sh2) << 16;
-	val |= sh2->read16[1](address | 6, sh2);
-	*(dst++) = val;
-	val = sh2->read16[1](address | 8, sh2) << 16;
-	val |= sh2->read16[1](address | 10, sh2);
-	*(dst++) = val;
-	val = sh2->read16[1](address | 12, sh2) << 16;
-	val |= sh2->read16[1](address | 14, sh2);
-	*(dst++) = val;
+	memmap_chunk const *chunk = find_map_chunk(address, &sh2->opts->gen, 0, NULL);
+	if (chunk) {
+		if (chunk->burst_cycles) {
+			sh2->cycles += chunk->burst_cycles * sh2->opts->gen.clock_divider;
+		}
+		uint32_t offset = address & chunk->mask;
+		if (chunk->flags & MMAP_READ) {
+			uint8_t *base;
+			if (chunk->flags & MMAP_PTR_IDX) {
+				base = sh2->mem_pointers[chunk->ptr_index];
+			} else {
+				base = chunk->buffer;
+			}
+			if (base) {
+				uint16_t *ptr = (uint16_t *)(base + offset);
+				*(dst++) = *ptr << 16 | *(ptr+1);
+				ptr += 2;
+				*(dst++) = *ptr << 16 | *(ptr+1);
+				ptr += 2;
+				*(dst++) = *ptr << 16 | *(ptr+1);
+				ptr += 2;
+				*(dst++) = *ptr << 16 | *(ptr+1);
+				ptr += 2;
+				return;
+			}
+		}
+		if ((!(chunk->flags & MMAP_READ) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->read_16) {
+			uint32_t val = chunk->read_16(offset, sh2) << 16;
+			val |= chunk->read_16(offset, sh2);
+			*(dst++) = val;
+			val = chunk->read_16(offset, sh2) << 16;
+			val |= chunk->read_16(offset, sh2);
+			*(dst++) = val;
+			val = chunk->read_16(offset, sh2) << 16;
+			val |= chunk->read_16(offset, sh2);
+			*(dst++) = val;
+			val = chunk->read_16(offset, sh2) << 16;
+			val |= chunk->read_16(offset, sh2);
+			*(dst++) = val;
+			return;
+		}
+	}
+	memset(dst, 0xFF, 16);
 }
 
 uint32_t sh2_cache_fill(uint32_t address, sh2_context *sh2, uint32_t tag, uint32_t way_off)
@@ -598,6 +629,7 @@ void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_c
 #if defined(X86_32) || defined(X86_64)
 	opts->gen.address_size = SZ_D;
 	opts->gen.mem_ptr_off = offsetof(sh2_context, mem_pointers);
+	opts->gen.cycles_off = offsetof(sh2_context, cycles);
 	init_code_info(&opts->gen.code);
 	opts->gen.code.stack_off = 0;
 #endif
