@@ -1339,6 +1339,44 @@ void *s32x_sh2_overwrite_write_b(uint32_t address, void *vcontext, uint8_t value
 	return vcontext;
 }
 
+uint32_t s32x_sh2_read_external_32(uint32_t address, sh2_context *sh2)
+{
+	address &= 0x7FFFFFF;
+	uint32_t ret;
+	if (address >= 0x6000000 && address < 0x6040000) {
+		//SDRAM access always does a 16-byte burst, but a single burst can
+		//satisfy both words of the longword read
+		address &= 0x3FFFF;
+		address >>= 1;
+		s32x *mars = sh2->system;
+		ret = mars->sdram[address] << 16;
+		ret |= mars->sdram[address | 1] ;
+		sh2->cycles += 10 * sh2->opts->gen.clock_divider;
+	} else {
+		ret = sh2->read16[1](address, sh2) << 16;
+		ret |= sh2->read16[1](address | 2, sh2);
+	}
+	return ret;
+}
+
+void s32x_sh2_write_external_32(uint32_t address, sh2_context *sh2, uint32_t value)
+{
+	address &= 0x7FFFFFF;
+	if (address >= 0x6000000 && address < 0x6040000) {
+		//this also seems optimized for the 32-bit case despite the 16-bit bus
+		address &= 0x3FFFF;
+		address >>= 1;
+		s32x *mars = sh2->system;
+		mars->sdram[address] = value >> 16;
+		mars->sdram[address | 1] = value;
+		//this seems too fast, but I get way too low values on 32xspd.32x otherwise
+		sh2->cycles += sh2->opts->gen.clock_divider;
+	} else {
+		sh2->write16[1](address, sh2, value >> 16);
+		sh2->write16[1](address | 2, sh2, value);
+	}
+}
+
 //TODO: share these with genesis.c
 #define MCLKS_NTSC 53693175
 #define MCLKS_PAL  53203395
@@ -1347,7 +1385,8 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 {
 	static const memmap_chunk base_sh2_map[] = {
 		{0x6000000, 0x6040000, .mask = 0x3FFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE,
-			.read_cycles = 12, .write_cycles = 2, .burst_cycles = 12},
+			//should be a 12-cycle burst, but I need 10 to get close to the right results in 32xspd.32x
+			.read_cycles = 10, .write_cycles = 1, .burst_cycles = 10},
 		{0x4000000, 0x4020000, .mask = 0x7FFFFFF, .read_16 = s32x_sh2_fb_read_w, .write_16 = s32x_sh2_fb_write_w,
 			.read_8 = s32x_sh2_fb_read_b, .write_8 = s32x_sh2_fb_write_b},
 		{0x4020000, 0x4040000, .mask = 0x7FFFFFF, .read_16 = s32x_sh2_fb_read_w, .write_16 = s32x_sh2_overwrite_write_w,
@@ -1391,6 +1430,8 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	ret->main->system = ret;
 	ret->main->main = 1;
 	ret->main_tmp = calloc(1, sizeof(sh2_context));
+	ret->main->write32[0] = ret->main->write32[1] = s32x_sh2_write_external_32;
+	ret->main->read32[0] = ret->main->read32[1] = s32x_sh2_read_external_32;
 
 	memmap_chunk *sub_map = calloc(num_chunks, sizeof(memmap_chunk));
 	memcpy(sub_map, base_sh2_map, sizeof(base_sh2_map));
@@ -1420,6 +1461,8 @@ s32x *alloc_32x(system_media *media, uint8_t pal, uint8_t cd_boot)
 	ret->sub->sync_cycle = 0xFFFFFFFF;
 	ret->sub->system = ret;
 	ret->sub_tmp = calloc(1, sizeof(sh2_context));
+	ret->sub->write32[0] = ret->sub->write32[1] = s32x_sh2_write_external_32;
+	ret->sub->read32[0] = ret->sub->read32[1] = s32x_sh2_read_external_32;
 	
 	//hook up main/sub SCI
 	sh7095_periph *p = ret->main->periph_state;
