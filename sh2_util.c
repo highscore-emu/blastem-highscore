@@ -102,16 +102,16 @@ void sh2_generic_burst_read(uint32_t address, sh2_context *sh2, uint32_t *dst)
 		}
 		if ((!(chunk->flags & MMAP_READ) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->read_16) {
 			uint32_t val = chunk->read_16(offset, sh2) << 16;
-			val |= chunk->read_16(offset, sh2);
+			val |= chunk->read_16(offset | 2, sh2);
 			*(dst++) = val;
-			val = chunk->read_16(offset, sh2) << 16;
-			val |= chunk->read_16(offset, sh2);
+			val = chunk->read_16(offset | 4, sh2) << 16;
+			val |= chunk->read_16(offset | 6, sh2);
 			*(dst++) = val;
-			val = chunk->read_16(offset, sh2) << 16;
-			val |= chunk->read_16(offset, sh2);
+			val = chunk->read_16(offset | 8, sh2) << 16;
+			val |= chunk->read_16(offset | 10, sh2);
 			*(dst++) = val;
-			val = chunk->read_16(offset, sh2) << 16;
-			val |= chunk->read_16(offset, sh2);
+			val = chunk->read_16(offset | 12, sh2) << 16;
+			val |= chunk->read_16(offset | 14, sh2);
 			*(dst++) = val;
 			return;
 		}
