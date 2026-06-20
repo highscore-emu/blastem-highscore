@@ -3321,6 +3321,9 @@ genesis_context *alloc_genesis_32x(system_media *media, uint32_t opts, uint8_t f
 	gen->mars = alloc_32x(media, gen->version_reg & HZ50, 0);
 	gen->header.type = SYSTEM_32X;
 	gen->vdp->s32x_vid = &gen->mars->video;
+	if (gen->vdp->renderer) {
+		gen->vdp->renderer->s32x_vid = &gen->mars->video;
+	}
 	gen->m68k->mem_pointers[2] = gen->m68k->mem_pointers[3] = NULL;
 	return gen;
 }

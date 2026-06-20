@@ -515,6 +515,7 @@ vdp_context *init_vdp_context(uint8_t region_pal, uint8_t has_max_vsram, uint8_t
 #ifndef _WIN32
 	if (render_is_threaded_video()) {
 		context = ret->renderer = init_vdp_context_int(region_pal, has_max_vsram, type);
+		context->is_threaded_renderer = 1;
 	} else
 #endif
 	{
@@ -3060,7 +3061,9 @@ static void advance_output_line(vdp_context *context)
 		//vcounter advances before output line does in Mode 5, so temporarily back it up here
 		output_line--;
 		if (output_line < context->inactive_start) {
-			s32x_video_run(context->s32x_vid, context->cycles);
+			if (!context->is_threaded_renderer) {
+				s32x_video_run(context->s32x_vid, context->cycles);
+			}
 			uint8_t is_h40 = (context->regs[REG_MODE_4] & BIT_H40) != 0;
 			s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT + (is_h40 ? 0 : 3), context->compositebuf + BORDER_LEFT + (is_h40 ? 0 : 3), output_line, is_h40);
 		} else if (!(context->output && (context->regs[REG_MODE_4] & BIT_H40))) {

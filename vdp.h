@@ -276,6 +276,7 @@ struct vdp_context {
 	uint8_t        window_h_latch;
 	uint8_t        window_v_latch;
 	uint8_t        selected_test_reg;
+	uint8_t        is_threaded_renderer;
 	int32_t        color_map[1 << 12];
 	uint8_t        vdpmem[];
 };
