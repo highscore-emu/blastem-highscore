@@ -630,6 +630,8 @@ void init_sh2_opts(sh2_options *opts, const memmap_chunk *chunks, uint32_t num_c
 	opts->gen.address_size = SZ_D;
 	opts->gen.mem_ptr_off = offsetof(sh2_context, mem_pointers);
 	opts->gen.cycles_off = offsetof(sh2_context, cycles);
+	opts->gen.cycles = -1;
+	opts->gen.limit = -1;
 	init_code_info(&opts->gen.code);
 	opts->gen.code.stack_off = 0;
 #endif
