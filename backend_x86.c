@@ -546,7 +546,7 @@ code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_
 {
 	code_info *code = &opts->code;
 	code_ptr start = code->cur;
-	uint8_t context_reg, adr_reg, dst_reg;
+	uint8_t context_reg, adr_reg, dst_reg, tmp_context_reg;
 	//assumes caller ensures burst alignment
 	//currently assumes 16-byte/8-word burst needed for SH2
 	//from_c is assumed for now
@@ -572,6 +572,8 @@ code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_
 	mov_rdispr(code, RAX, 8, context_reg, SZ_PTR);
 	mov_rdispr(code, RAX, 12, dst_reg, SZ_PTR);
 #endif
+	tmp_context_reg = opts->context_reg;
+	opts->context_reg = context_reg;
 
 	if (opts->address_size == SZ_D && opts->address_mask != 0xFFFFFFFF) {
 		and_ir(code, opts->address_mask, adr_reg, SZ_D);
@@ -831,5 +833,6 @@ code_ptr gen_burst_read(cpu_options * opts, memmap_chunk const * memmap, uint32_
 	mov_rrdisp(code, adr_reg, dst_reg, 12, SZ_D);
 #endif
 	retn(code);
+	opts->context_reg = tmp_context_reg;
 	return start;
 }
