@@ -233,7 +233,7 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 		}
 		if (!is_write && memmap[chunk].read_cycles) {
 			cycles(opts, memmap[chunk].read_cycles);
-		} else if (is_write & memmap[chunk].write_cycles) {
+		} else if (is_write && memmap[chunk].write_cycles) {
 			cycles(opts, memmap[chunk].write_cycles);
 		}
 		code_ptr after_normal = NULL;
