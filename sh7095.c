@@ -63,7 +63,7 @@ static void start_transmit(sh2_context *sh2)
 		}
 		if (sh2->peripherals[SH_SMR] & BIT_SMR_STOP) {
 			bits += 2;
-		} else {	
+		} else {
 			bits++;
 		}
 	}
@@ -104,7 +104,7 @@ static void sh7095_check_start_dma(sh2_context *sh2, int which)
 	}
 	uint8_t running = 0;
 	if ((sh2->peripherals[SH_CHCR0 + which + 3] & (BIT_CHCR_TE|BIT_CHCR_DE)) == 1) {
-		
+
 		if (sh2->peripherals[SH_CHCR0 + which + 2] & 2) {
 			//auto-request mode i.e. no peripheral involved
 			running = 1;
@@ -114,7 +114,7 @@ static void sh7095_check_start_dma(sh2_context *sh2, int which)
 			running = which ? p->dreq1 : p->dreq0;
 		}
 	}
-	
+
 	if (which) {
 		p->dmac1_run = running;
 	} else {
@@ -181,6 +181,7 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 
 	case 16:
 #if defined(X86_32) | defined(X86_64)
+	{
 		//GCC won't actually give us our requested alignemnt on the stack unless it's <= system stack alignemnt
 		//Windows only guarantees 4-byte alignment in its 32-bit ABI so this will crash there if not static
 		static uint32_t data[4] __attribute__((aligned(16)));
@@ -193,6 +194,7 @@ static uint32_t sh7095_dmac_transfer(sh2_context *sh2, uint32_t *src, uint32_t *
 		}
 		*src += 4 * src_delta;
 		break;
+	}
 #endif
 	case 4:
 		val16 = sh2->read16[1](*src, sh2);
@@ -248,7 +250,7 @@ static void sh7095_run(sh2_context *sh2)
 	sh7095_periph *p = sh2->periph_state;
 	if (sh2->cycles > p->cycle) {
 		uint32_t delta = sh2->cycles - p->cycle;
-		
+
 		if (p->divide_counter) {
 			if (delta >= p->divide_counter) {
 				p->divide_counter = 0;
@@ -374,7 +376,7 @@ static void sh7095_run(sh2_context *sh2)
 			int32_t src_delta1 = sh7095_dmac_src_delta(chcr1_mdsz, chcr1_ts);
 			int32_t dst_delta1 = sh7095_dmac_dst_delta(chcr1_mdsz, chcr1_ts);
 			uint8_t ar1 = chcr1_mdsz & 2;
-			
+
 			//TODO: DMAC/CPU contention
 			if (sh2->peripherals[SH_DMAOR+3] & BIT_DMAOR_PR) {
 				while (dmac_delta && p->dmac0_run && p->dmac1_run)
@@ -411,7 +413,7 @@ static void sh7095_run(sh2_context *sh2)
 						dmac_delta -= cycles;
 					}
 					p->dmac_which = !p->dmac_which;
-					
+
 				}
 			}
 			while (dmac_delta && p->dmac0_run)
@@ -451,7 +453,7 @@ static void sh7095_run(sh2_context *sh2)
 				} else {
 					dmac_delta -= cycles;
 				}
-				
+
 			}
 			sh2->peripherals[SH_TCR0+1] = tcr0 >> 16;
 			sh2->peripherals[SH_TCR0+2] = tcr0 >> 8;
@@ -464,7 +466,7 @@ static void sh7095_run(sh2_context *sh2)
 			sh7095_setperiph32(SH_SAR1, sh2, sar1);
 			sh7095_setperiph32(SH_DAR1, sh2, dar1);
 		}
-		
+
 		p->cycle = sh2->cycles;
 	}
 }
