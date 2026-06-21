@@ -271,7 +271,10 @@ void add_memmap_header(rom_info *info, uint8_t *rom, uint32_t size, memmap_chunk
 	uint8_t is_med_ssf = size >= 0x108 && !memcmp("SEGA SSF", rom + 0x100, 8);
 	if (is_med_ssf || (size > 0x400000 && rom_end_raw <= 0x400000)) {
 		if (is_med_ssf && rom_end < 16*1024*1024) {
-			info->rom = rom = realloc(rom, 16*1024*1024);
+			info->rom = aligned_calloc(1, 16*1024*1024, 16);
+			memcpy(info->rom, rom, rom_end);
+			aligned_free(rom);
+			rom = info->rom;
 		}
 		info->mapper_start_index = 0;
 		info->mapper_type = is_med_ssf ? MAPPER_SEGA_MED_V2 : MAPPER_SEGA;
@@ -1269,7 +1272,10 @@ void map_iter_fun(char *key, tern_val val, uint8_t valtype, void *data)
 		state->info->mapper_type = MAPPER_MULTI_GAME;
 		state->info->mapper_start_index = state->ptr_index++;
 		//make a mirror copy of the ROM so we can efficiently support arbitrary start offsets
-		state->rom = realloc(state->rom, state->rom_size * 2);
+		uint8_t *orig = state->rom;
+		state->rom = aligned_calloc(1, state->rom_size * 2, 16);
+		memcpy(state->rom, orig, state->rom_size);
+		aligned_free(orig);
 		memcpy(state->rom + state->rom_size, state->rom, state->rom_size);
 		state->rom_size *= 2;
 		//make room for an extra map entry
