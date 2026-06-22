@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from sys import stderr
+
 assignmentOps = {
 	'=': 'mov',
 	'+=': 'add',
@@ -255,10 +257,10 @@ class Instruction(Block):
 			mask = (1 << bits) - 1
 			opfield = list(prog.mainDispatch)[0]
 			if shift:
-				ops += NormalOp(['lsr', opfield, str(shift), name])
-				ops += NormalOp(['and', name, str(mask), name])
+				ops.append(NormalOp(['lsr', opfield, str(shift), name]))
+				ops.append(NormalOp(['and', name, str(mask), name]))
 			else:
-				ops += NormalOp(['and', opfield, str(mask), name])
+				ops.append(NormalOp(['and', opfield, str(mask), name]))
 				
 		ops += self.implementation
 		#TODO: 3-op to 2-op transform
@@ -322,6 +324,26 @@ class Instruction(Block):
 		for op in self.implementation:
 			pieces.append(str(op))
 		return ''.join(pieces)
+		
+def x86_sized_reg(reg, size):
+	if type(reg) is int:
+		return f'#{reg}'
+	if reg.startswith('r'):
+		if reg[1].isnumeric():
+			suffixes = {
+				8: 'b',
+				16: 'w',
+				32: 'd',
+				64: ''
+			}
+			return f'%{reg}{suffixes[size]}'
+	return reg
+
+def mov_inst(lang, src, dst, size):
+	if lang in ('x64', 'x64_interp', 'x86', 'x86_interp'):
+		src = x86_sized_reg(src, size)
+		dst = x86_sized_reg(dst, size)
+		return f'\n\tmov {src},{dst}'
 	
 #Represents the definition of a helper function
 class SubRoutine(Block):
@@ -546,6 +568,88 @@ class Op:
 		self.impls['c'] = _impl
 		self.outOp = (1,)
 		return self
+	def twoOpAsmBinaryImpl(self, lang, inst, associative=False):
+		def _impl(prog, params, rawParams, flagUpdates):
+			a = params[1]
+			b = params[0]
+			dst = params[2]
+			needsSizeAdjust = False
+			destSize = prog.paramSize(rawParams[2])
+			if len(params) > 3:
+				size = params[3]
+				if size == 0:
+					size = 8
+				elif size == 1:
+					size = 16
+				else:
+					size = 32
+				if destSize > size:
+					needsSizeAdjust = True
+					prog.sizeAdjust = size
+			else:
+				size = destSize
+			move = ''
+			if a != dst:
+				if associative and b == dst:
+					b = a
+				else:
+					move = mov_inst(lang, a, dst, size)
+				a = dst
+			b = x86_sized_reg(b, size)
+			a = x86_sized_reg(a, size)
+			return f'{move}\n\t{inst} {b},{a}'
+		self.impls[lang] = _impl
+		return self
+	def oneOpAsmUnaryImpl(self, lang, inst):
+		def _impl(prog, params, rawParams, flagUpdates):
+			src = params[0]
+			dst = params[1]
+			needsSizeAdjust = False
+			destSize = prog.paramSize(rawParams[1])
+			if len(params) > 2:
+				size = params[2]
+				if size == 0:
+					size = 8
+				elif size == 1:
+					size = 16
+				else:
+					size = 32
+				if destSize > size:
+					needsSizeAdjust = True
+					prog.sizeAdjust = size
+			else:
+				size = destSize
+			move = ''
+			if src != dst:
+				move = mov_inst(lang, src, dst, size)
+			dst = x86_sized_reg(dst, size)
+			return f'{move}\n\t{inst} {dst}'
+		self.impls[lang] = _impl
+		return self
+	def twoOpAsmUnaryImpl(self, lang, inst):
+		def _impl(prog, params, rawParams):
+			src = params[0]
+			dst = params[1]
+			needsSizeAdjust = False
+			destSize = prog.paramSize(rawParams[1])
+			if len(params) > 2:
+				size = params[2]
+				if size == 0:
+					size = 8
+				elif size == 1:
+					size = 16
+				else:
+					size = 32
+				if destSize > size:
+					needsSizeAdjust = True
+					prog.sizeAdjust = size
+			else:
+				size = destSize
+			src = x86_sized_reg(src, size)
+			dst = x86_sized_reg(dst, size)
+			return f'\n\t{inst} {src},{dst}'
+		self.impls[lang] = _impl
+		return self
 	def addImplementation(self, lang, outOp, impl):
 		self.impls[lang] = impl
 		if not outOp is None:
@@ -569,6 +673,9 @@ class Op:
 			params = max(params, self.numArgs())
 		return params
 	def generate(self, otype, prog, params, rawParams, flagUpdates):
+		if not otype in self.impls:
+			print(f'No implementation for target {otype}', file=stderr)
+			return ''
 		if self.impls[otype].__code__.co_argcount == 2:
 			return self.impls[otype](prog, params)
 		elif self.impls[otype].__code__.co_argcount == 3:
@@ -926,6 +1033,19 @@ def _sextCImpl(prog, params, rawParams):
 		return f'\n\t{params[2]} = ({params[2]} & ~{dstMask}) | ({src} & {signBit} ? {src} | {extend} : {src});'
 	else:
 		return f'\n\t{params[2]} = {src} & {signBit} ? {src} | {extend} : {src};'
+
+def _sextX86(prog, params):
+	if not type(params[0]) is int:
+		raise Exception('First param to sext must resolve to an integer')
+	if not params[0] in (16, 32, 64):
+		raise Exception('First param to sext must be 16, 32 or 64')
+	toSize = params[0]
+	fromSize = toSize >> 1
+	src = params[1]
+	dst = params[2]
+	src = x86_sized_reg(src, fromSize)
+	dst = x86_sized_reg(src, toSize)
+	return f'\n\tmovsx {src},{dst}'
 
 def _mulsCImpl(prog, params, rawParams, flagUpdates):
 	p0Size = prog.paramSize(rawParams[0])
@@ -1371,32 +1491,32 @@ def _retregCImpl(prog, params):
 	return ''
 
 _opMap = {
-	'mov': Op(lambda val: val).cUnaryOperator(''),
-	'not': Op(lambda val: ~val).cUnaryOperator('~'),
+	'mov': Op(lambda val: val).cUnaryOperator('').twoOpAsmUnaryImpl('x64_interp', 'mov'),
+	'not': Op(lambda val: ~val).cUnaryOperator('~').oneOpAsmUnaryImpl('x64_interp', 'not'),
 	'lnot': Op(lambda val: 0 if val else 1).cUnaryOperator('!'),
-	'neg': Op(lambda val: -val).cUnaryOperator('-'),
-	'add': Op(lambda a, b: a + b).cBinaryOperator('+'),
-	'adc': Op().addImplementation('c', 2, _adcCImpl),
-	'sub': Op(lambda a, b: b - a).cBinaryOperator('-'),
-	'sbc': Op().addImplementation('c', 2, _sbcCImpl),
-	'lsl': Op(lambda a, b: a << b).cBinaryOperator('<<'),
-	'lsr': Op(lambda a, b: a >> b).cBinaryOperator('>>'),
-	'asr': Op(lambda a, b: a >> b).addImplementation('c', 2, _asrCImpl),
-	'rol': Op().addImplementation('c', 2, _rolCImpl),
-	'rlc': Op().addImplementation('c', 2, _rlcCImpl),
-	'ror': Op().addImplementation('c', 2, _rorCImpl),
-	'rrc': Op().addImplementation('c', 2, _rrcCImpl),
+	'neg': Op(lambda val: -val).cUnaryOperator('-').oneOpAsmUnaryImpl('x64_interp', 'neg'),
+	'add': Op(lambda a, b: a + b).cBinaryOperator('+').twoOpAsmBinaryImpl('x64_interp', 'add', True),
+	'adc': Op().addImplementation('c', 2, _adcCImpl).twoOpAsmBinaryImpl('x64_interp', 'adc', True),
+	'sub': Op(lambda a, b: b - a).cBinaryOperator('-').twoOpAsmBinaryImpl('x64_interp', 'sub'),
+	'sbc': Op().addImplementation('c', 2, _sbcCImpl).twoOpAsmBinaryImpl('x64_interp', 'sbb'),
+	'lsl': Op(lambda a, b: a << b).cBinaryOperator('<<').twoOpAsmBinaryImpl('x64_interp', 'shl'),
+	'lsr': Op(lambda a, b: a >> b).cBinaryOperator('>>').twoOpAsmBinaryImpl('x64_interp', 'shr'),
+	'asr': Op(lambda a, b: a >> b).addImplementation('c', 2, _asrCImpl).twoOpAsmBinaryImpl('x64_interp', 'sar'),
+	'rol': Op().addImplementation('c', 2, _rolCImpl).twoOpAsmBinaryImpl('x64_interp', 'rol'),
+	'rlc': Op().addImplementation('c', 2, _rlcCImpl).twoOpAsmBinaryImpl('x64_interp', 'rcl'),
+	'ror': Op().addImplementation('c', 2, _rorCImpl).twoOpAsmBinaryImpl('x64_interp', 'ror'),
+	'rrc': Op().addImplementation('c', 2, _rrcCImpl).twoOpAsmBinaryImpl('x64_interp', 'rcr'),
 	'mulu': Op(lambda a, b: a * b).addImplementation('c', 2, _muluCImpl),
-	'muls': Op().addImplementation('c', 2, _mulsCImpl),
+	'muls': Op().addImplementation('c', 2, _mulsCImpl).twoOpAsmBinaryImpl('x64_interp', 'imul', True),
 	'divu': Op(lambda a, b: a * b).addImplementation('c', 2, _divuCImpl),
-	'and': Op(lambda a, b: a & b).cBinaryOperator('&'),
-	'or':  Op(lambda a, b: a | b).cBinaryOperator('|'),
-	'xor': Op(lambda a, b: a ^ b).cBinaryOperator('^'),
+	'and': Op(lambda a, b: a & b).cBinaryOperator('&').twoOpAsmBinaryImpl('x64_interp', 'and', True),
+	'or':  Op(lambda a, b: a | b).cBinaryOperator('|').twoOpAsmBinaryImpl('x64_interp', 'or', True),
+	'xor': Op(lambda a, b: a ^ b).cBinaryOperator('^').twoOpAsmBinaryImpl('x64_interp', 'xor', True),
 	'abs': Op(lambda val: abs(val)).addImplementation(
 		'c', 1, lambda prog, params: '\n\t{dst} = abs({src});'.format(dst=params[1], src=params[0])
 	),
-	'cmp': Op().addImplementation('c', None, _cmpCImpl),
-	'sext': Op(_sext).addImplementation('c', 2, _sextCImpl),
+	'cmp': Op().addImplementation('c', None, _cmpCImpl).twoOpAsmUnaryImpl('x64_interp', 'cmp'),
+	'sext': Op(_sext).addImplementation('c', 2, _sextCImpl).addImplementation('x64_interp', 2, _sextX86),
 	'retreg': Op().addImplementation('c', None, _retregCImpl),
 	'ocall': Op().addImplementation('c', None, _ocallCImpl),
 	'ccall': Op().addImplementation('c', None, lambda prog, params: '\n\t{fun}({args});'.format(
@@ -1420,7 +1540,7 @@ _opMap = {
 	).addImplementation('c', 2, lambda prog, params: '\n\t{dst} = {val} - ({sz} ? {sz} * 2 : 1);'.format(
 		dst = params[2], sz = params[0], val = params[1]
 	)),
-	'xchg': Op().addImplementation('c', (0,1), _xchgCImpl),
+	'xchg': Op().addImplementation('c', (0,1), _xchgCImpl).twoOpAsmUnaryImpl('x64_interp', 'xchg'),
 	'dispatch': Op().addImplementation('c', None, _dispatchCImpl),
 	'update_flags': Op().addImplementation('c', None, _updateFlagsCImpl),
 	'update_sync': Op().addImplementation('c', None, _updateSyncCImpl),
@@ -1741,7 +1861,8 @@ _ifCmpImpl = {
 		'>=S': _gesCImpl,
 		'=': _eqCImpl,
 		'!=': _neqCImpl
-	}
+	},
+	'x64_interp': {}
 }
 def _gesCmpEval(a, b):
 	if a & 0x80000000:
@@ -1951,6 +2072,7 @@ class Registers:
 		self.regToArray = {}
 		self.addReg('cycles', 32)
 		self.addReg('sync_cycle', 32)
+		self.fieldOffsets = {}
 	
 	def addReg(self, name, size):
 		self.regs[name] = size
@@ -2013,6 +2135,37 @@ class Registers:
 				#assume some other C type
 				self.addReg(parts[0], parts[1])
 		return self
+	
+	def fieldOffset(self, otype, name):
+		if not otype in self.fieldOffsets:
+			ptr_size = 8 if '64' in otype else 4
+			cur_offset = 0
+			offsets = {}
+			for pointer in self.pointers:
+				_, count = self.pointers[pointer]
+				offsets[pointer] = cur_offset
+				cur_offset += count * ptr_size
+			fieldList = []
+			for reg in self.regs:
+				if not self.isRegArrayMember(reg):
+					if type(self.regs[reg]) is int:
+						fieldList.append((self.regs[reg], 1, reg))
+					else:
+						raise Exception(f"Can't compute size of type {self.regs[reg]} for field {reg}")
+			for arr in self.regArrays:
+				size,regs = self.regArrays[arr]
+				if not type(regs) is int:
+					regs = len(regs)
+				if not type(size) is int:
+					raise Exception(f"Can't compute size of type {size} for array {arr}")
+				fieldList.append((size, regs, arr))
+			fieldList.sort()
+			fieldList.reverse()
+			for size, count, name in fieldList:
+				offsets[name] = cur_offset
+				cur_offset += count * (size >> 3)
+			self.fieldOffsets[otype] = offsets
+		return self.fieldOffsets[otype][name]
 
 	def writeHeader(self, otype, hFile):
 		fieldList = []
@@ -2252,6 +2405,8 @@ class Program:
 		self.declaredLocals = {}
 		self.needFlagCoalesce = False
 		self.retreg = None
+		self.targetParams = {}
+		self.curtarget = None
 		
 	def __str__(self):
 		pieces = []
@@ -2410,6 +2565,7 @@ class Program:
 		return output
 	
 	def build(self, otype):
+		self.curtarget = otype
 		for table in self.instructions:
 			for inst in self.instructions[table]:
 				inst.processDispatch(self)
@@ -2426,9 +2582,9 @@ class Program:
 		body = []
 		lateBody = []
 		for table in self.extra_tables:
-			self._buildTable('c', table, body, lateBody)
-		self._buildTable('c', 'main', body, lateBody)
-		return ''.join(body) +  ''.join(pieces)
+			self._buildTable('x64_interp', table, body, lateBody)
+		self._buildTable('x64_interp', 'main', body, lateBody)
+		return ''.join(body) +  ''.join(lateBody)
 
 	def build_c(self):
 		body = []
@@ -2606,6 +2762,74 @@ class Program:
 			return self.regs.isRegArray(begin)
 		else:
 			return self.regs.isReg(name)
+
+	def contextFieldOffset(self, name):
+		ptr_size = 8 if self.curtarget == 'x64_interp' else 4
+		base = ptr_size
+		if self.pc_reg:
+			base += ptr_size
+		return base + self.regs.fieldOffset(self.curtarget, name)
+
+	def arrayAccess(self, name, element):
+		if self.curtarget == 'c':
+			return f'context->{name}[{element}]'
+		elif self.curtarget == 'x64_interp' or self.curtarget == 'x86_interp':
+			ptr_size = 64 if self.curtarget == 'x64_interp' else 32
+			if name in self.regs.regArrays:
+				elementSize, count = self.regs.regArrays[name]
+			elif name in self.regs.pointers:
+				_, count = self.regs.pointers[name]
+				elementSize = ptr_size
+			else:
+				raise Exception(f'{name} is not an array')
+			if self.curtarget in self.targetParams:
+				if name in self.targetParams[self.curtarget]:
+					name = x86_sized_reg(self.targetParams[self.curtarget][0], ptr_size)
+					offset = 0
+				elif 'context' in self.targetParams[self.curtarget]:
+					offset = self.contextFieldOffset(name)
+					name = x86_sized_reg(self.targetParams[self.curtarget]['context'][0], ptr_size)
+				else:
+					raise Exception(f'context reg not assigned for target {self.curtarget}')
+			else:
+				raise Exception(f'No register assignment block for target {self.curtarget}')
+			
+			if type(element) is int:
+				offset += element * (elementSize >> 3)
+				return f'{offset}({name})'
+			else:
+				if elementSize == 64:
+					scale = 8
+				elif elementSize == 32:
+					scale = 4
+				elif elementSize == 16:
+					scale = 2
+				else:
+					scale = 1
+				if offset != 0:
+					#FIXME: element is not fully resolved here
+					#TODO: handle case in which element is not register resident
+					return f'{offset}({name}, {element}, {scale})'
+				else:
+					return f'({name, {element}, {scale}})'
+		else:
+			raise Exception(f'{prog.curtarget} not implemented')
+	def regAccess(self, name):
+		if self.curtarget == 'c':
+			return 'context->' + name
+		elif self.curtarget == 'x64_interp' or self.curtarget == 'x86_interp':
+			if not self.curtarget in self.targetParams:
+				raise Exception(f'No register assignment block for target {self.curtarget}')
+			if name in self.targetParams[self.curtarget]:
+				return self.targetParams[self.curtarget][name][0]
+			elif not 'context' in self.targetParams[self.curtarget]:
+				raise Exception(f'context reg not assigned for target {self.curtarget}')
+			else:
+				offset = self.contextFieldOffset(name)
+				name = x86_sized_reg(self.targetParams[self.curtarget]['context'][0], 64 if self.curtarget == 'x64_interp' else 32)
+				return f'{offset}({name})'
+		else:
+			raise Exception(f'{prog.curtarget} not implemented')
 	
 	def resolveReg(self, name, parent, fieldVals, isDst=False):
 		begin,sep,end = name.partition('.')
@@ -2618,19 +2842,19 @@ class Program:
 				arrayName = self.regs.arrayMemberParent(end)
 				end = self.regs.arrayMemberIndex(end)
 				if arrayName != begin:
-					end = 'context->{0}[{1}]'.format(arrayName, end)
+					end = self.arrayAccess(arrayName, end)
 			if self.regs.isNamedArray(begin):
 				regName = self.regs.arrayMemberName(begin, end)
 			else:
 				regName = '{0}.{1}'.format(begin, end)
-			ret = 'context->{0}[{1}]'.format(begin, end)
+			ret = self.arrayAccess(begin, end)
 		else:
 			regName = name
 			if self.regs.isRegArrayMember(name):
 				arr,idx = self.regs.regToArray[name]
-				ret = 'context->{0}[{1}]'.format(arr, idx)
+				ret = self.arrayAccess(arr, idx)
 			else:
-				ret = 'context->' + name
+				ret = self.regAccess(name)
 		if regName is not None and regName == self.flags.flagReg:
 			if isDst:
 				self.needFlagDisperse = True
@@ -2806,6 +3030,7 @@ def parse(args):
 		p = Program(registers, instructions, subroutines, info, flags)
 		p.dispatch = args.dispatch
 		p.declares = declares
+		p.targetParams = target_params
 		p.booleans['dynarec'] = False
 		p.booleans['interp'] = True
 		if args.define:
