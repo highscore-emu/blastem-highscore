@@ -244,7 +244,7 @@ class Instruction(Block):
 			return self.generateBodyInterp(value, prog, otype)
 
 	def generateBodyInterp(self, value, prog, otype):
-		output = []
+		output = [f'\n{self.generateName(value)}:']
 		self.newLocals = []
 		fieldVals,_ = self.getFieldVals(value)
 		ops = []
@@ -337,13 +337,30 @@ def x86_sized_reg(reg, size):
 				64: ''
 			}
 			return f'%{reg}{suffixes[size]}'
+		elif size == 64:
+			return f'%{reg}'
+		elif size == 32:
+			return f'%e{reg[1:]}'
+		elif size == 16:
+			return f'%{reg[1:]}'
+		elif size == 8:
+			return f'%{reg[1]}l'
 	return reg
+
+def x86_size_suffix(size):
+	suffixes = {
+		8: 'b',
+		16: 'w',
+		32: 'l',
+		64: 'q'
+	}
+	return suffixes[size]
 
 def mov_inst(lang, src, dst, size):
 	if lang in ('x64', 'x64_interp', 'x86', 'x86_interp'):
 		src = x86_sized_reg(src, size)
 		dst = x86_sized_reg(dst, size)
-		return f'\n\tmov {src},{dst}'
+		return f'\n\tmov{x86_size_suffix(size)} {src},{dst}'
 	
 #Represents the definition of a helper function
 class SubRoutine(Block):
@@ -597,7 +614,7 @@ class Op:
 				a = dst
 			b = x86_sized_reg(b, size)
 			a = x86_sized_reg(a, size)
-			return f'{move}\n\t{inst} {b},{a}'
+			return f'{move}\n\t{inst}{x86_size_suffix(size)} {b},{a}'
 		self.impls[lang] = _impl
 		return self
 	def oneOpAsmUnaryImpl(self, lang, inst):
@@ -623,7 +640,7 @@ class Op:
 			if src != dst:
 				move = mov_inst(lang, src, dst, size)
 			dst = x86_sized_reg(dst, size)
-			return f'{move}\n\t{inst} {dst}'
+			return f'{move}\n\t{inst}{x86_size_suffix(size)} {dst}'
 		self.impls[lang] = _impl
 		return self
 	def twoOpAsmUnaryImpl(self, lang, inst):
@@ -647,7 +664,7 @@ class Op:
 				size = destSize
 			src = x86_sized_reg(src, size)
 			dst = x86_sized_reg(dst, size)
-			return f'\n\t{inst} {src},{dst}'
+			return f'\n\t{inst}{x86_size_suffix(size)} {src},{dst}'
 		self.impls[lang] = _impl
 		return self
 	def addImplementation(self, lang, outOp, impl):
@@ -1877,6 +1894,35 @@ _ifCmpEval = {
 	'=': lambda a, b: a == b,
 	'!=': lambda a, b: a != b
 }
+
+def asm_branch_nonzero(prog, output, otype, cond, condSize, dest):
+	cond = x86_sized_reg(cond, condSize)
+	if 'x64' in otype or 'x86' in otype:
+		if cond.startswith('%'):
+			output.append(f'\n\ttest {cond},{cond}')
+		else:
+			output.append(f'\n\tcmp{x86_size_suffix(condSize)} #0,{cond}')
+		output.append(f'\n\tjnz {dest}')
+	else:
+		raise Exception(f'Unsupported target {otype}')
+
+def asm_branch_zero(prog, output, otype, cond, condSize, dest):
+	cond = x86_sized_reg(cond, condSize)
+	if 'x64' in otype or 'x86' in otype:
+		if cond.startswith('%'):
+			output.append(f'\n\ttest {cond},{cond}')
+		else:
+			output.append(f'\n\tcmp{x86_size_suffix(condSize)} #0,{cond}')
+		output.append(f'\n\tjz {dest}')
+	else:
+		raise Exception(f'Unsupported target {otype}')
+
+def asm_branch(prog, output, otype, dest):
+	if 'x64' in otype or 'x86' in otype:
+		output.append(f'\n\tjmp {dest}')
+	else:
+		raise Exception(f'Unsupported target {otype}')
+
 #represents a DSL conditional construct
 class If(ChildBlock):
 	def __init__(self, parent, cond):
@@ -1916,16 +1962,18 @@ class If(ChildBlock):
 		self.curLocals = self.locals
 		subOut = []
 		self.processOps(prog, fieldVals, subOut, otype, self.body)
-		for local in self.locals:
-			output.append('\n\tuint{sz}_t {nm};'.format(sz=self.locals[local], nm=local))
+		if otype == 'c':
+			for local in self.locals:
+				output.append('\n\tuint{sz}_t {nm};'.format(sz=self.locals[local], nm=local))
 		output += subOut
 			
 	def _genFalseBody(self, prog, fieldVals, output, otype):
 		self.curLocals = self.elseLocals
 		subOut = []
 		self.processOps(prog, fieldVals, subOut, otype, self.elseBody)
-		for local in self.elseLocals:
-			output.append('\n\tuint{sz}_t {nm};'.format(sz=self.elseLocals[local], nm=local))
+		if otype == 'c':
+			for local in self.elseLocals:
+				output.append('\n\tuint{sz}_t {nm};'.format(sz=self.elseLocals[local], nm=local))
 		output += subOut
 	
 	def _genConstParam(self, param, prog, fieldVals, output, otype):
@@ -1966,19 +2014,46 @@ class If(ChildBlock):
 					self._genConstParam(cond, prog, fieldVals, output, otype)
 				else:
 					#temp = prog.temp.copy()
-					output.append('\n\tif ({cond}) '.format(cond=cond) + '{')
-					oldCond = prog.conditional
-					prog.conditional = True
-					self._genTrueBody(prog, fieldVals, output, otype)
-					#prog.temp = temp
-					if self.elseBody:
-						#temp = prog.temp.copy()
-						output.append('\n\t} else {')
-						self._genFalseBody(prog, fieldVals, output, otype)
-						#prog.temp = temp
-					output.append('\n\t}')
-					prog.conditional = oldCond
-						
+					if otype == 'c':
+						self._genTestValC(prog, parent, fieldVals, output, cond)
+					elif 'interp' in otype:
+						self._genTestValAsm(prog, parent, fieldVals, output, otype, cond, prog.paramSize(self.cond))
+	def _genTestValC(self, prog, parent, fieldVals, output, cond):
+		output.append('\n\tif ({cond}) '.format(cond=cond) + '{')
+		oldCond = prog.conditional
+		prog.conditional = True
+		self._genTrueBody(prog, fieldVals, output, 'c')
+		#prog.temp = temp
+		if self.elseBody:
+			#temp = prog.temp.copy()
+			output.append('\n\t} else {')
+			self._genFalseBody(prog, fieldVals, output, 'c')
+			#prog.temp = temp
+		output.append('\n\t}')
+		prog.conditional = oldCond
+	def _genTestValAsm(self, prog, parent, fieldVals, output, otype, cond, condSize):
+		if self.body:
+			if self.elseBody:
+				trueLabel = prog.label('if_true_')
+				asm_branch_nonzero(prog, output, otype, cond, condSize, trueLabel)
+				self._genFalseBody(prog, fieldVals, output, otype)
+				endLabel = prog.label('if_end_')
+				asm_branch(prog, output, otype, endLabel)
+				output.append(f'\n{trueLabel}:')
+				self._genTrueBody(prog, fieldVals, output, otype)
+				output.append(f'\n{endLabel}:')
+			else:
+				falseLabel = prog.label('if_false_')
+				asm_branch_zero(prog, output, otype, cond, condSize, falseLabel)
+				self._genTrueBody(prog, fieldVals, output, otype)
+				output.append(f'\n{falseLabel}:')
+		elif self.elseBody:
+			trueLabel = prog.label('if_true_')
+			asm_branch_nonzero(prog, output, otype, cond, condSize, trueLabel)
+			self._genFalseBody(prog, fieldVals, output, otype)
+			output.append(f'\n{trueLabel}:')
+		else:
+			print('Warning: empty if!', file=stderr)
 	
 	def processDispatch(self, prog):
 		for op in self.body:
@@ -2407,6 +2482,7 @@ class Program:
 		self.retreg = None
 		self.targetParams = {}
 		self.curtarget = None
+		self.labelCounters = {}
 		
 	def __str__(self):
 		pieces = []
@@ -2505,8 +2581,8 @@ class Program:
 			else:
 				lateBody.append(op)
 				if not op in alreadyAppended:
-						body.append(bodymap[op])
-						alreadyAppended.add(op)
+					body.append(bodymap[op])
+					alreadyAppended.add(op)
 		lateBody.append('\n')
 		
 	def _addTableC(self, table, body, lateBody, opmap, bodymap):
@@ -2911,6 +2987,10 @@ class Program:
 		
 	def getRootScope(self):
 		return self.scopes[0]
+
+	def label(self, prefix):
+		self.labelCounters[prefix] = count = self.labelCounters.get(prefix, -1) + 1
+		return f'{prefix}{count}'
 		
 valid_targets = ('c', 'x64_interp')
 
