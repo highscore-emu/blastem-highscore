@@ -55,7 +55,7 @@ typedef struct {
 void s32x_video_init(s32x_video *vid, uint8_t pal);
 void s32x_video_free(s32x_video *vid);
 void s32x_video_run(s32x_video *vid, uint32_t target);
-void s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line, uint8_t is_h40);
+uint8_t s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line, uint8_t is_h40);
 uint32_t s32x_cycles_to_vblank(s32x_video *video);
 uint32_t s32x_cycles_to_hint(s32x_video *video);
 uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video);

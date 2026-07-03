@@ -66,7 +66,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 		for (uint32_t hint_lines = lines; hint_lines > 0;)
 		{
 			if (hint_lines > vid->hint_counter) {
-				if (vid->hen || (vid->vcounter + vid->hint_counter + 1 < vblank_start)) {
+				if (vid->hen || (vid->vcounter + vid->hint_counter + 1 < vblank_start) || (!vid->hint_counter == vid->vcounter == (frame_end - 1))) {
 					vid->main_hint_pending = vid->sub_hint_pending = 1;
 				}
 				hint_lines -= vid->hint_counter + 1;
@@ -85,7 +85,7 @@ void s32x_video_run(s32x_video *vid, uint32_t target)
 		while (rest >= MCLKS_PIXEL) {
 			if (vid->hcounter < HSYNC_START) {
 				uint16_t new = vid->hcounter + rest / MCLKS_PIXEL;
-				if (vid->hcounter < HBLANK_START && new >= HBLANK_START && (vid->hen || (vid->vcounter < vblank_start - 1))) {
+				if (vid->hcounter < HBLANK_START && new >= HBLANK_START && (vid->hen || vid->vcounter < (vblank_start - 1) || vid->vcounter == (frame_end - 1))) {
 					if (vid->hint_counter) {
 						vid->hint_counter--;
 					} else {
@@ -411,13 +411,13 @@ static void s32x_composite_rle(s32x_video *vid, pixel_t *output, uint8_t *compos
 	}
 }
 
-void s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line, uint8_t is_h40)
+uint8_t s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebuf, uint32_t line, uint8_t is_h40)
 {
 	uint32_t line_start = vid->front[line * 2] << 9 | vid->front[line * 2 + 1] << 1;
 	switch (vid->regs[S32X_VID_MODE] & S32X_VID_MODE_MASK)
 	{
 	case S32X_VID_MODE_BLANK:
-		break;
+		return 0;
 	case S32X_VID_MODE_INDEXED:
 		s32x_composite_indexed(vid, output, compositebuf, line_start, is_h40);
 		break;
@@ -428,6 +428,7 @@ void s32x_video_composite(s32x_video *vid, pixel_t *output, uint8_t *compositebu
 		s32x_composite_rle(vid, output, compositebuf, line_start, is_h40);
 		break;
 	}
+	return 1;
 }
 
 uint16_t s32x_video_68k_read(uint32_t address, s32x_video *video)
@@ -519,7 +520,7 @@ uint32_t s32x_cycles_to_hint(s32x_video *video)
 	if ((next_hint_line < vblank_start - 1) || video->hen) {
 		cycles = video->hint_counter * MCLKS_LINE;
 	} else {
-		cycles = (video->hint_count + (frame_end - 1 - video->vcounter)) * MCLKS_LINE;
+		cycles = (video->hint_count + (frame_end - 2 - video->vcounter)) * MCLKS_LINE;
 		if (video->hcounter < HBLANK_START) {
 			cycles += MCLKS_LINE;
 		}

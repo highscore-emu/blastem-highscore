@@ -3060,13 +3060,15 @@ static void advance_output_line(vdp_context *context)
 	if (context->s32x_vid && context->output) {
 		//vcounter advances before output line does in Mode 5, so temporarily back it up here
 		output_line--;
+		uint8_t is_h40 = (context->regs[REG_MODE_4] & BIT_H40) != 0;
+		uint8_t did_composite = 0;
 		if (output_line < context->inactive_start) {
 			if (!context->is_threaded_renderer) {
 				s32x_video_run(context->s32x_vid, context->cycles);
 			}
-			uint8_t is_h40 = (context->regs[REG_MODE_4] & BIT_H40) != 0;
-			s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT + (is_h40 ? 0 : 3), context->compositebuf + BORDER_LEFT + (is_h40 ? 0 : 3), output_line, is_h40);
-		} else if (!(context->output && (context->regs[REG_MODE_4] & BIT_H40))) {
+			did_composite = s32x_video_composite(context->s32x_vid, context->output + BORDER_LEFT + (is_h40 ? 0 : 3), context->compositebuf + BORDER_LEFT + (is_h40 ? 0 : 3), output_line, is_h40);
+		}
+		if (!is_h40 && !did_composite) {
 			pixel_t *output = context->output;
 			pixel_t *dst = output + LINEBUF_SIZE - 1;
 			uint32_t h32_pos = (LINEBUF_SIZE - 1) * 0x40000 / 5;
