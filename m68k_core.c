@@ -1138,6 +1138,10 @@ static void translate_m68k(m68k_context *context, m68kinst * inst)
 uint16_t m68k_instruction_fetch(uint32_t address, void *vcontext)
 {
 	m68k_context *context = vcontext;
+	uint16_t *ptr = get_native_pointer(address, (void **)context->mem_pointers, &context->opts->gen);
+	if (ptr) {
+		return *ptr;
+	}
 	return read_word(address, (void **)context->mem_pointers, &context->opts->gen, context);
 }
 
