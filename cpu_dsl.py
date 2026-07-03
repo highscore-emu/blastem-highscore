@@ -445,6 +445,7 @@ class Op:
 		self.evalFun = evalFun
 		self.impls = {}
 		self.outOp = ()
+		self.name = None
 	def cBinaryOperator(self, op):
 		def _impl(prog, params, rawParams, flagUpdates):
 			if op == '-':
@@ -691,7 +692,7 @@ class Op:
 		return params
 	def generate(self, otype, prog, params, rawParams, flagUpdates):
 		if not otype in self.impls:
-			print(f'No implementation for target {otype}', file=stderr)
+			print(f'No implementation of {self.name} for target {otype}', file=stderr)
 			return ''
 		if self.impls[otype].__code__.co_argcount == 2:
 			return self.impls[otype](prog, params)
@@ -1507,10 +1508,56 @@ def _retregCImpl(prog, params):
 	prog.retreg = params[0]
 	return ''
 
+def _absX86Impl(prog, params, rawParams):
+	size = prog.paramSizes(rawParams[1])
+	src = x86_sized_reg(params[0], size)
+	dst = x86_sized_reg(params[1], size)
+	suffix = x86_size_suffix(size)
+	label = prog.label('pos_')
+	if src != dst:
+		move = f'\n\tmov{suffix} {src},{dst}'
+	else:
+		move = ''
+	return f'{move}\n\tcmp{suffix} #0,{src}\n\tjns {label}\n\tneg{suffix} {dst}\n{label}:'
+
+def _lnotX86Impl(prog, params, rawParams):
+	if len(params) > 2:
+		size = params[2]
+	else:
+		size = prog.paramSize(rawParams[1])
+	src = x86_sized_reg(params[0], size)
+	suffix = x86_size_suffix(size)
+	if src.startswith('%'):
+		check = f'test {src},{src}'
+	else:
+		check = f'cmp{suffix} #0,{src}'
+	byte_dest = x86_sized_reg(params[1], 8)
+	ret = f'\n\t{check}\n\tsetnz {byte_dest}'
+	if size > 8:
+		#FIXME: this won't work for non-register destination
+		word_dest = x86_sized_reg(params[1], 16)
+		ret += '\n\tmovzx {byte_dest},{word_dest}'
+		if size > 16:
+			long_dest = x86_sized_reg(params[1], 32)
+			ret += '\n\tmovzx {word_dest},{long_dest}'
+			if size > 32:
+				#Might be better to use a different approach rather than 3 consecutive movzx instructions
+				ret += '\n\tmovzx {long_dest},{x86_sized_reg(params[1], 64)}'
+	return ret
+
+def _cyclesX86Impl(prog, params):
+	num = params[0]
+	if type(num) == int:
+		if num == 1:
+			#HERE: less gross way to get clock divider
+			return '\n\taddl'
+	else:
+		pass
+
 _opMap = {
 	'mov': Op(lambda val: val).cUnaryOperator('').twoOpAsmUnaryImpl('x64_interp', 'mov'),
 	'not': Op(lambda val: ~val).cUnaryOperator('~').oneOpAsmUnaryImpl('x64_interp', 'not'),
-	'lnot': Op(lambda val: 0 if val else 1).cUnaryOperator('!'),
+	'lnot': Op(lambda val: 0 if val else 1).cUnaryOperator('!').addImplementation('x64_interp', 1, _lnotX86Impl),
 	'neg': Op(lambda val: -val).cUnaryOperator('-').oneOpAsmUnaryImpl('x64_interp', 'neg'),
 	'add': Op(lambda a, b: a + b).cBinaryOperator('+').twoOpAsmBinaryImpl('x64_interp', 'add', True),
 	'adc': Op().addImplementation('c', 2, _adcCImpl).twoOpAsmBinaryImpl('x64_interp', 'adc', True),
@@ -1531,7 +1578,7 @@ _opMap = {
 	'xor': Op(lambda a, b: a ^ b).cBinaryOperator('^').twoOpAsmBinaryImpl('x64_interp', 'xor', True),
 	'abs': Op(lambda val: abs(val)).addImplementation(
 		'c', 1, lambda prog, params: '\n\t{dst} = abs({src});'.format(dst=params[1], src=params[0])
-	),
+	).addImplementation('x64_interp', 1, _absX86Impl),
 	'cmp': Op().addImplementation('c', None, _cmpCImpl).twoOpAsmUnaryImpl('x64_interp', 'cmp'),
 	'sext': Op(_sext).addImplementation('c', 2, _sextCImpl).addImplementation('x64_interp', 2, _sextX86),
 	'retreg': Op().addImplementation('c', None, _retregCImpl),
@@ -1546,7 +1593,7 @@ _opMap = {
 		lambda prog, params: '\n\tcontext->cycles += context->opts->gen.clock_divider * {0};'.format(
 			params[0]
 		)
-	),
+	).addImplementation('x64_interp', None, _cyclesX86Impl),
 	'addsize': Op(
 		lambda a, b: b + (2 * a if a else 1)
 	).addImplementation('c', 2, lambda prog, params: '\n\t{dst} = {val} + ({sz} ? {sz} * 2 : 1);'.format(
@@ -1563,6 +1610,8 @@ _opMap = {
 	'update_sync': Op().addImplementation('c', None, _updateSyncCImpl),
 	'break': Op().addImplementation('c', None, lambda prog, params: '\n\tbreak;')
 }
+for name in _opMap:
+	_opMap[name].name = name
 
 #represents a simple DSL instruction
 class NormalOp:
@@ -2013,24 +2062,22 @@ class If(ChildBlock):
 				if type(cond) is int:
 					self._genConstParam(cond, prog, fieldVals, output, otype)
 				else:
-					#temp = prog.temp.copy()
+					oldCond = prog.conditional
+					prog.conditional = True
 					if otype == 'c':
 						self._genTestValC(prog, parent, fieldVals, output, cond)
 					elif 'interp' in otype:
 						self._genTestValAsm(prog, parent, fieldVals, output, otype, cond, prog.paramSize(self.cond))
+					else:
+						raise Exception(f'Unsupported target {otype}')
+					prog.conditional = oldCond
 	def _genTestValC(self, prog, parent, fieldVals, output, cond):
 		output.append('\n\tif ({cond}) '.format(cond=cond) + '{')
-		oldCond = prog.conditional
-		prog.conditional = True
 		self._genTrueBody(prog, fieldVals, output, 'c')
-		#prog.temp = temp
 		if self.elseBody:
-			#temp = prog.temp.copy()
 			output.append('\n\t} else {')
 			self._genFalseBody(prog, fieldVals, output, 'c')
-			#prog.temp = temp
 		output.append('\n\t}')
-		prog.conditional = oldCond
 	def _genTestValAsm(self, prog, parent, fieldVals, output, otype, cond, condSize):
 		if self.body:
 			if self.elseBody:
@@ -2483,6 +2530,7 @@ class Program:
 		self.targetParams = {}
 		self.curtarget = None
 		self.labelCounters = {}
+		self.tempRegs = set()
 		
 	def __str__(self):
 		pieces = []
@@ -2551,6 +2599,8 @@ class Program:
 						name = inst.generateName(val)
 						opmap[val] = name
 						if not name in bodymap:
+							if otype in self.targetParams:
+								self.tempRegs = set(self.targetParams[otype].get('temp', []))
 							bodymap[name] = inst.generateBody(val, self, otype)
 		
 		if otype == 'c':
@@ -2785,6 +2835,10 @@ class Program:
 			return ('', self.temp[size])
 		self.temp[size] = 'gen_tmp{sz}__'.format(sz=size);
 		return ('', self.temp[size])
+	def getTempReg(self):
+		return self.tempRegs.pop()
+	def returnTempReg(self, reg):
+		self.tempRegs.add(reg)
 		
 	def resolveParam(self, param, parent, fieldVals, allowConstant=True, isdst=False):
 		keepGoing = True
