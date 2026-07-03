@@ -411,7 +411,7 @@ ztestrun : $(ZTESTOBJS:%.o=$(OBJDIR)/%.o)
 ztestgen : $(OBJDIR)/ztestgen.o $(OBJDIR)/z80inst.o
 	$(CC) -o $@ $^ $(OPT)
 
-blastcpm : $(CPMOBJS:%.o=$(OBJDIR)/%.o)
+blastcpm$(EXE) : $(CPMOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT) $(PROFFLAGS)
 
 vos_prog_info : $(OBJDIR)/vos_prog_info.o $(OBJDIR)/vos_program_module.o

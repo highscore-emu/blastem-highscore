@@ -3,7 +3,9 @@
 #include <stddef.h>
 #include <string.h>
 #include <time.h>
+#ifndef _WIN32
 #include <sys/select.h>
+#endif
 
 #ifdef NEW_CORE
 #include "z80.h"
@@ -44,13 +46,17 @@ void *console_flush_write(uint32_t address, void *context, uint8_t value)
 
 uint8_t console_status_read(uint32_t address, void *context)
 {
+#ifdef _WIN32
+	return 0;
+#else
 	fd_set read_fds;
 	FD_ZERO(&read_fds);
 	struct timeval timeout;
 	timeout.tv_sec = 0;
 	timeout.tv_usec = 0;
 	FD_SET(fileno(stdin), &read_fds);
-	return select(fileno(stdin)+1, &read_fds, NULL, NULL, &timeout) > 0; 
+	return select(fileno(stdin)+1, &read_fds, NULL, NULL, &timeout) > 0;
+#endif
 }
 
 time_t start;
