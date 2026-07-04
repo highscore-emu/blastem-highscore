@@ -293,42 +293,49 @@ code_ptr gen_mem_fun(cpu_options * opts, memmap_chunk const * memmap, uint32_t n
 		if(memmap[chunk].flags & access_flag) {
 			uint8_t tmp_size = size;
 			if (memmap[chunk].flags & MMAP_PTR_IDX) {
-				if (memmap[chunk].flags & MMAP_FUNC_NULL) {
+				if (memmap[chunk].flags & (MMAP_FUNC_NULL | MMAP_AUX_BUFF)) {
 					cmp_irdisp(code, 0, context_reg, opts->mem_ptr_off + sizeof(void*) * memmap[chunk].ptr_index, SZ_PTR);
 					code_ptr not_null = code->cur + 1;
 					jcc(code, CC_NZ, code->cur + 2);
-					uint32_t stack_off;
-					if (need_addr_pop) {
-						stack_off = code->stack_off;
-						pop_r(code, adr_reg);
-					}
-					if (!from_c) {
-						call(code, opts->save_context);
-					}
-					if (is_write) {
-						call_args_abi(code, cfun, 3, adr_reg, context_reg, value_reg);
+					if (memmap[chunk].flags & MMAP_FUNC_NULL) {
+						uint32_t stack_off;
+						if (need_addr_pop) {
+							stack_off = code->stack_off;
+							pop_r(code, adr_reg);
+						}
 						if (!from_c) {
-							mov_rr(code, RAX, context_reg, SZ_PTR);
+							call(code, opts->save_context);
+						}
+						if (is_write) {
+							call_args_abi(code, cfun, 3, adr_reg, context_reg, value_reg);
+							if (!from_c) {
+								mov_rr(code, RAX, context_reg, SZ_PTR);
+							}
+						} else {
+							if (!from_c) {
+								push_r(code, context_reg);
+							}
+							call_args_abi(code, cfun, 2, adr_reg, context_reg);
+							if (!from_c) {
+								pop_r(code, context_reg);
+							}
+							if (value_reg != RAX) {
+								mov_rr(code, RAX, value_reg, size);
+							}
+						}
+						if (from_c) {
+							retn(code);
+						} else {
+							jmp(code, opts->load_context);
+						}
+						if (need_addr_pop) {
+							code->stack_off = stack_off;
 						}
 					} else {
-						if (!from_c) {
-							push_r(code, context_reg);
+						if (!is_write) {
+							mov_ir(code, size == SZ_B ? 0xFF : 0xFFFF, value_reg, size);
 						}
-						call_args_abi(code, cfun, 2, adr_reg, context_reg);
-						if (!from_c) {
-							pop_r(code, context_reg);
-						}
-						if (value_reg != RAX) {
-							mov_rr(code, RAX, value_reg, size);
-						}
-					}
-					if (from_c) {
 						retn(code);
-					} else {
-						jmp(code, opts->load_context);
-					}
-					if (need_addr_pop) {
-						code->stack_off = stack_off;
 					}
 
 					*not_null = code->cur - (not_null + 1);
