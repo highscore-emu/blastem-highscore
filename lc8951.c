@@ -1,6 +1,11 @@
 #include "lc8951.h"
 #include "backend.h"
 #include "cdimage.h"
+#ifdef DO_DEBUG_PRINT
+#define dprintf printf
+#else
+#define dprintf
+#endif
 
 enum {
 	COMIN,
@@ -147,7 +152,7 @@ void lc8951_reg_write(lc8951 *context, uint8_t value)
 			context->transfer_end = context->cycle + transfer_size * context->cycles_per_byte;
 			context->next_byte_cycle = context->cycle;
 			context->triggered = 1;
-			printf("DTTRG: size %u, cycle %u, end %u\n", transfer_size, context->cycle, context->transfer_end);
+			dprintf("DTTRG: size %u, cycle %u, end %u\n", transfer_size, context->cycle, context->transfer_end);
 		}
 		break;
 	case DTACK:
@@ -212,7 +217,7 @@ uint8_t lc8951_reg_read(lc8951 *context)
 	} else {
 		value = context->regs[context->ar];
 	}
-	printf("CDC read %X: %X\n", context->ar, value);
+	dprintf("CDC read %X: %X\n", context->ar, value);
 	context->ar++;
 	context->ar &= context->ar_mask;
 	return value;
@@ -241,12 +246,12 @@ void lc8951_run(lc8951 *context, uint32_t cycle)
 				uint16_t block_start = (context->regs[PTL] | (context->regs[PTH] << 8)) & (sizeof(context->buffer)-1);
 				for (int reg = HEAD0; reg < PTL; reg++)
 				{
-					printf("Setting header reg %X to %X: %X\n", reg, block_start, context->buffer[block_start]);
+					dprintf("Setting header reg %X to %X: %X\n", reg, block_start, context->buffer[block_start]);
 					context->regs[reg] =context->buffer[block_start++];
 					block_start &= (sizeof(context->buffer)-1);
 				}
 			}
-			printf("Decode done %X:%X:%X mode %X @ %u\n", context->regs[HEAD0], context->regs[HEAD1], context->regs[HEAD2], context->regs[HEAD3], context->cycle);
+			dprintf("Decode done %X:%X:%X mode %X @ %u\n", context->regs[HEAD0], context->regs[HEAD1], context->regs[HEAD2], context->regs[HEAD3], context->cycle);
 			// This check is a hack until I properly implement error detection
 			if (context->regs[HEAD0] < 0x74 && (context->regs[HEAD0] & 0xF) < 0xA
 				&& context->regs[HEAD1] < 0x60 && (context->regs[HEAD1] & 0xF) < 0xA
@@ -279,7 +284,7 @@ void lc8951_run(lc8951 *context, uint32_t cycle)
 						context->regs[IFSTAT] &= ~BIT_DTEI;
 						context->regs[IFSTAT] |= BIT_DTBSY;
 						if (context->cycle != context->transfer_end) {
-							printf("Expected transfer end at %u but ended at %u\n", context->transfer_end, context->cycle);
+							dprintf("Expected transfer end at %u but ended at %u\n", context->transfer_end, context->cycle);
 						}
 						context->transfer_end = CYCLE_NEVER;
 						context->next_byte_cycle = CYCLE_NEVER;
@@ -344,11 +349,11 @@ void lc8951_write_byte(lc8951 *context, uint32_t cycle, int sector_offset, uint8
 			//monitor only mode
 			context->regs[HEAD0 + context->sector_counter] = byte;
 			if (context->sector_counter == 3) {
-				printf("Monitoring sector %02d:%02d:%02d\n", context->regs[HEAD0], context->regs[HEAD1], context->regs[HEAD2]);
+				dprintf("Monitoring sector %02d:%02d:%02d\n", context->regs[HEAD0], context->regs[HEAD1], context->regs[HEAD2]);
 			}
 		} else {
 			if (context->sector_counter == 3) {
-				printf("Writing sector %02d:%02d:%02d @ %u\n",
+				dprintf("Writing sector %02d:%02d:%02d @ %u\n",
 					context->buffer[(current_write_addr - 3) & (sizeof(context->buffer)-1)],
 					context->buffer[(current_write_addr - 2) & (sizeof(context->buffer)-1)],
 					context->buffer[(current_write_addr - 1) & (sizeof(context->buffer)-1)],
@@ -383,7 +388,7 @@ void lc8951_write_byte(lc8951 *context, uint32_t cycle, int sector_offset, uint8
 				context->regs[PTL] = block_start;
 				context->regs[PTH] = block_start >> 8;
 			}
-			printf("Decoding block starting at %X (WRRQ: %d, sector_offset: %X), current write address: %X @ %u\n", context->regs[PTL] | (context->regs[PTH] << 8), !!(context->ctrl0 & BIT_WRRQ), sector_offset, current_write_addr, context->cycle);
+			dprintf("Decoding block starting at %X (WRRQ: %d, sector_offset: %X), current write address: %X @ %u\n", context->regs[PTL] | (context->regs[PTH] << 8), !!(context->ctrl0 & BIT_WRRQ), sector_offset, current_write_addr, context->cycle);
 			//Based on mcd-verificator results on an MCD2 with LC89515
 			//value seems to be between ~132500 and ~133500
 			context->decode_end = context->cycle + 133000 * context->clock_step;
@@ -426,7 +431,7 @@ uint32_t lc8951_next_interrupt(lc8951 *context)
 
 void lc8951_adjust_cycles(lc8951 *context, uint32_t deduction)
 {
-	printf("CDC deduction of %u cycles @ %u, ", deduction, context->cycle);
+	dprintf("CDC deduction of %u cycles @ %u, ", deduction, context->cycle);
 	context->cycle -= deduction;
 	if (context->decode_end != CYCLE_NEVER) {
 		context->decode_end -= deduction;
@@ -437,7 +442,7 @@ void lc8951_adjust_cycles(lc8951 *context, uint32_t deduction)
 	if (context->next_byte_cycle != CYCLE_NEVER) {
 		context->next_byte_cycle -= deduction;
 	}
-	printf("cycle is now %u, decode_end %u, transfer_end %u\n", context->cycle, context->decode_end, context->transfer_end);
+	dprintf("cycle is now %u, decode_end %u, transfer_end %u\n", context->cycle, context->decode_end, context->transfer_end);
 }
 
 void lc8951_serialize(lc8951 *context, serialize_buffer *buf)

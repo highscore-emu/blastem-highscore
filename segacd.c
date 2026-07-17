@@ -9,6 +9,12 @@
 #include "blastem.h"
 #include "cdimage.h"
 
+#ifdef DO_DEBUG_PRINT
+#define dprintf printf
+#else
+#define dprintf
+#endif
+
 #define SCD_MCLKS 50000000
 #define SCD_PERIPH_RESET_CLKS (SCD_MCLKS / 10)
 #define TIMER_TICK_CLKS 1536/*1792*/
@@ -889,7 +895,7 @@ static void *sub_gate_write16(uint32_t address, void *vcontext, uint16_t value)
 	}
 	case GA_CDC_REG_DATA:
 		cdd_run(cd, m68k->cycles);
-		printf("CDC write %X: %X @ %u\n", cd->cdc.ar, value, m68k->cycles);
+		dprintf("CDC write %X: %X @ %u\n", cd->cdc.ar, value, m68k->cycles);
 		if (cd->cdc.ar == 6) {
 			//this next bit needs hardware confirmation
 			cd->cdc_dst_low = 0;
@@ -1091,7 +1097,7 @@ static uint8_t handle_cdc_byte(void *vsys, uint8_t value)
 	}
 	if (cd->cdc.cycle == cd->cdc.transfer_end) {
 		cd->gate_array[GA_CDC_CTRL] |= BIT_EDT;
-		printf("EDT set at %u\n", cd->cdc.cycle);
+		dprintf("EDT set at %u\n", cd->cdc.cycle);
 	}
 	uint16_t dest = cd->gate_array[GA_CDC_CTRL] >> 8 & 0x7;
 	if (!(cd->cdc_dst_low & 1)) {
@@ -1167,7 +1173,6 @@ static uint8_t handle_cdc_byte(void *vsys, uint8_t value)
 		break;
 	default:
 		return 0;
-		printf("Invalid CDC transfer destination %d\n", dest);
 	}
 	return 1;
 }
@@ -1348,7 +1353,7 @@ static uint16_t main_gate_read16(uint32_t address, void *vcontext)
 				cd->gate_array[GA_CDC_CTRL] &= ~BIT_DSR;
 				lc8951_resume_transfer(&cd->cdc);
 			} else {
-				printf("Read of CDC host data with DSR clear at %u\n", scd_cycle);
+				dprintf("Read of CDC host data with DSR clear at %u\n", scd_cycle);
 			}
 			calculate_target_cycle(cd->m68k);
 		}
@@ -1370,32 +1375,6 @@ static uint8_t main_gate_read8(uint32_t address, void *vcontext)
 {
 	uint16_t val = main_gate_read16(address & 0xFE, vcontext);
 	return address & 1 ? val : val >> 8;
-}
-
-static void dump_prog_ram(segacd_context *cd)
-{
-	static int dump_count;
-	char fname[256];
-	sprintf(fname, "prog_ram_%d.bin", dump_count++);
-	FILE *f = fopen(fname, "wb");
-	if (f) {
-		uint32_t last = 256*1024-1;
-		for(; last > 0; --last)
-		{
-			if (cd->prog_ram[last]) {
-				break;
-			}
-		}
-		for (uint32_t i = 0; i <= last; i++)
-		{
-			uint8_t pair[2];
-			pair[0] = cd->prog_ram[i] >> 8;
-			pair[1] = cd->prog_ram[i];
-			fwrite(pair, 1, sizeof(pair), f);
-		}
-
-		fclose(f);
-	}
 }
 
 static void *main_gate_write16(uint32_t address, void *vcontext, uint16_t value)
@@ -1443,7 +1422,6 @@ static void *main_gate_write16(uint32_t address, void *vcontext, uint16_t value)
 			m68k->mem_pointers[cd->memptr_start_index] = NULL;
 			m68k_invalidate_code_range(m68k, cd->base + 0x220000, cd->base + 0x240000);
 			m68k_invalidate_code_range(cd->m68k, bank * 0x20000, (bank + 1) * 0x20000);
-			dump_prog_ram(cd);
 			uint16_t dst = cd->gate_array[GA_CDC_CTRL] >> 8 & 0x7;
 			if (dst == DST_PROG_RAM) {
 				lc8951_resume_transfer(&cd->cdc);
@@ -1517,7 +1495,7 @@ static void *main_gate_write16(uint32_t address, void *vcontext, uint16_t value)
 		cd->gate_array[reg] = value;
 		break;
 	default:
-		printf("Unhandled gate array write %X:%X\n", address, value);
+		dprintf("Unhandled gate array write %X:%X\n", address, value);
 	}
 	return vcontext;
 }
