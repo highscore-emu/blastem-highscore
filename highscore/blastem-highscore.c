@@ -236,7 +236,7 @@ blastem_core_get_region (HsCore *core)
 static void
 blastem_core_finalize (GObject *object)
 {
-  BlastemCore *self = BLASTEM_CORE (core);
+  BlastemCore *self = BLASTEM_CORE (object);
 
   g_free (self->framebuffer);
 
