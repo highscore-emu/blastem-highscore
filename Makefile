@@ -15,6 +15,7 @@ Z80_DISPATCH:=goto
 BUNDLED_LIBZ:=zlib/adler32.o zlib/compress.o zlib/crc32.o zlib/deflate.o zlib/gzclose.o zlib/gzlib.o zlib/gzread.o\
 	zlib/gzwrite.o zlib/infback.o zlib/inffast.o zlib/inflate.o zlib/inftrees.o zlib/trees.o zlib/uncompr.o zlib/zutil.o
 
+UTIL_LDFLAGS:=
 ifeq ($(OS),Windows)
 
 GLEW_PREFIX:=glew
@@ -39,7 +40,7 @@ GLUDIR:=x64
 endif
 GLEW32S_LIB:=$(GLEW_PREFIX)/lib/Release/$(GLUDIR)/glew32s.lib
 CFLAGS:=-std=gnu99 -Wreturn-type -Werror=return-type -Werror=implicit-function-declaration -Wpointer-arith -Werror=pointer-arith
-LDFLAGS:=-lm -lmingw32 -lws2_32 -lcomdlg32 -mwindows
+LDFLAGS:=-lm -lmingw32 -lws2_32 -lcomdlg32 -lole32 -mwindows
 ifneq ($(MAKECMDGOALS),libblastem.dll)
 CFLAGS+= -I"$(SDL2_PREFIX)/include/$(SDL_UPPER)" -I"$(GLEW_PREFIX)/include" -DGLEW_STATIC
 LDFLAGS+= $(GLEW32S_LIB) -L"$(SDL2_PREFIX)/lib" -l$(SDL_UPPER)main -l$(SDL_UPPER) -lopengl32 -lglu32
@@ -284,12 +285,13 @@ COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o n
 	sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
 	$(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o gen_player.o coleco.o pico_pcm.o ymz263b.o \
 	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o \
-	laseractive.o upd78k2_dis.o upd78k2.o osd_font.o
+	laseractive.o upd78k2_dis.o upd78k2.o osd_font.o pd0178.o radica.o 32x.o 32x_video.o sh2.o \
+	sh2_decode.o sh7095.o
 
 ifdef NOZ80
 CFLAGS+=-DNO_Z80
 else
-COREOBJS+= sms.o i8255.o $(Z80OBJS)
+COREOBJS+= sms.o i8255.o korean_sms_multi.o $(Z80OBJS)
 endif
 
 MAINOBJS:=$(COREOBJS) blastem.o $(RENDEROBJS) zip.o  menu.o debug.o gdb_remote.o bindings.o oscilloscope.o
@@ -319,16 +321,18 @@ ifdef FONT_PATH
 CFLAGS+= -DFONT_PATH='"'$(FONT_PATH)'"'
 endif
 
-ALL=dis$(EXE) zdis$(EXE) blastem$(EXE)
+ALL=dis$(EXE) zdis$(EXE) upddis$(EXE) sh2dis$(EXE) blastem$(EXE)
 ifneq ($(OS),Windows)
 ALL+= termhelper
 endif
 DISOBJS:=dis.o disasm.o backend.o 68kinst.o tern.o vos_program_module.o util.o
+ZDISOBJS:=zdis.o z80inst.o tern.o util.o
 MTESTOBJS:=trans.o serialize.o $(M68KOBJS) $(TRANSOBJS) util.o
 ZTESTOBJS:=ztestrun.o serialize.o $(Z80OBJS) $(TRANSOBJS) util.o
 CPMOBJS:=blastcpm.o util.o serialize.o $(Z80OBJS) $(TRANSOBJS)
 UPD78K2RUNOBJS:=upd78k2.o upd78k2run.o util.o backend.o tern.o
 UPDDISOBJS:=upddis.o upd78k2_dis.o disasm.o tern.o util.o backend.o
+SH2DISOBJS:=sh2dis.o sh2_decode.o disasm.o tern.o util.o backend.o
 
 LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB -DDISABLE_ZLIB
 
@@ -353,12 +357,21 @@ endif
 ifeq ($(wildcard $(LIBOBJDIR)/upd78k2.d),)
 LIBORDERONLY+= upd78k2.c
 endif
+#same for the SH2 core
+ifeq ($(wildcard $(OBJDIR)/sh2.d),)
+ORDERONLY+= sh2.c
+endif
+ifeq ($(wildcard $(LIBOBJDIR)/sh2.d),)
+LIBORDERONLY+= sh2.c
+endif
 
 -include $(MAINOBJS:%.o=$(OBJDIR)/%.d)
 -include $(LIBOBJS:%.o=$(LIBOBJDIR)/%.d)
 -include $(DISOBJS:%.o=$(OBJDIR)/%.d)
+-include $(ZDISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.d)
 -include $(UPDDISOBJS:%.o=$(OBJDIR)/%.d)
+-include $(SH2DISOBJS:%.o=$(OBJDIR)/%.d)
 -include $(OBJDIR)/trans.d
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
@@ -386,7 +399,7 @@ dis$(EXE) : $(DISOBJS:%.o=$(OBJDIR)/%.o)
 jagdis : $(OBJDIR)/jagdis.o $(OBJDIR)/jagcpu.o $(OBJDIR)/tern.o
 	$(CC) -o $@ $^ $(OPT)
 
-zdis$(EXE) : $(OBJDIR)/zdis.o $(OBJDIR)/z80inst.o
+zdis$(EXE) : $(ZDISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 trans : $(MTESTOBJS:%.o=$(OBJDIR)/%.o)
@@ -398,7 +411,7 @@ ztestrun : $(ZTESTOBJS:%.o=$(OBJDIR)/%.o)
 ztestgen : $(OBJDIR)/ztestgen.o $(OBJDIR)/z80inst.o
 	$(CC) -o $@ $^ $(OPT)
 
-blastcpm : $(CPMOBJS:%.o=$(OBJDIR)/%.o)
+blastcpm$(EXE) : $(CPMOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT) $(PROFFLAGS)
 
 vos_prog_info : $(OBJDIR)/vos_prog_info.o $(OBJDIR)/vos_program_module.o
@@ -408,6 +421,9 @@ upd78k2run : $(UPD78K2RUNOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 upddis$(EXE) : $(UPDDISOBJS:%.o=$(OBJDIR)/%.o)
+	$(CC) -o $@ $^ $(OPT)
+
+sh2dis$(EXE) : $(SH2DISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c

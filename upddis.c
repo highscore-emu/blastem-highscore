@@ -5,11 +5,6 @@
 #include "upd78k2_dis.h"
 #include "util.h"
 
-int headless;
-void render_errorbox(char *title, char *message) {}
-void render_warnbox(char *title, char *message) {}
-void render_infobox(char *title, char *message) {}
-
 typedef struct {
 	uint16_t address_off;
 	uint16_t address_end;
@@ -142,7 +137,9 @@ int main(int argc, char ** argv)
 						char *end;
 						uint32_t address = strtol(disbuf, &end, 16);
 						if (address) {
-							defer_disasm(context, address);
+							if (address >= 0x80) {
+								defer_disasm(context, address);
+							}
 							if (*end == '=') {
 								add_label(context, strip_ws(end+1), address);
 							} else {
@@ -301,7 +298,7 @@ int main(int argc, char ** argv)
 				break;
 			}
 		}
-loop_end:
+loop_end: ;
 	}
 	if (labels) {
 		tern_foreach(context->labels, print_label_def, &rom);

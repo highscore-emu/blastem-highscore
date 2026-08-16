@@ -11,6 +11,7 @@
 #include "z80_to_x86.h"
 #endif
 #include "upd78k2.h"
+#include "sh2.h"
 #include "disasm.h"
 
 typedef enum {
@@ -217,6 +218,7 @@ debug_root *find_root(void *cpu);
 debug_root *find_m68k_root(m68k_context *context);
 debug_root *find_z80_root(z80_context *context);
 debug_root *find_upd_root(upd78k2_context *upd);
+debug_root *find_sh2_root(sh2_context *sh2);
 bp_def ** find_breakpoint(bp_def ** cur, uint32_t address, uint8_t type);
 bp_def ** find_breakpoint_idx(bp_def ** cur, uint32_t index);
 void add_display(disp_def ** head, uint32_t *index, char format_char, char * param);
@@ -224,6 +226,7 @@ void remove_display(disp_def ** head, uint32_t index);
 void debugger(void * vcontext, uint32_t address);
 z80_context * zdebugger(z80_context * context, uint16_t address);
 void upd_debugger(upd78k2_context *upd);
+void sh2_debugger(sh2_context *sh2);
 void print_m68k_help();
 void print_z80_help();
 

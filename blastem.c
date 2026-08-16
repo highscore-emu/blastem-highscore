@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#ifndef USE_FBDEV
+// for SDL_main on platforms that need it
+#include <SDL.h>
+#endif
 
 #include "system.h"
 #include "68kinst.h"
@@ -33,6 +37,9 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include "render_audio.h"
+#endif
+#ifndef _WIN32
+#include <unistd.h>
 #endif
 
 #include "version.inc"
@@ -132,7 +139,7 @@ void setup_saves(system_media *media, system_header *context)
 	free(save_state_path);
 	save_state_path = alloc_concat_m(3, parts);
 	context->save_dir = save_dir;
-	if (info->save_type != SAVE_NONE || context->type == SYSTEM_SEGACD
+	if (info->save_type != SAVE_NONE || context->type == SYSTEM_SEGACD || context->type == SYSTEM_32XCD
 		|| (context->type == SYSTEM_GENESIS && info->wants_cd)
 	) {
 		context->load_save(context);
@@ -358,6 +365,24 @@ void init_system_with_media(char *path, system_type force_stype)
 	update_title(game_system->info.name);
 }
 
+void render_log_handler(log_level level, char *message)
+{
+	switch(level)
+	{
+	case INFO:
+		render_infobox("BlastEm Info", message);
+		break;
+	case WARN:
+		render_warnbox("BlastEm Warning", message);
+		break;
+	case FATAL:
+		render_errorbox("Fatal Error", message);
+		break;
+	default:
+		break;
+	}
+}
+
 char *parse_addr_port(char *arg)
 {
 	while (*arg && *arg != ':') {
@@ -378,6 +403,14 @@ char *parse_addr_port(char *arg)
 int main(int argc, char ** argv)
 {
 	set_exe_str(argv[0]);
+#ifndef _WIN32
+	if (!(isatty(STDERR_FILENO) && isatty(STDIN_FILENO))) {
+#endif
+		register_log_handler(render_log_handler);
+#ifndef _WIN32
+	}
+#endif
+	
 	config = load_config();
 	int width = -1;
 	int height = -1;
@@ -401,6 +434,7 @@ int main(int argc, char ** argv)
 				if (i >= argc) {
 					fatal_error("-b must be followed by a frame count\n");
 				}
+				register_log_handler(NULL);
 				headless = 1;
 				exit_after = atoi(argv[i]);
 				break;
@@ -457,7 +491,7 @@ int main(int argc, char ** argv)
 			case 'm':
 				i++;
 				if (i >= argc) {
-					fatal_error("-r must be followed by a machine type (sms, gg, sg, sc, gen, pico, copera, jag or media)\n");
+					fatal_error("-r must be followed by a machine type (sms, gg, sg, sc, gen, 32x, 32xcd, pico, copera, jag or media)\n");
 				}
 				if (!strcmp("sms", argv[i])) {
 					stype = force_stype = SYSTEM_SMS;
@@ -469,6 +503,10 @@ int main(int argc, char ** argv)
 					stype = force_stype = SYSTEM_SC3000;
 				} else if (!strcmp("gen", argv[i])) {
 					stype = force_stype = SYSTEM_GENESIS;
+				} else if (!strcmp("32x", argv[i])) {
+					stype = force_stype = SYSTEM_32X;
+				} else if (!strcmp("32xcd", argv[i])) {
+					stype = force_stype = SYSTEM_32XCD;
 				} else if (!strcmp("pico", argv[i])) {
 					stype = force_stype = SYSTEM_PICO;
 				} else if (!strcmp("copera", argv[i])) {
@@ -519,6 +557,7 @@ int main(int argc, char ** argv)
 					"                   sg     - Sega SG-1000\n"
 					"                   sc     - Sega SC-3000\n"
 					"                   gen    - Sega Genesis/Megadrive\n"
+					"                   32x    - Sega 32X\n"
 					"                   pico   - Sega Pico\n"
 					"                   copera - Yamaha Copera\n"
 					"                   media  - Media Player\n"
@@ -687,6 +726,22 @@ int main(int argc, char ** argv)
 		if (current_system->should_exit) {
 			break;
 		}
+		uint8_t was_paused = current_system->paused;
+		while (current_system->paused) {
+			uint32_t start = render_elapsed_ms();
+			process_events();
+			render_update_display();
+			if (current_system->get_vdp) {
+				vdp_context *vdp = current_system->get_vdp(current_system);
+				if (vdp) {
+					vdp_update_per_frame_debug(vdp);
+				}
+			}
+			uint32_t duration = render_elapsed_ms() - start;
+			if (duration < 1000/60) {
+				render_sleep_ms(1000/60 - duration);
+			}
+		}
 		if (current_system->next_rom) {
 			char *next_rom = current_system->next_rom;
 			current_system->next_rom = NULL;
@@ -697,6 +752,8 @@ int main(int argc, char ** argv)
 			current_system->enter_debugger = start_in_debugger && menu == debug_target;
 			current_system->start_context(current_system, statefile);
 			render_video_loop();
+		} else if (was_paused) {
+			current_system->resume_context(current_system);
 		} else if (menu && game_system) {
 			current_system->arena = set_current_arena(game_system->arena);
 			current_system = game_system;

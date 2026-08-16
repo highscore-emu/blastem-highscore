@@ -19,6 +19,7 @@
 #include "saves.h"
 #include "bindings.h"
 #include "jcart.h"
+#include "radica.h"
 #include "config.h"
 #include "event_log.h"
 #include "paths.h"
@@ -190,7 +191,7 @@ static void zram_deserialize(deserialize_buffer *buf, void *vgen)
 	z80_invalidate_code_range(gen->z80, 0, 0x4000);
 }
 
-static void update_z80_bank_pointer(genesis_context *gen)
+void gen_update_z80_bank_pointer(genesis_context *gen)
 {
 	if (gen->z80_bank_reg < 0x140) {
 		gen->z80->mem_pointers[1] = get_native_pointer(gen->z80_bank_reg << 15, (void **)gen->m68k->mem_pointers, &gen->m68k->opts->gen);
@@ -273,7 +274,7 @@ void genesis_deserialize(deserialize_buffer *buf, genesis_context *gen)
 		}
 		check_tmss_lock(gen);
 	}
-	update_z80_bank_pointer(gen);
+	gen_update_z80_bank_pointer(gen);
 	adjust_int_cycle(gen->m68k, gen->vdp);
 #ifndef NEW_CORE
 	//HACK: Fix this once PC/IR is represented in a better way in 68K core
@@ -410,10 +411,12 @@ static void adjust_int_cycle(m68k_context * context, vdp_context * v_context)
 		return;
 	}
 
-	context->target_cycle = context->int_cycle < context->sync_cycle ? context->int_cycle : context->sync_cycle;
 	if (context->should_return || gen->header.enter_debugger || context->wp_hit) {
-		context->target_cycle = context->cycles;
-	} else if (context->target_cycle < context->cycles) {
+		context->sync_cycle = context->cycles;
+	}
+
+	context->target_cycle = context->int_cycle < context->sync_cycle ? context->int_cycle : context->sync_cycle;
+	if (context->target_cycle < context->cycles) {
 		//Changes to SR can result in an interrupt cycle that's in the past
 		//This can cause issues with the implementation of STOP though
 		context->target_cycle = context->cycles;
@@ -579,6 +582,9 @@ static m68k_context *sync_components(m68k_context * context, uint32_t address)
 	if (gen->expansion) {
 		scd_run(gen->expansion, gen_cycle_to_scd(mclks, gen));
 	}
+	if (gen->mars) {
+		s32x_run(gen->mars, mclks);
+	}
 	if (mclks >= gen->reset_cycle) {
 		gen->reset_requested = 1;
 		context->should_return = 1;
@@ -611,7 +617,7 @@ static m68k_context *sync_components(m68k_context * context, uint32_t address)
 				exit_after -= elapsed;
 			}
 		}
-		if (context->cycles > MAX_NO_ADJUST) {
+		if (context->cycles > MAX_NO_ADJUST || (gen->mars && gen->mars->main->cycles > MAX_NO_ADJUST)) {
 			uint32_t deduction = mclks - ADJUST_BUFFER;
 			vdp_adjust_cycles(v_context, deduction);
 			io_adjust_cycles(gen->io.ports, context->cycles, deduction);
@@ -634,8 +640,16 @@ static m68k_context *sync_components(m68k_context * context, uint32_t address)
 			if (gen->expansion) {
 				scd_adjust_cycle(gen->expansion, deduction);
 			}
+			if (gen->mars) {
+				s32x_adjust_cycles(gen->mars, deduction);
+			}
 			gen->last_flush_cycle -= deduction;
 			gen->last_sync_cycle -= deduction;
+		}
+		if (gen->header.frame_advance) {
+			gen->header.frame_advance = 0;
+			gen->header.paused = 1;
+			system_request_exit(&gen->header, 1);
 		}
 	} else if (mclks - gen->last_flush_cycle > gen->soft_flush_cycles) {
 		event_soft_flush(mclks);
@@ -903,6 +917,9 @@ static m68k_context* sync_components_pico(m68k_context * context, uint32_t addre
 			if (gen->expansion) {
 				scd_adjust_cycle(gen->expansion, deduction);
 			}
+			if (gen->mars) {
+				s32x_adjust_cycles(gen->mars, deduction);
+			}
 			gen->last_flush_cycle -= deduction;
 		}
 	} else if (mclks - gen->last_flush_cycle > gen->soft_flush_cycles) {
@@ -987,14 +1004,41 @@ static m68k_context *int_ack(m68k_context *context)
 	return context;
 }
 
+static void enter_68k_debugger_immediately(void *context)
+{
+	genesis_context *gen = context;
+	gen->header.enter_debugger = 1;
+	if (gen->m68k->sync_cycle > gen->m68k->cycles + 1) {
+		gen->m68k->sync_cycle = gen->m68k->cycles + 1;
+	}
+	if (gen->m68k->target_cycle > gen->m68k->sync_cycle) {
+		gen->m68k->target_cycle = gen->m68k->sync_cycle;
+	}
+}
+
+static void enter_z80_debugger_immediately(void *context)
+{
+	genesis_context *gen = context;
+	gen->enter_z80_debugger;
+	if (gen->z80->sync_cycle > gen->z80->Z80_CYCLE + 1) {
+		gen->z80->sync_cycle = gen->z80->Z80_CYCLE + 1;
+	}
+#ifndef NEW_CORE
+	if (gen->z80->target_cycle > gen->z80->sync_cycle) {
+		gen->z80->target_cycle = gen->z80->sync_cycle;
+	}
+#endif
+}
+
+
 static m68k_context * vdp_port_write(uint32_t vdp_port, m68k_context * context, uint16_t value)
 {
-	if (vdp_port & 0x2700E0) {
-		fatal_error("machine freeze due to write to address %X\n", 0xC00000 | vdp_port);
-	}
 	genesis_context * gen = context->system;
+	if (vdp_port & 0x2700E0) {
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Write to unmapped part of VDP memory region, address: %X\n", 0xC00000 | vdp_port);
+	}
 	if (!gen->vdp_unlocked) {
-		fatal_error("machine freeze due to VDP write to %X without TMSS unlock\n", 0xC00000 | vdp_port);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "VDP write to %X without TMSS unlock\n", 0xC00000 | vdp_port);
 	}
 	vdp_port &= 0x1F;
 	//printf("vdp_port write: %X, value: %X, cycle: %d\n", vdp_port, value, context->cycles);
@@ -1056,7 +1100,7 @@ static m68k_context * vdp_port_write(uint32_t vdp_port, m68k_context * context, 
 				}
 			}
 		} else {
-			fatal_error("Illegal write to HV Counter port %X\n", vdp_port);
+			machine_freeze(config, enter_68k_debugger_immediately, gen, "Illegal write to HV Counter port %X\n", vdp_port);
 		}
 		if (v_context->cycles != before_cycle) {
 			//printf("68K paused for %d (%d) cycles at cycle %d (%d) for write\n", v_context->cycles - context->cycles, v_context->cycles - before_cycle, context->cycles, before_cycle);
@@ -1112,7 +1156,7 @@ static void * z80_vdp_port_write(uint32_t vdp_port, void * vcontext, uint8_t val
 	genesis_context * gen = context->system;
 	vdp_port &= 0xFF;
 	if (vdp_port & 0xE0) {
-		fatal_error("machine freeze due to write to Z80 address %X\n", 0x7F00 | vdp_port);
+		machine_freeze(config, enter_z80_debugger_immediately, gen, "Z80 write to unmapped part of VDP memory region, address %X\n", 0x7F00 | vdp_port);
 	}
 	if (vdp_port < 0x10) {
 		//These probably won't currently interact well with the 68K accessing the VDP
@@ -1123,7 +1167,7 @@ static void * z80_vdp_port_write(uint32_t vdp_port, void * vcontext, uint8_t val
 			vdp_run_context_full(gen->vdp, context->Z80_CYCLE);
 			vdp_control_port_write(gen->vdp, value << 8 | value, context->Z80_CYCLE);
 		} else {
-			fatal_error("Illegal write to HV Counter port %X\n", vdp_port);
+			machine_freeze(config, enter_z80_debugger_immediately, gen, "Illegal Z80 write to HV Counter port %X\n", vdp_port);
 		}
 	} else if (vdp_port < 0x18) {
 		sync_sound(gen, context->Z80_CYCLE);
@@ -1136,12 +1180,19 @@ static void * z80_vdp_port_write(uint32_t vdp_port, void * vcontext, uint8_t val
 
 static uint16_t vdp_port_read(uint32_t vdp_port, m68k_context * context)
 {
-	if (vdp_port & 0x2700E0) {
-		fatal_error("machine freeze due to read from address %X\n", 0xC00000 | vdp_port);
-	}
 	genesis_context *gen = context->system;
+	if (vdp_port & 0x2700E0) {
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Read from unmapped part of VDP memory region, address %X\n", 0xC00000 | vdp_port);
+		gen->header.enter_debugger = 1;
+		if (gen->m68k->sync_cycle > gen->m68k->cycles + 1) {
+			gen->m68k->sync_cycle = gen->m68k->cycles + 1;
+		}
+		if (gen->m68k->target_cycle > gen->m68k->sync_cycle) {
+			gen->m68k->target_cycle = gen->m68k->sync_cycle;
+		}
+	}
 	if (!gen->vdp_unlocked) {
-		fatal_error("machine freeze due to VDP read from %X without TMSS unlock\n", 0xC00000 | vdp_port);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "VDP read from %X without TMSS unlock\n", 0xC00000 | vdp_port);
 	}
 	vdp_port &= 0x1F;
 	uint16_t value;
@@ -1166,7 +1217,7 @@ static uint16_t vdp_port_read(uint32_t vdp_port, m68k_context * context)
 			//printf("HV Counter: %X at cycle %d\n", value, v_context->cycles);
 		}
 	} else if (vdp_port < 0x18){
-		fatal_error("Illegal read from PSG  port %X\n", vdp_port);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Illegal read from PSG  port %X\n", vdp_port);
 	} else {
 		value = get_open_bus_value(&gen->header);
 	}
@@ -1200,10 +1251,10 @@ static uint8_t vdp_port_read_b(uint32_t vdp_port, m68k_context * context)
 static uint8_t z80_vdp_port_read(uint32_t vdp_port, void * vcontext)
 {
 	z80_context * context = vcontext;
-	if (vdp_port & 0xE0) {
-		fatal_error("machine freeze due to read from Z80 address %X\n", 0x7F00 | vdp_port);
-	}
 	genesis_context * gen = context->system;
+	if (vdp_port & 0xE0) {
+		machine_freeze(config, enter_z80_debugger_immediately, gen, "Z80 read from unmapped part of VDP memory region, address %X\n", 0x7F00 | vdp_port);
+	}
 	//VDP access goes over the 68K bus like a bank area access
 	//typical delay from bus arbitration
 	context->Z80_CYCLE += 3 * MCLKS_PER_Z80;
@@ -1367,7 +1418,7 @@ static m68k_context * io_write(uint32_t location, m68k_context * context, uint8_
 					ym_reset(gen->ym);
 				}
 			} else if (masked != 0x11300 && masked != 0x11000) {
-				fatal_error("Machine freeze due to unmapped write to address %X\n", location | 0xA00000);
+				machine_freeze(config, enter_68k_debugger_immediately, gen, "68K write to unmapped address %X\n", location | 0xA00000);
 			}
 		}
 	}
@@ -1443,7 +1494,7 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 			} else if (location < 0x7F00) {
 				value = 0xFF;
 			} else {
-				fatal_error("Machine freeze due to read of Z80 VDP memory window by 68K: %X\n", location | 0xA00000);
+				machine_freeze(config, enter_68k_debugger_immediately, gen, "Read of Z80 VDP memory window by 68K: %X\n", location | 0xA00000);
 				value = 0xFF;
 			}
 		} else {
@@ -1507,20 +1558,23 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 				value = get_open_bus_value(&gen->header) >> 8;
 			}
 		} else {
-			uint32_t masked = location & 0xFFF00;
+			uint32_t masked = location & 0xFFF01;
 			if (masked == 0x11100) {
 				value = z80_enabled ? !z80_get_busack(gen->z80, context->cycles) : !gen->z80->busack;
 				value |= (get_open_bus_value(&gen->header) >> 8) & 0xFE;
 				dprintf("Byte read of BUSREQ returned %d @ %d (reset: %d)\n", value, context->cycles, gen->z80->reset);
 			} else if (masked == 0x11200) {
 				value = !gen->z80->reset;
+				value |= (get_open_bus_value(&gen->header) >> 8) & 0xFE;
 			} else if (masked == 0x11300 || masked == 0x11000) {
 				//A11300 is apparently completely unused
 				//A11000 is the memory control register which I am assuming is write only
 				value = get_open_bus_value(&gen->header) >> 8;
+			} else if (masked == 0x11001 || masked == 0x11101 || masked == 0x11201 || masked == 0x11301) {
+				return get_open_bus_value(&gen->header);
 			} else {
 				location |= 0xA00000;
-				fatal_error("Machine freeze due to read of unmapped IO location %X\n", location);
+				machine_freeze(config, enter_68k_debugger_immediately, gen, "68K read of unmapped IO location %X\n", location);
 				value = 0xFF;
 			}
 		}
@@ -1744,6 +1798,13 @@ static uint8_t z80_read_bank(uint32_t location, void * vcontext)
 		//Apparently version reg can be read through Z80 banked area
 		//TODO: Check rest of IO region addresses
 		return gen->version_reg;
+	} else if (gen->mars && address >= 0xA15100 && address <= 0xA15400) {
+		uint32_t prev_cycles = gen->m68k->cycles;
+		uint8_t ret = s32x_68k_read_b(address, gen->m68k);
+		if (gen->m68k->cycles != prev_cycles) {
+			context->Z80_CYCLE += gen->m68k->cycles - prev_cycles;
+		}
+		return ret;
 	} else {
 		fprintf(stderr, "Unhandled read by Z80 from address %X through banked memory area (%X)\n", address, gen->z80_bank_reg << 15);
 	}
@@ -1771,6 +1832,12 @@ static void *z80_write_bank(uint32_t location, void * vcontext, uint8_t value)
 		((uint8_t *)gen->work_ram)[address ^ 1] = value;
 	} else if (address >= 0xC00000) {
 		z80_vdp_port_write(location & 0xFF, context, value);
+	} else if (gen->mars && address >= 0xA15100 && address <= 0xA15400) {
+		uint32_t prev_cycles = gen->m68k->cycles;
+		s32x_68k_write_b(address, gen->m68k, value);
+		if (gen->m68k->cycles != prev_cycles) {
+			context->Z80_CYCLE += gen->m68k->cycles - prev_cycles;
+		}
 	} else {
 		fprintf(stderr, "Unhandled write by Z80 to address %X through banked memory area\n", address);
 	}
@@ -1783,7 +1850,7 @@ static void *z80_write_bank_reg(uint32_t location, void * vcontext, uint8_t valu
 	genesis_context *gen = context->system;
 
 	gen->z80_bank_reg = (gen->z80_bank_reg >> 1 | value << 8) & 0x1FF;
-	update_z80_bank_pointer(context->system);
+	gen_update_z80_bank_pointer(context->system);
 
 	return context;
 }
@@ -1808,18 +1875,18 @@ static uint16_t unused_read(uint32_t location, void *vcontext)
 		if (gen->version_reg & 0xF) {
 			return gen->tmss_lock[location >> 1 & 1];
 		} else {
-			fatal_error("Machine freeze due to read from TMSS lock when TMSS is not present %X\n", location);
+			machine_freeze(config, enter_68k_debugger_immediately, gen, "68K read from TMSS lock when TMSS is not present %X\n", location);
 			return 0xFFFF;
 		}
 	} else if (location == 0xA14100) {
 		if (gen->version_reg & 0xF) {
 			return get_open_bus_value(&gen->header);
 		} else {
-			fatal_error("Machine freeze due to read from TMSS control when TMSS is not present %X\n", location);
+			machine_freeze(config, enter_68k_debugger_immediately, gen, "68K read from TMSS control when TMSS is not present %X\n", location);
 			return 0xFFFF;
 		}
 	} else {
-		fatal_error("Machine freeze due to unmapped read from %X\n", location);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Unmapped read from %X\n", location);
 		return 0xFFFF;
 	}
 }
@@ -1877,7 +1944,7 @@ static void *unused_write(uint32_t location, void *vcontext, uint16_t value)
 	} else if (location < 0x800000 || (location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
 		//these writes are ignored when no relevant hardware is present
 	} else {
-		fatal_error("Machine freeze due to unmapped write to %X\n", location);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Unmapped write to %X\n", location);
 	}
 	return vcontext;
 }
@@ -1908,7 +1975,7 @@ static void *unused_write_b(uint32_t location, void *vcontext, uint8_t value)
 	} else if (location < 0x800000 || (location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
 		//these writes are ignored when no relevant hardware is present
 	} else {
-		fatal_error("Machine freeze due to unmapped byte write to %X\n", location);
+		machine_freeze(config, enter_68k_debugger_immediately, gen, "Unmapped byte write to %X\n", location);
 	}
 	return vcontext;
 }
@@ -1925,6 +1992,9 @@ static void set_speed_percent(system_header * system, uint32_t percent)
 		if (context->expansion) {
 			segacd_context *cd = context->expansion;
 			segacd_set_speed_percent(cd, percent);
+		}
+		if (context->mars) {
+			s32x_set_speed(context->mars, context->master_clock);
 		}
 		ym_adjust_master_clock(context->ym, context->master_clock);
 	} else {
@@ -2032,6 +2102,9 @@ static void handle_reset_requests(genesis_context *gen)
 			}
 			if (gen->header.type != SYSTEM_PICO && gen->header.type != SYSTEM_COPERA) {
 				ym_reset(gen->ym);
+			}
+			if (gen->mapper_type == MAPPER_RADICA) {
+				radica_reset(gen);
 			}
 			//Is there any sort of VDP reset?
 			m68k_reset(gen->m68k);
@@ -2280,10 +2353,13 @@ static void free_genesis(system_header *system)
 	if (gen->expansion) {
 		free_segacd(gen->expansion);
 	}
+	if (gen->mars) {
+		free_32x(gen->mars);
+	}
 	vdp_free(gen->vdp);
 	memmap_chunk *map = (memmap_chunk *)gen->m68k->opts->gen.memmap;
 	m68k_options_free(gen->m68k->opts);
-	free(gen->cart);
+	aligned_free(gen->cart);
 	free(gen->m68k);
 	free(gen->work_ram);
 	if (gen->header.type == SYSTEM_GENESIS) {
@@ -2585,6 +2661,9 @@ static void toggle_debug_view(system_header *system, uint8_t debug_view)
 				segacd_context *cd = gen->expansion;
 				cd->pcm.scope = NULL;
 			}
+			if (gen->mars) {
+				gen->mars->scope = NULL;
+			}
 			scope_close(scope);
 		} else {
 			oscilloscope *scope = create_oscilloscope();
@@ -2597,6 +2676,9 @@ static void toggle_debug_view(system_header *system, uint8_t debug_view)
 			if (gen->expansion) {
 				segacd_context *cd = gen->expansion;
 				rf5c164_enable_scope(&cd->pcm, scope);
+			}
+			if (gen->mars) {
+				s32x_enable_scope(gen->mars, scope, gen->normal_clock);
 			}
 		}
 	} else if (debug_view == DEBUG_CD_GRAPHICS && gen->expansion) {
@@ -2870,23 +2952,10 @@ static genesis_context *shared_init(uint32_t system_opts, rom_info *rom, uint8_t
 	return gen;
 }
 
-static memmap_chunk base_map[] = {
-	{0xE00000, 0x1000000, 0xFFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
-	{0xC00000, 0xE00000,  0x1FFFFF, .read_16 = (read_16_fun)vdp_port_read,  .write_16 =(write_16_fun)vdp_port_write,
-			   .read_8 = (read_8_fun)vdp_port_read_b, .write_8 = (write_8_fun)vdp_port_write_b},
-	{0xA00000, 0xA12000,  0x1FFFF,  .read_16 = (read_16_fun)io_read_w, .write_16 = (write_16_fun)io_write_w,
-			   .read_8 = (read_8_fun)io_read, .write_8 = (write_8_fun)io_write},
-	{0x000000, 0xFFFFFF, 0xFFFFFF, .read_16 = (read_16_fun)unused_read, .write_16 = unused_write,
-			   .read_8 = (read_8_fun)unused_read_b, .write_8 = (write_8_fun)unused_write_b}
-};
-const size_t base_chunks = sizeof(base_map)/sizeof(*base_map);
-
-genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, uint32_t ym_opts, uint8_t force_region)
+static genesis_context *shared_init_gen(rom_info info, void *lock_on, uint32_t lock_on_size, uint32_t ym_opts, uint8_t force_region)
 {
-	tern_node *rom_db = get_rom_db();
-	rom_info info = configure_rom(rom_db, rom, rom_size, lock_on, lock_on_size, base_map, base_chunks);
-	rom = info.rom;
-	rom_size = info.rom_size;
+	void *rom = info.rom;
+	uint32_t rom_size = info.rom_size;
 #ifndef BLASTEM_BIG_ENDIAN
 	byteswap_rom(nearest_pow2(rom_size), rom);
 	if (lock_on) {
@@ -3129,6 +3198,8 @@ genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_o
 		{
 			gen->bank_regs[i] = i;
 		}
+	} else if (gen->mapper_type == MAPPER_RADICA) {
+		radica_reset(gen);
 	}
 	gen->reset_cycle = CYCLE_NEVER;
 
@@ -3136,7 +3207,24 @@ genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_o
 	return gen;
 }
 
-genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region)
+static memmap_chunk base_map[] = {
+	{0xE00000, 0x1000000, 0xFFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
+	{0xC00000, 0xE00000,  0x1FFFFF, .read_16 = (read_16_fun)vdp_port_read,  .write_16 =(write_16_fun)vdp_port_write,
+			   .read_8 = (read_8_fun)vdp_port_read_b, .write_8 = (write_8_fun)vdp_port_write_b},
+	{0xA00000, 0xA12000,  0x1FFFF,  .read_16 = (read_16_fun)io_read_w, .write_16 = (write_16_fun)io_write_w,
+			   .read_8 = (read_8_fun)io_read, .write_8 = (write_8_fun)io_write},
+	{0x000000, 0xFFFFFF, 0xFFFFFF, .read_16 = (read_16_fun)unused_read, .write_16 = unused_write,
+			   .read_8 = (read_8_fun)unused_read_b, .write_8 = (write_8_fun)unused_write_b}
+};
+const size_t base_chunks = sizeof(base_map)/sizeof(*base_map);
+genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, uint32_t ym_opts, uint8_t force_region)
+{
+	tern_node *rom_db = get_rom_db();
+	rom_info info = configure_rom(rom_db, rom, rom_size, lock_on, lock_on_size, base_map, base_chunks);
+	return shared_init_gen(info, lock_on, lock_on_size, ym_opts, force_region);
+}
+
+genesis_context *alloc_gen_cdboot_shared(system_media *media, uint32_t system_opts, uint8_t force_region)
 {
 	tern_node *rom_db = get_rom_db();
 	rom_info info = configure_rom(rom_db, media->buffer, media->size, NULL, 0, base_map, base_chunks);
@@ -3171,6 +3259,13 @@ genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t syste
 	cd->genesis = gen;
 	setup_io_devices(config, &info, &gen->io);
 
+	set_audio_config(gen);
+	return gen;
+}
+
+genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region)
+{
+	genesis_context *gen = alloc_gen_cdboot_shared(media, system_opts, force_region);
 	uint32_t cd_chunks;
 	memmap_chunk *cd_map = segacd_main_cpu_map(gen->expansion, 0, &cd_chunks);
 	memmap_chunk *map = malloc(sizeof(memmap_chunk) * (cd_chunks + base_chunks));
@@ -3195,8 +3290,74 @@ genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t syste
 		}
 	}
 	gen->header.type = SYSTEM_SEGACD;
+	return gen;
+}
 
-	set_audio_config(gen);
+static memmap_chunk base_map_32x[] = {
+	{0xE00000, 0x1000000, 0xFFFF, .flags = MMAP_READ | MMAP_WRITE | MMAP_CODE},
+	{0xC00000, 0xE00000,  0x1FFFFF, .read_16 = (read_16_fun)vdp_port_read,  .write_16 =(write_16_fun)vdp_port_write,
+			   .read_8 = (read_8_fun)vdp_port_read_b, .write_8 = (write_8_fun)vdp_port_write_b},
+	{0x840000, 0x860000, 0xFFFFFF, .read_16 = s32x_fb_read_w, .write_16 = s32x_fb_write_w,
+			   .read_8 = s32x_fb_read_b, .write_8 = s32x_fb_write_b},
+	{0x860000, 0x880000, 0xFFFFFF, .read_16 = s32x_fb_read_w, .write_16 = s32x_overwrite_write_w,
+			   .read_8 = s32x_fb_read_b, .write_8 = s32x_overwrite_write_b},
+	{0xA15100, 0xA15400, 0xFFFFFF, .read_16 = s32x_68k_read, .write_16 = s32x_68k_write,
+			   .read_8 = s32x_68k_read_b, .write_8 = s32x_68k_write_b},
+	{0xA00000, 0xA12000,  0x1FFFF,  .read_16 = (read_16_fun)io_read_w, .write_16 = (write_16_fun)io_write_w,
+			   .read_8 = (read_8_fun)io_read, .write_8 = (write_8_fun)io_write},
+	{0xA130EC, 0xA130F0, 0x3, .flags = MMAP_READ, .buffer = "AMSR"},
+	{0x000000, 0xFFFFFF, 0xFFFFFF, .read_16 = (read_16_fun)unused_read, .write_16 = unused_write,
+			   .read_8 = (read_8_fun)unused_read_b, .write_8 = (write_8_fun)unused_write_b}
+};
+const size_t s32x_base_chunks = sizeof(base_map_32x)/sizeof(*base_map_32x);
+
+genesis_context *alloc_genesis_32x(system_media *media, uint32_t opts, uint8_t force_region)
+{
+	tern_node *rom_db = get_rom_db();
+	rom_info info = configure_rom_32x(rom_db, media->buffer, media->size, 
+		media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, base_map_32x, s32x_base_chunks
+	);
+	genesis_context *gen = shared_init_gen(info, media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, opts, force_region);
+	gen->mars = alloc_32x(media, gen->version_reg & HZ50, 0);
+	gen->header.type = SYSTEM_32X;
+	gen->vdp->s32x_vid = &gen->mars->video;
+	if (gen->vdp->renderer) {
+		gen->vdp->renderer->s32x_vid = &gen->mars->video;
+	}
+	gen->m68k->mem_pointers[2] = gen->m68k->mem_pointers[3] = NULL;
+	return gen;
+}
+
+genesis_context *alloc_genesis_32x_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region)
+{
+	genesis_context *gen = alloc_gen_cdboot_shared(media, system_opts, force_region);
+	uint32_t cd_chunks;
+	memmap_chunk *cd_map = segacd_main_cpu_map(gen->expansion, 0, &cd_chunks);
+	uint32_t num_chunks = cd_chunks + s32x_base_chunks;
+	memmap_chunk *map = calloc(num_chunks, sizeof(memmap_chunk));
+	memcpy(map, cd_map, sizeof(memmap_chunk) * cd_chunks);
+	memcpy(map + cd_chunks, base_map_32x, sizeof(memmap_chunk) * s32x_base_chunks);
+	map[cd_chunks].buffer = gen->work_ram;
+
+	m68k_options *opts = malloc(sizeof(m68k_options));
+	init_m68k_opts(opts, map, num_chunks, MCLKS_PER_68K, sync_components, int_ack);
+	//TODO: make this configurable
+	opts->gen.flags |= M68K_OPT_BROKEN_READ_MODIFY;
+	gen->m68k = init_68k_context(opts, NULL);
+	gen->m68k->system = gen;
+	opts->address_log = (system_opts & OPT_ADDRESS_LOG) ? fopen("address.log", "w") : NULL;
+
+	gen->mars = alloc_32x(media, gen->version_reg & HZ50, 1);
+	gen->vdp->s32x_vid = &gen->mars->video;
+	
+	//This must happen after the 68K context has been allocated
+	for (int i = 0; i < num_chunks; i++)
+	{
+		if (map[i].flags & MMAP_PTR_IDX) {
+			gen->m68k->mem_pointers[map[i].ptr_index] = map[i].buffer;
+		}
+	}
+	gen->header.type = SYSTEM_32XCD;
 	return gen;
 }
 
@@ -3380,6 +3541,8 @@ genesis_context* alloc_config_pico(void *rom, uint32_t rom_size, void *lock_on, 
 		{
 			gen->bank_regs[i] = i;
 		}
+	} else if (gen->mapper_type == MAPPER_RADICA) {
+		radica_reset(gen);
 	}
 	gen->reset_cycle = CYCLE_NEVER;
 

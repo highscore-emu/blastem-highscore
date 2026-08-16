@@ -477,16 +477,6 @@ void process_events()
 	}
 }
 
-void render_errorbox(char *title, char *message)
-{
-}
-void render_warnbox(char *title, char *message)
-{
-}
-void render_infobox(char *title, char *message)
-{
-}
-
 uint8_t render_is_audio_sync(void)
 {
 	//whether this is true depends on the libretro frontend implementation

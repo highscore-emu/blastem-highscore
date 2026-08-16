@@ -9,6 +9,7 @@
 #include "debug.h"
 #include "saves.h"
 #include "bindings.h"
+#include "korean_sms_multi.h"
 
 #ifdef NEW_CORE
 #define Z80_CYCLE cycles
@@ -729,7 +730,7 @@ static void update_mem_map(uint32_t location, sms_context *sms, uint8_t value)
 	z80_context *z80 = sms->z80;
 	void *old_value;
 	if (location) {
-		uint32_t idx = location - 1;
+		uint32_t idx = sms->header.info.mapper_start_index + location - 1;
 		old_value = z80->mem_pointers[idx];
 		z80->mem_pointers[idx] = sms->rom + (value << 14 & (sms->rom_size-1));
 		if (old_value != z80->mem_pointers[idx]) {
@@ -737,15 +738,16 @@ static void update_mem_map(uint32_t location, sms_context *sms, uint8_t value)
 			z80_invalidate_code_range(z80, idx ? idx * 0x4000 : 0x400, idx * 0x4000 + 0x4000);
 		}
 	} else {
-		old_value = z80->mem_pointers[2];
+		uint32_t idx = sms->header.info.mapper_start_index + 2;
+		old_value = z80->mem_pointers[idx];
 		if (value & 8) {
 			//cartridge RAM is enabled
-			z80->mem_pointers[2] = sms->cart_ram + (value & 4 ? (SMS_CART_RAM_SIZE/2) : 0);
+			z80->mem_pointers[idx] = sms->cart_ram + (value & 4 ? (SMS_CART_RAM_SIZE/2) : 0);
 		} else {
 			//cartridge RAM is disabled
-			z80->mem_pointers[2] = sms->rom + (sms->bank_regs[3] << 14 & (sms->rom_size-1));
+			z80->mem_pointers[idx] = sms->rom + (sms->bank_regs[3] << 14 & (sms->rom_size-1));
 		}
-		if (old_value != z80->mem_pointers[2]) {
+		if (old_value != z80->mem_pointers[idx]) {
 			//invalidate any code we translated for the relevant bank
 			z80_invalidate_code_range(z80, 0x8000, 0xC000);
 		}
@@ -770,7 +772,7 @@ void *sms_cart_ram_write(uint32_t location, void *vcontext, uint8_t value)
 	if (sms->bank_regs[0] & 8) {
 		//cartridge RAM is enabled
 		location &= 0x3FFF;
-		z80->mem_pointers[2][location] = value;
+		z80->mem_pointers[sms->header.info.mapper_start_index + 2][location] = value;
 		z80_handle_code_write(0x8000 + location, z80);
 	}
 	return vcontext;
@@ -1626,13 +1628,22 @@ sms_context *alloc_configure_sms(system_media *media, system_type stype, uint32_
 
 	sms->rom = media->buffer;
 	sms->rom_size = rom_size;
-	if (sms->header.info.map_chunks > 2) {
+	switch (sms->header.info.mapper_type)
+	{
+	case MAPPER_SMS_SEGA:
 		sms->z80->mem_pointers[0] = sms->rom;
 		sms->z80->mem_pointers[1] = sms->rom + 0x4000;
 		sms->z80->mem_pointers[2] = sms->rom + 0x8000;
 		sms->bank_regs[1] = 0;
 		sms->bank_regs[2] = 0x4000 >> 14;
 		sms->bank_regs[3] = 0x8000 >> 14;
+		break;
+	case MAPPER_SMS_CODEMASTERS:
+		//FIXME:
+		break;
+	case MAPPER_SMS_SUPER_GAME_30:
+		super_game_30_init(sms);
+		break;
 	}
 
 	//TODO: Detect region and pick master clock based off of that

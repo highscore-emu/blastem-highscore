@@ -2,6 +2,13 @@
 #include <string.h>
 #include "cdd_mcu.h"
 #include "backend.h"
+#ifdef DO_DEBUG_PRINT
+#define dprintf printf
+#define dputs puts
+#else
+#define dprintf
+#define dputs
+#endif
 
 #define SCD_MCLKS 50000000
 #define CD_BLOCK_CLKS 16934400
@@ -330,7 +337,7 @@ static void update_status(cdd_mcu *context, uint16_t *gate_array)
 		case SF_TOCN:
 			if (context->toc_valid) {
 				if (context->requested_track > context->media->num_tracks) {
-					printf("track number %d is bad\n", context->requested_track);
+					dprintf("track number %d is bad\n", context->requested_track);
 					exit(0);
 				}
 				uint32_t lba = context->media->tracks[context->requested_track - 1].start_lba;
@@ -371,7 +378,7 @@ static void update_status(cdd_mcu *context, uint16_t *gate_array)
 	}
 	context->status_buffer.checksum = checksum((uint8_t *)&context->status_buffer);
 	if (context->status_buffer.format != SF_NOTREADY || (context->status != DS_STOP && context->status < DS_SUM_ERROR)) {
-		printf("CDD Status %X%X.%X%X%X%X%X%X.%X%X (lba %u)\n",
+		dprintf("CDD Status %X%X.%X%X%X%X%X%X.%X%X (lba %u)\n",
 			context->status_buffer.status, context->status_buffer.format,
 			context->status_buffer.b.time.min_high, context->status_buffer.b.time.min_low,
 			context->status_buffer.b.time.sec_high, context->status_buffer.b.time.sec_low,
@@ -398,7 +405,7 @@ static void run_command(cdd_mcu *context)
 	case CMD_NOP:
 		break;
 	case CMD_STOP:
-		puts("CDD CMD: STOP");
+		dputs("CDD CMD: STOP");
 		context->status = DS_STOP;
 		context->requested_format = SF_ABSOLUTE;
 		break;
@@ -420,7 +427,7 @@ static void run_command(cdd_mcu *context)
 		lba += context->cmd_buffer.b.time.sec_high * 10 + context->cmd_buffer.b.time.sec_low;
 		lba *= 75;
 		lba += context->cmd_buffer.b.time.frame_high * 10 + context->cmd_buffer.b.time.frame_low;
-		printf("CDD CMD: %s cmd for lba %d, MM:SS:FF %u%u:%u%u:%u%u\n",
+		dprintf("CDD CMD: %s cmd for lba %d, MM:SS:FF %u%u:%u%u:%u%u\n",
 			context->cmd_buffer.cmd_type == CMD_READ ? "READ" : "SEEK", lba,
 			context->cmd_buffer.b.time.min_high, context->cmd_buffer.b.time.min_low,
 			context->cmd_buffer.b.time.sec_high, context->cmd_buffer.b.time.sec_low,
@@ -482,7 +489,7 @@ static void run_command(cdd_mcu *context)
 			context->requested_format = SF_TOCN;
 			break;
 		}
-		printf("CDD CMD: REPORT REQUEST(%d), format set to %d\n", context->cmd_buffer.b.format.status_type, context->requested_format);
+		dprintf("CDD CMD: REPORT REQUEST(%d), format set to %d\n", context->cmd_buffer.b.format.status_type, context->requested_format);
 		break;
 	case CMD_PAUSE:
 		if (context->status == DS_DOOR_OPEN || context->status == DS_TRAY_MOVING || context->status == DS_DISC_LEADOUT || context->status == DS_DISC_LEADIN) {
@@ -499,14 +506,14 @@ static void run_command(cdd_mcu *context)
 		if (context->status == DS_STOP) {
 			context->seeking = 1;
 			context->seek_pba = LEADIN_SECTORS + context->media->tracks[0].start_lba;
-			printf("CDD CMD: PAUSE, seeking to %u\n", context->seek_pba);
+			dprintf("CDD CMD: PAUSE, seeking to %u\n", context->seek_pba);
 		} else {
 			uint32_t lba = context->head_pba - LEADIN_SECTORS;
 			uint32_t seconds = lba / 75;
 			uint32_t frames = lba % 75;
 			uint32_t minutes = seconds / 60;
 			seconds = seconds % 60;
-			printf("CDD CMD: PAUSE, current lba %u, MM:SS:FF %02u:%02u:%02u\n", lba, minutes, seconds, frames);
+			dprintf("CDD CMD: PAUSE, current lba %u, MM:SS:FF %02u:%02u:%02u\n", lba, minutes, seconds, frames);
 		}
 		context->status = DS_PAUSE;
 		if (context->seeking) {
@@ -537,9 +544,9 @@ static void run_command(cdd_mcu *context)
 		if (context->status == DS_STOP || context->status == DS_TOC_READ) {
 			context->seeking = 1;
 			context->seek_pba = LEADIN_SECTORS + context->media->tracks[0].start_lba - 4;
-			printf("CDD CMD: PLAY, seeking to %u\n", context->seek_pba);
+			dprintf("CDD CMD: PLAY, seeking to %u\n", context->seek_pba);
 		} else {
-			puts("CDD CMD: PLAY");
+			dputs("CDD CMD: PLAY");
 		}
 		context->status = DS_PLAY;
 		break;
@@ -562,7 +569,7 @@ static void run_command(cdd_mcu *context)
 			if (context->cmd_buffer.b.skip.direction) {
 				to_skip = -to_skip;
 			}
-			printf("CDD CMD: TRACK_SKIP direction %u, num_tracks %i, delta %i\n", context->cmd_buffer.b.skip.direction, abs(to_skip), to_skip);
+			dprintf("CDD CMD: TRACK_SKIP direction %u, num_tracks %i, delta %i\n", context->cmd_buffer.b.skip.direction, abs(to_skip), to_skip);
 			//circumference at 83mm point (roughly half way between inner and outer edge of program area)
 			//~ 260.75cm ~ 15 sectors
 			context->seek_pba = context->head_pba + to_skip * 15;
@@ -571,7 +578,7 @@ static void run_command(cdd_mcu *context)
 		context->status = DS_TRACKING;
 		break;
 	default:
-		printf("CDD CMD: Unimplemented(%d)\n", context->cmd_buffer.cmd_type);
+		dprintf("CDD CMD: Unimplemented(%d)\n", context->cmd_buffer.cmd_type);
 	}
 }
 

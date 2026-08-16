@@ -1744,6 +1744,20 @@ MK-49037-18 {
 	#German version of this game has 8G in the region field
 	regions E
 }
+e8c66630b018ba5fd2ab245c152436934ab44391 {
+	name Level II BASIC v1.0b
+	map {
+		0 {
+			device ROM
+			last 7FFF
+		}
+		8000 {
+			device RAM
+			size 800
+			last BFFF
+		}
+	}
+}
 a43aef367857a681decea52377c2e7a992c2ac68 {
 	name Level III BASIC (Export)
 	map {
@@ -1760,6 +1774,20 @@ a43aef367857a681decea52377c2e7a992c2ac68 {
 }
 b1a8585a9afff962e8fd0e79b3305199da4e4562 {
 	name Level III BASIC
+	map {
+		0 {
+			device ROM
+			last 7FFF
+		}
+		8000 {
+			device RAM
+			size 8000
+			last FFFF
+		}
+	}
+}
+737a06b3ada62942514a2facfea3fb1b0ca9c346 {
+	name Level III BASIC v1.1
 	map {
 		0 {
 			device ROM
@@ -1812,4 +1840,230 @@ c808ee7f6f61c096ab73b68dd181e25fdcfde243 {
 	name Back to the Future Part III
 	#has JUE in header, but only works in E mode
 	regions E
+}
+ab26d06160307eca7ea921407f1a11f767d739bc {
+	name Mega Mode Super Game 30
+	map {
+		0 {
+			device Super Game 30
+			last BFFF
+		}
+	}
+}
+eb19fb4ba1cb61785ee990a620ddd1812999cf0d {
+	name Sega Genesis Arcade Legends Volume 1
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+5bd71a52ba88adfc2fe8c68a03b59be112372510 {
+	name Sega Mega Drive Arcade Legends Volume 1
+	regions J
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+0d33c6827dbaf6c47b4b40687d512a3d663299ff {
+	name Sega Mega Drive Arcade Legends Volume 1
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+7e3d515509c2c142e03596a762e2bef72353a1a0 {
+	#UK version
+	name Sega Mega Drive Arcade Legends Volume 1
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+70db6635b147671739dde2fc77dff8cade68bb5b {
+	name Sega Genesis Arcade Legends Volume 2
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+b057d4c0b191e8bf7e5454c9f810af661511020a {
+	name Sega Mega Drive Arcade Legends Volume 2
+	regions J
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+83ad0c2101ca2d76b122a8f261055f014fbab54e {
+	#UK version
+	name Sega Mega Drive Arcade Legends Volume 2
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+7f5e5018fa60518d318b571cbd3c63cb64b1bbd1 {
+	name Sega Genesis Super Sonic Gold
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+c5cf589ddd0a7f353c90dd5a3636eb3f1822e33d {
+	#UK version
+	name Sega Genesis Super Sonic Gold
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+62756926203b3e770bff55133619ca2d03c516d8 {
+	name Sega Mega Drive PlayTV Legends Volume 3
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+72ce8622949b64be1a3e90c9817942615e24d416 {
+	#UK version
+	name PlayTV Legends Super Street Fighter II: SCE
+	regions E
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+0d0b0830aa3fd10fadd0009740a87c740d651c40 {
+	name PlayTV Legends Super Street Fighter II: SCE
+	regions U
+	map {
+		0 {
+			device radica
+			last 3FFFFF
+		}
+		#this register seems to be used for reset detection
+		A14444 {
+			device RAM
+			size 2
+			bus both
+			last A14445
+		}
+	}
+}
+T-16201F {
+	name Corpse Killer 32X
+	# game is unplayable if a normal controller is in port 2
+	device_overrides {
+		2 none
+	}
+}
+MK-84509 {
+	name Shadow Squadron
+	# Uses the ambiguous new-style E to indicate everything but Japan
+	regions UE
 }

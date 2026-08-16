@@ -837,7 +837,7 @@ void translate_m68k_bcc(m68k_options * opts, m68kinst * inst)
 		cycles(&opts->gen, 10);
 		code_ptr dest_addr = get_native_address(opts, after + disp);
 		if (!dest_addr) {
-			opts->gen.deferred = defer_address(opts->gen.deferred, after + disp, code->cur + 1);
+			opts->gen.deferred = defer_address(opts->gen.deferred, (after + disp) & 0xFFFFFF, code->cur + 1);
 			//dummy address to be replaced later, make sure it generates a 4-byte displacement
 			dest_addr = code->cur + 256;
 		}
@@ -2816,10 +2816,10 @@ void init_m68k_opts(m68k_options * opts, memmap_chunk * memmap, uint32_t num_chu
 	opts->gen.handle_align_error_read = code->cur;
 	code->cur += 256;
 
-	opts->read_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_16, NULL);
-	opts->read_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_8, NULL);
-	opts->write_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_16, NULL);
-	opts->write_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_8, NULL);
+	opts->read_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_16, NULL, 0);
+	opts->read_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, READ_8, NULL, 0);
+	opts->write_16 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_16, NULL, 0);
+	opts->write_8 = gen_mem_fun(&opts->gen, memmap, num_chunks, WRITE_8, NULL, 0);
 
 	opts->read_32 = code->cur;
 	if (opts->gen.align_error_mask) {

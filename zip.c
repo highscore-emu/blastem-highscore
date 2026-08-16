@@ -126,7 +126,7 @@ fail:
 	return NULL;
 }
 
-uint8_t *zip_read(zip_file *f, uint32_t index, size_t *out_size)
+uint8_t *zip_read(zip_file *f, uint32_t index, size_t *out_size, size_t aligned)
 {
 	
 	fseek(f->file, f->entries[index].local_header_off + 26, SEEK_SET);
@@ -143,7 +143,7 @@ uint8_t *zip_read(zip_file *f, uint32_t index, size_t *out_size)
 		int_size = f->entries[index].size;
 	}
 	
-	uint8_t *buf = malloc(*out_size);
+	uint8_t *buf = aligned ? aligned_calloc(1, *out_size, aligned) : malloc(*out_size);
 	if (*out_size > f->entries[index].size) {
 		*out_size = f->entries[index].size;
 	}

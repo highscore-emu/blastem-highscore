@@ -41,6 +41,7 @@ typedef struct {
 	uint8_t     bus_flags;
 } nor_state;
 
+// these get serialized in save states, so it is important they aren't reordered
 enum {
 	MAPPER_NONE,
 	MAPPER_SEGA,
@@ -52,7 +53,9 @@ enum {
 	MAPPER_SEGA_MED_V2,
 	MAPPER_SFT_WUKONG,
 	MAPPER_SMS_SEGA,
-	MAPPER_SMS_CODEMASTERS
+	MAPPER_SMS_CODEMASTERS,
+	MAPPER_SMS_SUPER_GAME_30,
+	MAPPER_RADICA,
 };
 
 
@@ -90,6 +93,7 @@ struct rom_info {
 
 tern_node *get_rom_db();
 rom_info configure_rom(tern_node *rom_db, void *vrom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, memmap_chunk const *base_map, uint32_t base_chunks);
+rom_info configure_rom_32x(tern_node *rom_db, void *vrom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, memmap_chunk const *base_map, uint32_t base_chunks);
 rom_info configure_rom_sms(tern_node *rom_db, uint8_t *rom, uint32_t rom_size, memmap_chunk const *base_chunks, uint32_t num_base_chunks);
 rom_info configure_rom_heuristics(uint8_t *rom, uint32_t rom_size, memmap_chunk const *base_map, uint32_t base_chunks);
 uint8_t translate_region_char(uint8_t c);

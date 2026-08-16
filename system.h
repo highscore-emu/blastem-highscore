@@ -24,7 +24,9 @@ typedef enum {
 	SYSTEM_COLECOVISION,
 	SYSTEM_PICO,
 	SYSTEM_COPERA,
-	SYSTEM_LASERACTIVE
+	SYSTEM_LASERACTIVE,
+	SYSTEM_32X,
+	SYSTEM_32XCD
 } system_type;
 
 typedef enum {
@@ -169,6 +171,8 @@ struct system_header {
 	uint8_t           has_keyboard;
 	uint8_t                 vgm_logging;
 	uint8_t                 force_release;
+	uint8_t                 paused;
+	uint8_t                 frame_advance;
 	debugger_type     debugger_type;
 	system_type       type;
 };

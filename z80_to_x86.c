@@ -3672,8 +3672,8 @@ void zcreate_stub(z80_context * context)
 void z80_clock_divider_updated(z80_options *options)
 {
 	//TODO: make this not leak memory whenever the clock changes
-	options->read_8 = gen_mem_fun(&options->gen, options->gen.memmap, options->gen.memmap_chunks, READ_8, &options->read_8_noinc);
-	options->write_8 = gen_mem_fun(&options->gen, options->gen.memmap, options->gen.memmap_chunks, WRITE_8, &options->write_8_noinc);
+	options->read_8 = gen_mem_fun(&options->gen, options->gen.memmap, options->gen.memmap_chunks, READ_8, &options->read_8_noinc, 0);
+	options->write_8 = gen_mem_fun(&options->gen, options->gen.memmap, options->gen.memmap_chunks, WRITE_8, &options->write_8_noinc, 0);
 	
 	code_info *code = &options->gen.code;
 	code_ptr skip_int = code->cur;
@@ -3811,8 +3811,8 @@ void z80_clock_divider_updated(z80_options *options)
 	options->gen.address_size = SZ_D;
 	options->gen.address_mask = options->io_address_mask;
 	options->gen.bus_cycles = 4;
-	options->read_io = gen_mem_fun(&options->gen, options->io_memmap, options->io_memmap_chunks, READ_8, NULL);
-	options->write_io = gen_mem_fun(&options->gen, options->io_memmap, options->io_memmap_chunks, WRITE_8, NULL);
+	options->read_io = gen_mem_fun(&options->gen, options->io_memmap, options->io_memmap_chunks, READ_8, NULL, 0);
+	options->write_io = gen_mem_fun(&options->gen, options->io_memmap, options->io_memmap_chunks, WRITE_8, NULL, 0);
 	options->gen.address_size = SZ_W;
 	options->gen.address_mask = 0xFFFF;
 	options->gen.bus_cycles = 3;
@@ -3946,7 +3946,7 @@ static void z80_enable_watchpoints(z80_context *context)
 	context->watchpoint_max = 0;
 	context->options->gen.check_watchpoints_8 = z80_watchpoint_check;
 	//re-generate write handlers with watchpoints enabled
-	code_ptr new_write8 = gen_mem_fun(&context->options->gen, context->options->gen.memmap, context->options->gen.memmap_chunks, WRITE_8, NULL);
+	code_ptr new_write8 = gen_mem_fun(&context->options->gen, context->options->gen.memmap, context->options->gen.memmap_chunks, WRITE_8, NULL, 0);
 
 	//patch old write handlers to point to the new ones
 	code_info code = {

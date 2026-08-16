@@ -15,6 +15,8 @@
 #include "jcart.h"
 #include "blastem.h"
 #include "sft_mapper.h"
+#include "korean_sms_multi.h"
+#include "radica.h"
 
 #define DOM_TITLE_START 0x120
 #define DOM_TITLE_END 0x150
@@ -91,6 +93,8 @@ void cart_serialize(system_header *sys, serialize_buffer *buf)
 		break;
 	case MAPPER_MULTI_GAME:
 		multi_game_serialize(gen, buf);
+	case MAPPER_RADICA:
+		radica_serialize(gen, buf);
 		break;
 	}
 	end_section(buf);
@@ -118,6 +122,9 @@ void cart_deserialize(deserialize_buffer *buf, void *vcontext)
 		break;
 	case MAPPER_MULTI_GAME:
 		multi_game_deserialize(buf, gen);
+		break;
+	case MAPPER_RADICA:
+		radica_deserialize(buf, gen);
 		break;
 	}
 }
@@ -264,7 +271,10 @@ void add_memmap_header(rom_info *info, uint8_t *rom, uint32_t size, memmap_chunk
 	uint8_t is_med_ssf = size >= 0x108 && !memcmp("SEGA SSF", rom + 0x100, 8);
 	if (is_med_ssf || (size > 0x400000 && rom_end_raw <= 0x400000)) {
 		if (is_med_ssf && rom_end < 16*1024*1024) {
-			info->rom = rom = realloc(rom, 16*1024*1024);
+			info->rom = aligned_calloc(1, 16*1024*1024, 16);
+			memcpy(info->rom, rom, rom_end);
+			aligned_free(rom);
+			rom = info->rom;
 		}
 		info->mapper_start_index = 0;
 		info->mapper_type = is_med_ssf ? MAPPER_SEGA_MED_V2 : MAPPER_SEGA;
@@ -465,7 +475,284 @@ void add_memmap_header(rom_info *info, uint8_t *rom, uint32_t size, memmap_chunk
 	info->save_type = SAVE_NONE;
 }
 
-rom_info configure_rom_heuristics(uint8_t *rom, uint32_t rom_size, memmap_chunk const *base_map, uint32_t base_chunks)
+void add_memmap_header_32x(rom_info *info, uint8_t *rom, uint32_t size, memmap_chunk const *base_map, int base_chunks)
+{
+	uint32_t rom_end = nearest_pow2(size);
+	info->save_type = SAVE_NONE;
+	//TODO: deal with heuristics detectable mappers besides the basic Sega SRAM one
+	if (has_ram_header(rom, size)) {
+		uint32_t ram_start = read_ram_header(info, rom);
+		if (info->save_size == 1 && rom_end > 0x200000) {
+			if (size < 0x400000) {
+				uint32_t mirror_size = nearest_pow2(size - 0x200000);
+				for (uint32_t dst = 0x200000 + mirror_size; dst < rom_end; dst += mirror_size)
+				{
+					memcpy(rom + dst, rom + 0x200000, dst + mirror_size <= rom_end ? mirror_size : rom_end-dst);
+				}
+			}
+			//assume Acclaim mapper with 24C02 I2C EEPROM
+			free(info->save_buffer);
+			info->save_size = 256;
+			info->save_buffer = calloc(info->save_size, 1);
+			info->save_type = SAVE_I2C;
+			info->eeprom_map = NULL;
+			//0 -> fixed ROM
+			//1 -> Fixed 32X ROM bank
+			//2 -> Mappable 32X ROM bank
+			//3 -> I2C high
+			//4 -> I2C low
+			//5 -> upper fixed ROM (RV=1 or ADEN=0)
+			//6 -> vector area
+			info->map_chunks = base_chunks + 7;
+			info->map = malloc(sizeof(memmap_chunk) * info->map_chunks);
+			memset(info->map, 0, sizeof(memmap_chunk)*info->map_chunks);
+			memcpy(info->map+7, base_map, sizeof(memmap_chunk) * base_chunks);
+			info->map[0].start = 0x100;
+			info->map[0].end = 0x200000;
+			info->map[0].mask = 0xFFFFFF;
+			info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+			info->map[0].write_16 = s32x_write_hint;
+			info->map[0].write_8 = s32x_write_hint_b;
+			info->map[0].buffer = rom;
+			info->map[0].aux_mask = 0xFFFFFF;
+			info->map[0].ptr_index = 0;
+			
+			info->map[1].start = 0x880000;
+			info->map[1].end = 0x900000;
+			info->map[1].mask = 0x7FFFF;
+			info->map[1].aux_mask = info->map[1].mask;
+			info->map[1].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+			info->map[1].ptr_index = 1;
+			info->map[1].buffer = rom;
+			
+			//strictly speaking this isn't really correct
+			//EEPROM and ROM overlap over the entire >=2M region of the cart
+			info->map[2].start = 0x900002;
+			info->map[2].end = 0xA00000;
+			info->map[2].mask = 0xFFFFF;
+			info->map[2].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+			info->map[2].ptr_index = 2;
+			
+			info->map[3].start = 0x900000;
+			info->map[3].end = 0x900002;
+			info->map[3].mask = 0xFFFFFF;
+			info->map[3].write_16 = s32x_write_eeprom_i2c_w;
+			info->map[3].write_8 = s32x_write_eeprom_i2c_b;
+			info->map[3].read_16 = s32x_read_eeprom_i2c_w;
+			info->map[3].read_8 = s32x_read_eeprom_i2c_b;
+			
+			info->map[4].start = 0x200000;
+			info->map[4].end = 0x200002;
+			info->map[4].mask = 0xFFFFFF;
+			info->map[4].write_16 = s32x_write_eeprom_i2c_low_w;
+			info->map[4].write_8 = s32x_write_eeprom_i2c_low_b;
+			info->map[4].read_16 = s32x_read_eeprom_i2c_low_w;
+			info->map[4].read_8 = s32x_read_eeprom_i2c_low_b;
+			
+			info->map[5].start = 0x200002;
+			info->map[5].end = rom_end;
+			info->map[5].mask = 0x1FFFFF;
+			info->map[5].aux_mask = 0x1FFFFF;
+			info->map[5].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+			info->map[5].ptr_index = 3;
+			info->map[5].buffer = rom + 0x200000;
+			
+			info->map[6].start = 0;
+			info->map[6].end = 0x100;
+			info->map[6].mask = 0xFFFFFF;
+			info->map[6].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+			info->map[6].ptr_index = 9;
+			info->map[6].write_16 = s32x_write_hint;
+			info->map[6].write_8 = s32x_write_hint_b;
+			info->map[6].buffer = rom;
+			return;
+		} else if (info->save_buffer && !(ram_start & 0xFFFFF)) {
+			//TODO: handle ram_start on a non-1MB boundary
+			info->map_chunks = base_chunks + (ram_start >= rom_end ? 5 : 6);
+			info->map = malloc(sizeof(memmap_chunk) * info->map_chunks);
+			memset(info->map, 0, sizeof(memmap_chunk)*info->map_chunks);
+
+			if (ram_start >= rom_end) {
+				//0 -> fixed ROM
+				//1 -> Fixed 32X ROM bank
+				//2 -> Mappable 32X ROM bank
+				//3 -> SRAM
+				//4 -> vector area
+				memcpy(info->map+5, base_map, sizeof(memmap_chunk) * base_chunks);
+				info->map[0].end = rom_end < 0x400000 ? nearest_pow2(rom_end) - 1 : 0xFFFFFF;
+				if (info->map[0].end > ram_start) {
+					info->map[0].end = ram_start;
+				}
+				//TODO: ROM mirroring
+				info->map[0].start = 0x100;
+				info->map[0].mask = 0xFFFFFF;
+				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+				info->map[0].write_16 = s32x_write_hint;
+				info->map[0].write_8 = s32x_write_hint_b;
+				info->map[0].buffer = rom;
+				info->map[0].aux_mask = 0xFFFFFF;
+				info->map[0].ptr_index = 0;
+				
+				info->map[1].start = 0x880000;
+				info->map[1].end = 0x900000;
+				info->map[1].mask = 0x7FFFF;
+				info->map[1].aux_mask = info->map[1].mask;
+				info->map[1].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+				info->map[1].ptr_index = 1;
+				info->map[1].buffer = rom;
+				
+				info->map[2].start = 0x900000;
+				info->map[2].end = 0xA00000;
+				info->map[2].mask = 0xFFFFF;
+				info->map[2].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
+				info->map[2].ptr_index = 2;
+				info->map[2].read_16 = s32x_read_bankable_w;//these will only be called when mem_pointers[2] == NULL
+				info->map[2].read_8 = s32x_read_bankable_b;
+				info->map[2].write_16 = s32x_write_bankable_w;//these will be called all writes to the area
+				info->map[2].write_8 = s32x_write_bankable_b;
+
+				info->map[3].start = ram_start;
+				info->map[3].mask = info->save_mask;
+				info->map[3].end = ram_start + info->save_mask + 1;
+				info->map[3].flags = MMAP_READ | MMAP_WRITE | MMAP_PTR_IDX;
+				info->map[3].ptr_index = 3;
+				
+				info->map[4].start = 0;
+				info->map[4].end = 0x100;
+				info->map[4].mask = 0xFFFFFF;
+				info->map[4].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+				info->map[4].ptr_index = 9;
+				info->map[4].write_16 = s32x_write_hint;
+				info->map[4].write_8 = s32x_write_hint_b;
+				info->map[4].buffer = rom;
+				
+
+				if (info->save_type == RAM_FLAG_ODD) {
+					info->map[3].flags |= MMAP_ONLY_ODD;
+				} else if (info->save_type == RAM_FLAG_EVEN) {
+					info->map[3].flags |= MMAP_ONLY_EVEN;
+				} else {
+					info->map[3].flags |= MMAP_CODE;
+				}
+				info->map[3].buffer = info->save_buffer;
+			} else {
+				//0 -> fixed ROM
+				//1 -> Fixed 32X ROM bank
+				//2 -> Mappable 32X ROM bank
+				//3 -> ROM/SRAM
+				//...
+				//last - 2 -> A130EC "MARS"
+				//last - 1 -> ROM/SRAM switch reg
+				//last -> catch all
+				memcpy(info->map+5, base_map, sizeof(memmap_chunk) * (base_chunks - 1));
+				//Assume the standard Sega mapper
+				info->mapper_type = MAPPER_SEGA_SRAM;
+				info->map[0].start = 0x100;
+				info->map[0].end = 0x200000;
+				info->map[0].mask = 0xFFFFFF;
+				info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+				info->map[0].write_16 = s32x_write_hint;
+				info->map[0].write_8 = s32x_write_hint_b;
+				info->map[0].buffer = rom;
+				info->map[0].aux_mask = 0xFFFFFF;
+				info->map[0].ptr_index = 0;
+				
+				info->map[1].start = 0x880000;
+				info->map[1].end = 0x900000;
+				info->map[1].mask = 0x7FFFF;
+				info->map[1].aux_mask = info->map[1].mask;
+				info->map[1].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+				info->map[1].ptr_index = 1;
+				info->map[1].buffer = rom;
+				
+				info->map[2].start = 0x900000;
+				info->map[2].end = 0xA00000;
+				info->map[2].mask = 0xFFFFF;
+				info->map[2].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL;
+				info->map[2].ptr_index = 2;
+				info->map[2].read_16 = s32x_read_bankable_w;//these will only be called when mem_pointers[2] == NULL
+				info->map[2].read_8 = s32x_read_bankable_b;
+				info->map[2].write_16 = s32x_write_bankable_w;//these will be called all writes to the area
+				info->map[2].write_8 = s32x_write_bankable_b;
+				
+
+				info->map[3].start = 0x200000;
+				info->map[3].end = 0x400000;
+				info->map[3].mask = 0x1FFFFF;
+				info->map[3].aux_mask = info->map[3].mask;
+				info->map[3].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_FUNC_NULL | MMAP_AUX_BUFF;
+				info->map[3].ptr_index = info->mapper_start_index = 3;
+				info->map[3].read_16 = s32x_read_sram_w;//these will only be called when mem_pointers[3] == NULL
+				info->map[3].read_8 = s32x_read_sram_b;
+				info->map[3].write_16 = s32x_write_sram_area_w;//these will be called all writes to the area
+				info->map[3].write_8 = s32x_write_sram_area_b;
+				info->map[3].buffer = rom + 0x200000;
+				
+				info->map[4].start = 0;
+				info->map[4].end = 0x100;
+				info->map[4].mask = 0xFFFFFF;
+				info->map[4].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+				info->map[4].ptr_index = 9;
+				info->map[4].write_16 = s32x_write_hint;
+				info->map[4].write_8 = s32x_write_hint_b;
+				info->map[4].buffer = rom;
+
+				//Last entry in the base map is a catch all one that needs to be
+				//after all the other entries
+				memmap_chunk *mapper_reg = info->map + info->map_chunks - 2;
+				memmap_chunk *last = info->map + info->map_chunks - 1;
+				*last = base_map[base_chunks - 1];
+				mapper_reg->start = 0xA13000;
+				mapper_reg->end = 0xA13100;
+				mapper_reg->mask = 0xFF;
+				mapper_reg->write_16 = s32x_write_bank_reg_w;
+				mapper_reg->write_8 = s32x_write_bank_reg_b;
+			}
+			return;
+		}
+	}
+	info->map_chunks = base_chunks + 4;
+	info->map = malloc(sizeof(memmap_chunk) * info->map_chunks);
+	memset(info->map, 0, sizeof(memmap_chunk)*info->map_chunks);
+	memcpy(info->map+4, base_map, sizeof(memmap_chunk) * base_chunks);
+	//0 -> ROM
+	//1 -> Fixed 32X ROM bank
+	//2 -> Mappable 32X ROM bank
+	info->map[0].start = 0x100;
+	info->map[0].end = rom_end;
+	info->map[0].mask = rom_end - 1;
+	info->map[0].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+	info->map[0].write_16 = s32x_write_hint;
+	info->map[0].write_8 = s32x_write_hint_b;
+	info->map[0].buffer = rom;
+	info->map[0].aux_mask = info->map[0].mask;
+	info->map[0].ptr_index = 0;
+	
+	info->map[1].start = 0x880000;
+	info->map[1].end = 0x900000;
+	info->map[1].mask = 0x7FFFF & info->map[0].mask;
+	info->map[1].aux_mask = info->map[1].mask;
+	info->map[1].flags = MMAP_READ | MMAP_PTR_IDX | MMAP_AUX_BUFF;
+	info->map[1].ptr_index = 1;
+	info->map[1].buffer = rom;
+	
+	info->map[2].start = 0x900000;
+	info->map[2].end = 0xA00000;
+	info->map[2].mask = 0xFFFFF& info->map[0].mask;
+	info->map[2].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+	info->map[2].ptr_index = 2;
+				
+	info->map[3].start = 0;
+	info->map[3].end = 0x100;
+	info->map[3].mask = 0xFFFFFF;
+	info->map[3].flags = MMAP_CODE | MMAP_READ | MMAP_PTR_IDX;
+	info->map[3].ptr_index = 9;
+	info->map[3].write_16 = s32x_write_hint;
+	info->map[3].write_8 = s32x_write_hint_b;
+	info->map[3].buffer = rom;
+}
+
+static rom_info configure_rom_heuristics_shared(uint8_t *rom, uint32_t rom_size)
 {
 	rom_info info;
 	info.mapper_type = MAPPER_NONE;
@@ -516,9 +803,21 @@ rom_info configure_rom_heuristics(uint8_t *rom, uint32_t rom_size, memmap_chunk 
 			break;
 		}
 	}
-	add_memmap_header(&info, rom, rom_size, base_map, base_chunks);
 	info.port1_override = info.port2_override = info.ext_override = info.mouse_mode = NULL;
+	return info;
+}
 
+rom_info configure_rom_heuristics(uint8_t *rom, uint32_t rom_size, memmap_chunk const *base_map, uint32_t base_chunks)
+{
+	rom_info info = configure_rom_heuristics_shared(rom, rom_size);
+	add_memmap_header(&info, rom, rom_size, base_map, base_chunks);
+	return info;
+}
+
+rom_info configure_rom_heuristics_32x(uint8_t *rom, uint32_t rom_size, memmap_chunk const *base_map, uint32_t base_chunks)
+{
+	rom_info info = configure_rom_heuristics_shared(rom, rom_size);
+	add_memmap_header_32x(&info, rom, rom_size, base_map, base_chunks);
 	return info;
 }
 
@@ -977,7 +1276,10 @@ void map_iter_fun(char *key, tern_val val, uint8_t valtype, void *data)
 		state->info->mapper_type = MAPPER_MULTI_GAME;
 		state->info->mapper_start_index = state->ptr_index++;
 		//make a mirror copy of the ROM so we can efficiently support arbitrary start offsets
-		state->rom = realloc(state->rom, state->rom_size * 2);
+		uint8_t *orig = state->rom;
+		state->rom = aligned_calloc(1, state->rom_size * 2, 16);
+		memcpy(state->rom, orig, state->rom_size);
+		aligned_free(orig);
 		memcpy(state->rom + state->rom_size, state->rom, state->rom_size);
 		state->rom_size *= 2;
 		//make room for an extra map entry
@@ -1033,6 +1335,42 @@ void map_iter_fun(char *key, tern_val val, uint8_t valtype, void *data)
 		} else {
 			map->flags = MMAP_READ;
 		}
+	} else if (!strcmp(dtype, "radica")) {
+		state->info->mapper_type = MAPPER_RADICA;
+		state->info->mapper_start_index = state->ptr_index++;
+		//make a mirror copy of the ROM so we can efficiently support arbitrary start offsets
+		//make room for 12 extra entries
+		state->info->map_chunks+=12;
+		state->info->map = realloc(state->info->map, sizeof(memmap_chunk) * state->info->map_chunks);
+		memset(state->info->map + state->info->map_chunks - 12, 0, sizeof(memmap_chunk) * 12);
+		map = state->info->map + state->index;
+		// see comment in radica.c for some more details on the logic of this setup
+		uint32_t bank_size = 64 * 1024;
+		uint32_t start = map->start;
+		uint32_t map_size = map->end - map->start;
+		for (uint32_t bank_offset = 0, i = state->info->mapper_start_index; bank_offset < map_size; bank_offset += bank_size, i++)
+		{
+			if (bank_offset > 0x10000 && bank_offset <= 0x100000) {
+				bank_size += bank_size;
+			} else if (bank_offset > 0x200000 && bank_offset < 0x3F0000) {
+				bank_size >>= 1;
+			}
+			map->start = start + bank_offset;
+			map->end = map->start + bank_size;
+			map->buffer = state->rom + bank_offset;
+			map->mask = bank_size - 1;
+			map->flags = MMAP_READ | MMAP_PTR_IDX | MMAP_CODE;
+			map->ptr_index = i;
+			map++;
+			state->index++;
+		}
+		map->start = 0xA13000;
+		map->end = 0xA13100;
+		map->mask = 0xFF;
+		map->write_16 = radica_write_w;
+		map->write_8 = radica_write_b;
+		map->read_16 = radica_read_w;
+		map->read_8 = radica_read_b;
 	} else {
 		fatal_error("Invalid device type %s for ROM DB map entry %d with address %s\n", dtype, state->index, key);
 	}
@@ -1064,10 +1402,9 @@ void handle_io_overrides(tern_node *entry, rom_info *info)
 	}
 }
 
-rom_info configure_rom(tern_node *rom_db, void *vrom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, memmap_chunk const *base_map, uint32_t base_chunks)
+static tern_node *find_romdb_entry_gen(tern_node *rom_db, uint8_t *rom, uint32_t rom_size)
 {
 	uint8_t product_id[GAME_ID_LEN+1];
-	uint8_t *rom = vrom;
 	uint32_t expanded_size = nearest_pow2(rom_size);
 	if (expanded_size > rom_size) {
 		//generally carts with odd-sized ROMs have 2 power of 2 sized ROMs with the larger one first
@@ -1090,17 +1427,72 @@ rom_info configure_rom(tern_node *rom_db, void *vrom, uint32_t rom_size, void *l
 	}
 	debug_message("Product ID: %s\n", product_id);
 	uint8_t raw_hash[20];
-	sha1(vrom, rom_size, raw_hash);
+	sha1(rom, rom_size, raw_hash);
 	uint8_t hex_hash[41];
 	bin_to_hex(hex_hash, raw_hash, 20);
 	debug_message("SHA1: %s\n", hex_hash);
 	tern_node * entry = tern_find_node(rom_db, hex_hash);
-	if (!entry) {
-		entry = tern_find_node(rom_db, product_id);
+	if (entry) {
+		return entry;
 	}
-	if (!entry) {
-		entry = tern_find_node(rom_db, product_id + 3);
+	entry = tern_find_node(rom_db, product_id);
+	if (entry) {
+		return entry;
 	}
+	return tern_find_node(rom_db, product_id + 3);
+}
+
+static void configure_nonmap_entry(rom_info *info, tern_node *entry, uint8_t *rom, uint32_t rom_size)
+{
+	info->mapper_type = MAPPER_NONE;
+	info->name = tern_find_ptr(entry, "name");
+	if (info->name) {
+		debug_message("Found name: %s\n\n", info->name);
+		info->name = strdup(info->name);
+	} else {
+		info->name = get_header_name(rom);
+	}
+
+	char *dbreg = tern_find_ptr(entry, "regions");
+	info->regions = 0;
+	if (dbreg) {
+		while (*dbreg != 0)
+		{
+			info->regions |= translate_region_char(*(dbreg++));
+		}
+	}
+	if (!info->regions) {
+		info->regions = get_header_regions(rom);
+	}
+
+	info->is_save_lock_on = 0;
+	info->rom = rom;
+	info->rom_size = rom_size;
+
+	handle_io_overrides(entry, info);
+	info->mouse_mode = tern_find_ptr(entry, "mouse_mode");
+	info->wants_cd = !strcmp(tern_find_ptr_default(entry, "wants_cd", "no"), "yes");
+}
+
+rom_info configure_rom_32x(tern_node *rom_db, void *vrom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, memmap_chunk const *base_map, uint32_t base_chunks)
+{
+	uint8_t *rom = vrom;
+	tern_node *entry = find_romdb_entry_gen(rom_db, rom, rom_size);
+	if (!entry) {
+		debug_message("Not found in ROM DB, examining header\n\n");
+		return configure_rom_heuristics_32x(rom, rom_size, base_map, base_chunks);
+	}
+	rom_info info;
+	configure_nonmap_entry(&info, entry, rom, rom_size);
+	//TODO: handle memory map entries for 32X
+	add_memmap_header_32x(&info, rom, rom_size, base_map, base_chunks);
+	return info;
+}
+
+rom_info configure_rom(tern_node *rom_db, void *vrom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, memmap_chunk const *base_map, uint32_t base_chunks)
+{
+	uint8_t *rom = vrom;
+	tern_node *entry = find_romdb_entry_gen(rom_db, rom, rom_size);
 	if (!entry) {
 		debug_message("Not found in ROM DB, examining header\n\n");
 		if (xband_detect(rom, rom_size)) {
@@ -1112,30 +1504,7 @@ rom_info configure_rom(tern_node *rom_db, void *vrom, uint32_t rom_size, void *l
 		return configure_rom_heuristics(rom, rom_size, base_map, base_chunks);
 	}
 	rom_info info;
-	info.mapper_type = MAPPER_NONE;
-	info.name = tern_find_ptr(entry, "name");
-	if (info.name) {
-		debug_message("Found name: %s\n\n", info.name);
-		info.name = strdup(info.name);
-	} else {
-		info.name = get_header_name(rom);
-	}
-
-	char *dbreg = tern_find_ptr(entry, "regions");
-	info.regions = 0;
-	if (dbreg) {
-		while (*dbreg != 0)
-		{
-			info.regions |= translate_region_char(*(dbreg++));
-		}
-	}
-	if (!info.regions) {
-		info.regions = get_header_regions(rom);
-	}
-
-	info.is_save_lock_on = 0;
-	info.rom = vrom;
-	info.rom_size = rom_size;
+	configure_nonmap_entry(&info, entry, rom, rom_size);
 	tern_node *map = tern_find_node(entry, "map");
 	if (map) {
 		info.save_type = SAVE_NONE;
@@ -1171,10 +1540,6 @@ rom_info configure_rom(tern_node *rom_db, void *vrom, uint32_t rom_size, void *l
 		add_memmap_header(&info, rom, rom_size, base_map, base_chunks);
 	}
 
-	handle_io_overrides(entry, &info);
-	info.mouse_mode = tern_find_ptr(entry, "mouse_mode");
-	info.wants_cd = !strcmp(tern_find_ptr_default(entry, "wants_cd", "no"), "yes");
-
 	return info;
 }
 
@@ -1197,7 +1562,8 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 	uint32_t offset = strtol(tern_find_ptr_default(node, "offset", "0"), NULL, 16);
 	if (!strcmp(dtype, "Sega mapper")) {
 		state->info->mapper_type = MAPPER_SMS_SEGA;
-		state->info->mapper_start_index = state->ptr_index++;
+		state->info->mapper_start_index = state->ptr_index;
+		state->ptr_index += 3;
 		char *save_device = tern_find_path(node, "save\0device\0", TVAL_PTR).ptrval;
 		if (save_device && !strcmp(save_device, "EEPROM")) {
 			process_eeprom_def(key, state);
@@ -1205,8 +1571,10 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 		} else if (save_device && !strcmp(save_device, "SRAM")) {
 			process_sram_def(key, state);
 		}
+		uint32_t prev_chunks = state->info->map_chunks;
 		state->info->map_chunks += 4;
 		state->info->map = realloc(state->info->map, sizeof(memmap_chunk) * state->info->map_chunks);
+		memset(state->info->map + prev_chunks, 0, sizeof(memmap_chunk) * (state->info->map_chunks - prev_chunks));
 		map = state->info->map + state->index;
 		map[0].start = 0;
 		map[0].end = 0x400;
@@ -1216,17 +1584,17 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 		map[1].start = 0x400;
 		map[1].end = 0x4000;
 		map[1].mask = 0x3FFF;
-		map[1].ptr_index = 0;
+		map[1].ptr_index = state->info->mapper_start_index;
 		map[1].flags = MMAP_READ|MMAP_PTR_IDX|MMAP_CODE;
 		map[2].start = 0x4000;
 		map[2].end = 0x8000;
 		map[2].mask = 0x3FFF;
-		map[2].ptr_index = 1;
+		map[2].ptr_index = state->info->mapper_start_index + 1;
 		map[2].flags = MMAP_READ|MMAP_PTR_IDX|MMAP_CODE;
 		map[3].start = 0x8000;
 		map[3].end = 0xC000;
 		map[3].mask = 0x3FFF;
-		map[3].ptr_index = 2;
+		map[3].ptr_index = state->info->mapper_start_index + 2;
 		if (state->info->save_type == RAM_FLAG_ODD || state->info->save_type == RAM_FLAG_EVEN) {
 			map[3].write_8 = sms_cart_ram_write;
 		}
@@ -1236,6 +1604,30 @@ void map_iter_fun_sms(char *key, tern_val val, uint8_t valtype, void *data)
 		map[4].mask = 3;
 		map[4].flags = MMAP_READ;
 		map[4].write_8 = sms_sega_mapper_write;
+		state->index += 5;
+	} else if (!strcmp(dtype, "Super Game 30")) {
+		state->info->mapper_type = MAPPER_SMS_SUPER_GAME_30;
+		state->info->mapper_start_index = state->ptr_index;
+		state->ptr_index += 3;
+		uint32_t prev_chunks = state->info->map_chunks;
+		state->info->map_chunks += 3;
+		state->info->map = realloc(state->info->map, sizeof(memmap_chunk) * state->info->map_chunks);
+		memset(state->info->map + prev_chunks, 0, sizeof(memmap_chunk) * (state->info->map_chunks - prev_chunks));
+		map = state->info->map + state->index;
+		for (int i = 0; i < 3; i++)
+		{
+			map[i].start = i * 0x4000;
+			map[i].end = map[i].start + 0x4000;
+			map[i].mask = i ? 0x3FFF : 0xFFFF;
+			map[i].ptr_index = state->info->mapper_start_index + i;
+			map[i].flags = MMAP_READ|MMAP_PTR_IDX|MMAP_CODE;
+ 		}
+		map[3].start = 0xFFF0;
+		map[3].end = 0x10000;
+		map[3].mask = 0xF;
+		map[3].flags = MMAP_READ;
+		map[3].write_8 = super_game_30_write;
+		state->index += 4;
 	} else {
 		fatal_error("Invalid device type %s for ROM DB map entry %d with address %s\n", dtype, state->index, key);
 	}

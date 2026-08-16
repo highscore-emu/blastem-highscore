@@ -17,6 +17,7 @@
 #include <errno.h>
 #include "event_log.h"
 #include "util.h"
+#include "net.h"
 #include "blastem.h"
 #include "saves.h"
 #include "zlib/zlib.h"

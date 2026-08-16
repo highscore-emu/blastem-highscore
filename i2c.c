@@ -248,3 +248,117 @@ uint8_t read_eeprom_i2c_b(uint32_t address, void * context)
 	}
 	return ret;
 }
+
+void *s32x_write_eeprom_i2c_w(uint32_t address, void *vcontext, uint16_t value)
+{
+	genesis_context *gen = ((m68k_context *)vcontext)->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			set_scl(&gen->eeprom, (value & 0x100) != 0);
+			set_host_sda(&gen->eeprom, (value & 0x01) != 0);
+		}
+	}
+	return vcontext;
+}
+
+void *s32x_write_eeprom_i2c_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	genesis_context *gen = ((m68k_context *)vcontext)->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			if (address & 1) {
+				set_host_sda(&gen->eeprom, (value & 0x01) != 0);
+			} else {
+				set_scl(&gen->eeprom, (value & 0x1) != 0);
+			}
+		}
+	}
+	return vcontext;
+}
+
+uint16_t s32x_read_eeprom_i2c_w(uint32_t address, void *vcontext)
+{
+	genesis_context *gen = ((m68k_context *)vcontext)->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			address &= 0xFFFFE;
+			address |= mars->regs[S32X_CART_BANK] << 20 & 0x300000;
+			if (address >= 0x200000) {
+				return (gen->cart[address >> 1] & 0xFFFE) | get_sda(&gen->eeprom);
+			} else {
+				return gen->cart[address >> 1];
+			}
+		}
+	}
+	return 0xFFFF;
+}
+
+uint8_t s32x_read_eeprom_i2c_b(uint32_t address, void *vcontext)
+{
+	uint16_t val = s32x_read_eeprom_i2c_w(address, vcontext);
+	return address & 1 ? val : val >> 8;
+}
+
+void *s32x_write_eeprom_i2c_low_w(uint32_t address, void *vcontext, uint16_t value)
+{
+	genesis_context *gen = ((m68k_context *)vcontext)->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return vcontext;
+		}
+	}
+	set_scl(&gen->eeprom, (value & 0x100) != 0);
+	set_host_sda(&gen->eeprom, (value & 0x01) != 0);
+	return vcontext;
+}
+
+void *s32x_write_eeprom_i2c_low_b(uint32_t address, void *vcontext, uint8_t value)
+{
+	genesis_context *gen = ((m68k_context *)vcontext)->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return vcontext;
+		}
+	}
+	if (address & 1) {
+		set_host_sda(&gen->eeprom, (value & 0x01) != 0);
+	} else {
+		set_scl(&gen->eeprom, (value & 0x01) != 0);
+	}
+	return vcontext;
+}
+
+uint16_t s32x_read_eeprom_i2c_low_w(uint32_t address, void *vcontext)
+{
+	genesis_context *gen = ((m68k_context *)vcontext)->system;
+	s32x *mars = gen->mars;
+	if (mars->regs[S32X_ADAPT_CTRL] & BIT_ADEN_M68K) {
+		//32X hardware enabled
+		if (!(mars->regs[S32X_DREQ_CTRL] & BIT_DREQ_RV)) {
+			//cart is mapped high
+			return 0xFFFF;
+		}
+	}
+	return (gen->cart[address >> 1] & 0xFFFE) | get_sda(&gen->eeprom);
+}
+
+uint8_t s32x_read_eeprom_i2c_low_b(uint32_t address, void *vcontext)
+{
+	uint16_t val = s32x_read_eeprom_i2c_low_w(address & 0xFFFFFE, vcontext);
+	return address & 1 ? val : val >> 8;
+}

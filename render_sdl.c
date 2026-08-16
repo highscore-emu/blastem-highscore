@@ -969,6 +969,44 @@ static uint8_t has_event_handler(SDL_Window *win)
 	return 0;
 }
 
+static uint8_t main_is_relative;
+static uint8_t main_has_focus;
+void render_relative_mouse(uint8_t enabled)
+{
+	main_is_relative = enabled;
+	if (main_has_focus) {
+		SDL_SetRelativeMouseMode(enabled);
+	}
+}
+
+
+
+#ifndef DISABLE_OPENGL
+static void gl_set_vsync(const char *vsync)
+{
+	SDL_GL_MakeCurrent(main_window, main_context);
+	if (!strcmp("tear", vsync)) {
+		if (SDL_GL_SetSwapInterval(-1) < 0) {
+			warning("late tear is not available (%s), using normal vsync\n", SDL_GetError());
+			vsync = "on";
+		} else {
+			vsync = NULL;
+		}
+	}
+	if (vsync) {
+		if (SDL_GL_SetSwapInterval(!strcmp("on", vsync)) < 0) {
+#ifdef __ANDROID__
+			debug_message("Failed to set vsync to %s: %s\n", vsync, SDL_GetError());
+#else
+			warning("Failed to set vsync to %s: %s\n", vsync, SDL_GetError());
+#endif
+		}
+	} else {
+		printf("vsync not set, SDL_GL_SetSwapInterval not called\n");
+	}
+}
+#endif
+
 static int32_t handle_event(SDL_Event *event)
 {
 	SDL_Window *event_win = NULL;
@@ -1057,7 +1095,11 @@ static int32_t handle_event(SDL_Event *event)
 	case SDL_FINGERMOTION:
 	case SDL_FINGERDOWN:
 	case SDL_FINGERUP:
+#if SDL_VERSION_ATLEAST(2, 0, 12)
 		event_win = SDL_GetWindowFromID(event->tfinger.windowID);
+#else
+		event_win = main_window;
+#endif
 		break;
 	case SDL_WINDOWEVENT:
 		switch (event->window.event)
@@ -1067,6 +1109,13 @@ static int32_t handle_event(SDL_Event *event)
 				break;
 			}
 			need_ui_fb_resize = 1;
+			const char *vsync;
+			if (sync_src == SYNC_AUDIO) {
+				tern_val def = {.ptrval = "off"};
+				vsync = tern_find_path_default(config, "video\0vsync\0", def, TVAL_PTR).ptrval;
+			} else {
+				vsync = "on";
+			}
 #ifndef DISABLE_OPENGL
 			if (render_gl) {
 				SDL_GL_MakeCurrent(main_window, main_context);
@@ -1078,6 +1127,7 @@ static int32_t handle_event(SDL_Event *event)
 				main_context = SDL_GL_CreateContext(main_window);
 				SDL_GL_GetDrawableSize(main_window, &main_width, &main_height);
 				update_aspect();
+				gl_set_vsync(vsync);
 				gl_setup();
 				if (on_context_created) {
 					on_context_created();
@@ -1096,6 +1146,18 @@ static int32_t handle_event(SDL_Event *event)
 			}
 			ui_scale_x = (float)main_width / (float)event->window.data1;
 			ui_scale_y = (float)main_height / (float)event->window.data2;
+			break;
+		case SDL_WINDOWEVENT_ENTER:
+			main_has_focus = main_window && SDL_GetWindowID(main_window) == event->window.windowID;
+			if (main_is_relative) {
+				SDL_SetRelativeMouseMode(main_has_focus);
+			}
+			break;
+		case SDL_WINDOWEVENT_LEAVE:
+			main_has_focus = !(main_window && SDL_GetWindowID(main_window) == event->window.windowID);
+			if (main_is_relative && main_has_focus) {
+				SDL_SetRelativeMouseMode(0);
+			}
 			break;
 		case SDL_WINDOWEVENT_CLOSE:
 			if (main_window && SDL_GetWindowID(main_window) == event->window.windowID) {
@@ -1369,24 +1431,7 @@ static void window_setup(void)
 		if (res == GLEW_OK && GLEW_VERSION_2_0) {
 #endif
 			render_gl = 1;
-			SDL_GL_MakeCurrent(main_window, main_context);
-			if (!strcmp("tear", vsync)) {
-				if (SDL_GL_SetSwapInterval(-1) < 0) {
-					warning("late tear is not available (%s), using normal vsync\n", SDL_GetError());
-					vsync = "on";
-				} else {
-					vsync = NULL;
-				}
-			}
-			if (vsync) {
-				if (SDL_GL_SetSwapInterval(!strcmp("on", vsync)) < 0) {
-#ifdef __ANDROID__
-					debug_message("Failed to set vsync to %s: %s\n", vsync, SDL_GetError());
-#else
-					warning("Failed to set vsync to %s: %s\n", vsync, SDL_GetError());
-#endif
-				}
-			}
+			gl_set_vsync(vsync);
 			SDL_GL_GetDrawableSize(main_window, &main_width, &main_height);
 		} else {
 			warning("OpenGL 2.0 is unavailable, falling back to SDL2 renderer\n");
@@ -2519,6 +2564,17 @@ void render_set_frame_presented_fun(ui_render_fun fun)
 
 void render_update_display()
 {
+	static uint8_t last_was_paused;
+	if (current_system) {
+		if (current_system->paused && !last_was_paused) {
+			if (!fps_caption) {
+				fps_caption = malloc(strlen(caption) + strlen(" - 100000000.1 fps") + 1);
+			}
+			sprintf(fps_caption, "%s - PAUSED", caption);
+			SDL_SetWindowTitle(main_window, fps_caption);
+		}
+		last_was_paused = current_system->paused;
+	}
 #ifndef DISABLE_OPENGL
 	if (render_gl) {
 		SDL_GL_MakeCurrent(main_window, main_context);

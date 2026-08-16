@@ -35,6 +35,7 @@ regs
 	pmc3 8 #port 3 pin configuration
 	cr00 16 #16-bit timer comapre register 0
 	cr01 16 #16-bit timer compare register 1
+	cr02 16 #16-bit timer capture register 2
 	crc0 8 #Capture/compare control register 0
 	tm0 16 #16-bit timer register 0
 	tm0_cycle 32
@@ -58,6 +59,10 @@ regs
 	ism0 16 #Interrupt service mode specification flag register
 	intm0 8 #External interrupt mode register 0
 	intm1 8 #External interrupt mode register 1
+	edge_cycles 32 7
+	edge_int 8 7
+	edge_value 8 7
+	edge_next ptrupd_edge_fun 7
 	ist 8 #Interrupt status register
 	io_read ptrupd_io_fun
 	io_write ptrupd_io_write_fun
@@ -81,11 +86,14 @@ declare
 	upd78k2_context *init_upd78k2_context(upd78k2_options *opts);
 	void upd78k2_sync_cycle(upd78k2_context *upd, uint32_t target_cycle);
 	typedef void (upd_io_fun)(upd78k2_context *upd, uint8_t offset);
-	typedef void (upd_io_write_fun)(upd78k2_context *upd, uint8_t offset, uint8_t value);
+	typedef void (upd_io_write_fun)(upd78k2_context *upd, uint8_t offset, uint8_t value, uint8_t mode);
+	typedef void (upd_edge_fun)(upd78k2_context *upd, uint8_t offset, uint32_t cycle);
 	void upd78k2_adjust_cycles(upd78k2_context *upd, uint32_t deduction);
+	void upd78k2_schedule_port2_transition(upd78k2_context *upd, uint32_t cycle, uint8_t bit, uint8_t level, upd_edge_fun *next_transition);
 	typedef void (upd_fun)(upd78k2_context *upd);
 	void upd78k2_insert_breakpoint(upd78k2_context *upd, uint32_t address, upd_fun *handler);
 	void upd78k2_remove_breakpoint(upd78k2_context *upd, uint32_t address);
+	void upd78k2_calc_next_int(upd78k2_context *upd);
 
 #Prefix bytes
 # 0000 0001 -> saddr becomes sfr, mem becomes &mem
@@ -910,7 +918,7 @@ muldiv 00011RRR divuw
 muldiv 1110001R movw_ax_mem
 	local address 16
 	local reg 8
-	reg = R << 2
+	reg = R << 1
 	reg |= 5
 	address = main.reg << 8
 	reg -= 1
@@ -924,7 +932,7 @@ muldiv 1110001R movw_ax_mem
 muldiv 1110011R movw_mem_ax
 	local address 16
 	local reg 8
-	reg = R << 2
+	reg = R << 1
 	reg |= 5
 	address = main.reg << 8
 	reg -= 1
@@ -999,20 +1007,30 @@ spmov 11110001 mov_abs_a
 00010001 movw_ax_sfr
 	local offset 8
 	upd78k2_op_fetch
-	offset = scratch1
-	sfr_read offset
-	x = scratch1
-	offset += 1
-	sfr_read offset
-	a = scratch1
+	if scratch1 = 0xFC
+		x = sp
+		a = sp >> 8
+	else
+		offset = scratch1
+		sfr_read offset
+		x = scratch1
+		offset += 1
+		sfr_read offset
+		a = scratch1
+	end
 
 00010011 movw_sfr_ax
 	local offset 8
 	upd78k2_op_fetch
 	offset = scratch1
-	sfr_write offset x
-	offset += 1
-	sfr_write offset a
+	if scratch1 = 0xFC
+		sp = a << 8
+		sp |= x
+	else
+		sfr_write offset x
+		offset += 1
+		sfr_write offset a
+	end
 	
 xch_reg 0DDD0SSS xch_r_r
 	xchg main.D main.S
@@ -1125,6 +1143,12 @@ bit1 11010BBB btclr_psw
 	if !=
 		mask = ~mask
 		psw &= mask
+		if B = 7
+			update_sync
+		end
+		if B = 1
+			update_sync
+		end
 		sext 16 scratch1 scratch1
 		pc += scratch1
 	end
@@ -1339,6 +1363,18 @@ muldiv 01011PP0 call_rp
 	rp -= 1
 	word |= main.rp
 	push_word word
+
+01000011 pop_sfr
+	local offset 8
+	upd78k2_op_fetch
+	offset = scratch1
+	pop_byte
+	sfr_write offset scratch1
+
+00101001 push_sfr
+	upd78k2_op_fetch
+	sfr_read scratch1
+	push_byte scratch1
 
 muldiv 101010NN sel
 	local offset 8
@@ -1685,6 +1721,15 @@ sfrbit 10011BBB clr1_sfr
 	scratch1 &= mask
 	saddr_write offset scratch1
 
+01000000 clr1_cy
+	update_flags C0
+
+01000001 set1_cy
+	update_flags C1
+
+01000010 not1_cy
+	chflags ^= 0x80
+
 01010111 reti
 	meta dst pc
 	pop_word
@@ -1693,10 +1738,42 @@ sfrbit 10011BBB clr1_sfr
 	update_sync
 	cycles 18 #exact penalty beyond raw fetches/stack push is a bit unclear
 
+shr 00NNNRRR rorc_r
+	local cyc 32
+	rrc main.R N main.R
+	update_flags C
+	cyc = 4 * N
+	cyc += 2
+	cycles cyc
+
+shr 01NNNRRR ror_r
+	local cyc 32
+	ror main.R N main.R
+	update_flags C
+	cyc = 4 * N
+	cyc += 2
+	cycles cyc
+
 shr 10NNNRRR shr_r
 	local cyc 32
 	main.R >>= N
 	update_flags ZA0C
+	cyc = 4 * N
+	cyc += 2
+	cycles cyc
+
+shl 00NNNRRR rolc_r
+	local cyc 32
+	rlc main.R N main.R
+	update_flags C
+	cyc = 4 * N
+	cyc += 2
+	cycles cyc
+
+shl 01NNNRRR rol_r
+	local cyc 32
+	rol main.R N main.R
+	update_flags C
 	cyc = 4 * N
 	cyc += 2
 	cycles cyc
@@ -1745,14 +1822,20 @@ shl 11NNNRRR shlw_rp
 
 upd78k2_interrupt
 	local vector_addr 16
+	local pending 16
 	if cycles >=U int_cycle
 		update_sync
 		if int_enable
-			scratch1 = ~mk0
-			scratch1 &= if0
+			pending = ~mk0
+			if int_priority_flag = 0
+				scratch1 = ~pr0
+				pending &= scratch1
+			end
+			pending &= if0
 			if !=
 				push_byte psw
 				push_word pc
+				scratch1 = pending
 				ocall calc_vector
 				vector_addr = scratch1
 				mem_read_no_exp vector_addr

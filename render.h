@@ -13,6 +13,8 @@
 #include "special_keys_evdev.h"
 #define render_relative_mouse(V)
 #else
+//avoid main getting #defined places we don't want it
+#define SDL_MAIN_HANDLED
 #include <SDL.h>
 #define RENDERKEY_UP       SDLK_UP
 #define RENDERKEY_DOWN     SDLK_DOWN
@@ -66,7 +68,7 @@
 #define RENDER_DPAD_DOWN   SDL_HAT_DOWN
 #define RENDER_DPAD_LEFT   SDL_HAT_LEFT
 #define RENDER_DPAD_RIGHT  SDL_HAT_RIGHT
-#define render_relative_mouse SDL_SetRelativeMouseMode
+void render_relative_mouse(uint8_t enabled);
 typedef SDL_Thread* render_thread;
 #endif
 #else

@@ -320,7 +320,6 @@ void cd_graphics_run(segacd_context *cd, uint32_t cycle)
 			{
 			}
 			if (cd->graphics_cycle >= cd->graphics_int_cycle) {
-				printf("graphics end %u\n", cd->graphics_cycle);
 				cd->gate_array[GA_STAMP_SIZE] &= ~BIT_GRON;
 				
 				if (cd->graphics_debug_window) {
@@ -347,7 +346,6 @@ void cd_graphics_start(segacd_context *cd)
 		uint16_t pm = cd->gate_array[1] >> 3 & 3;
 		cd->graphics_int_cycle = cd->graphics_cycle + 4 * lines * (13 + 2 * hoffset + 9 * (hdots + hoffset - 1));
 		cd->graphics_dst_y = cd->gate_array[GA_IMAGE_BUFFER_OFFSET] >> 3;
-		printf("graphics start @ %u, %u lines, %u hdots, pm = %u, hoff = %u, voff = %u, addr = %X\n", cd->graphics_cycle, lines, hdots, pm, hoffset, cd->graphics_dst_y, cd->gate_array[GA_IMAGE_BUFFER_START]);
 		cd->graphics_step = FETCH_X;
 	} else {
 		printf("graphics start ignored @ %u\n", cd->graphics_cycle);

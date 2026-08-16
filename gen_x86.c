@@ -27,6 +27,7 @@
 #define OP_XOR 0x30
 #define OP_CMP 0x38
 #define PRE_REX 0x40
+#define OP_DEC 0x48
 #define OP_PUSH 0x50
 #define OP_POP 0x58
 #define OP_MOVSXD 0x63
@@ -53,9 +54,17 @@
 #define OP_CALL 0xE8
 #define OP_JMP 0xE9
 #define OP_JMP_BYTE 0xEB
+#define PREFIX_REP 0xF2
+#define PRE_SCALAR_DOUBLE PREFIX_REP
+#define PREFIX_REPZ 0xF3
+#define PRE_SCALAR_SINGLE PREFIX_REPZ
 #define OP_NOT_NEG 0xF6
+#define OP_INC_DEC 0xFE
 #define OP_SINGLE_EA 0xFF
 
+#define OP2_MOVD 0x6E
+#define OP2_PSHUFW 0x70
+#define OP2_EMMS 0x77
 #define OP2_JCC 0x80
 #define OP2_SETCC 0x90
 #define OP2_BT 0xA3
@@ -104,6 +113,7 @@
 #define OP_EX_JMP_EA  0x4
 #define OP_EX_PUSH_EA 0x6
 
+#define BIT_DIR_MMX 0x10
 #define BIT_IMMED_RAX 0x4
 #define BIT_DIR 0x2
 #define BIT_SIZE 0x1
@@ -320,7 +330,7 @@ void x86_rrdisp_sizedir(code_info *code, uint16_t opcode, uint8_t reg, uint8_t b
 		*(out++) = opcode;
 	}
 	if (disp < 128 && disp >= -128) {
-	*(out++) = MODE_REG_DISPLACE8 | base | (reg << 3);
+		*(out++) = MODE_REG_DISPLACE8 | base | (reg << 3);
 	} else {
 		*(out++) = MODE_REG_DISPLACE32 | base | (reg << 3);
 	}
@@ -330,16 +340,16 @@ void x86_rrdisp_sizedir(code_info *code, uint16_t opcode, uint8_t reg, uint8_t b
 	}
 	*(out++) = disp;
 	if (disp >= 128 || disp < -128) {
-	*(out++) = disp >> 8;
-	*(out++) = disp >> 16;
-	*(out++) = disp >> 24;
+		*(out++) = disp >> 8;
+		*(out++) = disp >> 16;
+		*(out++) = disp >> 24;
 	}
 	code->cur = out;
 }
 
-void x86_rrind_sizedir(code_info *code, uint8_t opcode, uint8_t reg, uint8_t base, uint8_t size, uint8_t dir)
+void x86_rrind_sizedir(code_info *code, uint16_t opcode, uint8_t reg, uint8_t base, uint8_t size, uint8_t dir)
 {
-	check_alloc_code(code, 5);
+	check_alloc_code(code, opcode >= 0x100 ? 6 : 5);
 	code_ptr out = code->cur;
 	//TODO: Deal with the fact that AH, BH, CH and DH can only be in the R/M param when there's a REX prefix
 	uint8_t tmp;
@@ -375,7 +385,12 @@ void x86_rrind_sizedir(code_info *code, uint8_t opcode, uint8_t reg, uint8_t bas
 	} else {
 		opcode |= BIT_SIZE;
 	}
-	*(out++) = opcode | dir;
+	if (opcode >= 0x100) {
+		*(out++) = opcode >> 8;
+		*(out++) = opcode | dir;
+	} else {
+		*(out++) = opcode | dir;
+	}
 	if (base == RBP) {
 		//add a dummy 8-bit displacement since MODE_REG_INDIRECT with
 		//an R/M field of RBP selects RIP, relative addressing
@@ -438,7 +453,7 @@ void x86_rrindex_sizedir(code_info *code, uint8_t opcode, uint8_t reg, uint8_t b
 	if (scale == 4) {
 		scale = 2;
 	} else if(scale == 8) {
-			scale = 3;
+		scale = 3;
 	} else {
 		scale--;
 	}
@@ -2058,7 +2073,7 @@ void call_raxfallback(code_info *code, code_ptr fun)
 		*(out++) = disp;
 		code->cur = out;
 	} else {
-		mov_ir(code, (int64_t)fun, RAX, SZ_PTR);
+		mov_ir(code, (intptr_t)fun, RAX, SZ_PTR);
 		call_r(code, RAX);
 	}
 }
@@ -2111,6 +2126,301 @@ void loop(code_info *code, code_ptr dst)
 	ptrdiff_t disp = dst-(out+2);
 	*(out++) = OP_LOOP;
 	*(out++) = disp;
+	code->cur = out;
+}
+
+void dec_r(code_info *code, uint8_t dst, uint8_t size)
+{
+#ifdef X86_32
+	if (size != SZ_B) {
+		check_alloc_code(code, 2);
+		code_ptr out = code->cur;
+		if (size == SZ_Q || dst >= R8) {
+			fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X, reg: %s, size: %s\n", OP_DEC, x86_reg_names[dst], x86_sizes[size]);
+		}
+		if (size == SZ_W) {
+			*(out++) = PRE_SIZE;
+		}
+		*(out++) = OP_DEC + dst;
+		code->cur = out;
+	} else {
+#endif
+		x86_r_size(code, OP_INC_DEC, OP_EX_DEC, dst, size);
+#ifdef X86_32
+	}
+#endif
+}
+
+void movdqa_rrind(code_info *code, uint8_t src, uint8_t dst)
+{
+	check_alloc_code(code, 6);
+	code_ptr out = code->cur;
+	*(out++) = PRE_SIZE;
+	if (src >= XMM8 || dst >= R8) {
+#ifdef X86_64
+		*out = PRE_REX;
+		if (src >= XMM8) {
+			*out |= REX_REG_FIELD;
+			src -= (XMM8 - XMM0);
+		}
+		if (dst >= R8) {
+			*out |= REX_RM_FIELD;
+			dst -= (R8 - X86_R8);
+		}
+		out++;
+#else
+		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s, size: %s\n", PRE_SIZE, PRE_2BYTE, OP2_MOVD, src, x86_reg_names[dst]);
+#endif
+	}
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_MOVD | BIT_SIZE | BIT_DIR_MMX;
+	if (dst == RBP) {
+		//add a dummy 8-bit displacement since MODE_REG_INDIRECT with
+		//an R/M field of RBP selects RIP, relative addressing
+		*(out++) = MODE_REG_DISPLACE8 | dst | (src << 3);
+		*(out++) = 0;
+	} else {
+		*(out++) = MODE_REG_INDIRECT | dst | (src << 3);
+		if (dst == RSP) {
+			//add SIB byte, with no index and RSP as base
+			*(out++) = (RSP << 3) | RSP;
+		}
+	}
+	code->cur = out;
+}
+
+void pshuflw_rindr(code_info *code, uint8_t src, uint8_t dst, uint8_t shuff)
+{
+	check_alloc_code(code, 7);
+	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_DOUBLE;
+	if (dst >= XMM8 || src >= R8) {
+#ifdef X86_64
+		*out = PRE_REX;
+		if (dst >= XMM8) {
+			*out |= REX_REG_FIELD;
+			dst -= (XMM8 - XMM0);
+		}
+		if (src >= R8) {
+			*out |= REX_RM_FIELD;
+			src -= (R8 - X86_R8);
+		}
+		out++;
+#else
+		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_DOUBLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
+#endif
+	}
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_PSHUFW;
+	if (src == RBP) {
+		//add a dummy 8-bit displacement since MODE_REG_INDIRECT with
+		//an R/M field of RBP selects RIP, relative addressing
+		*(out++) = MODE_REG_DISPLACE8 | src | (dst << 3);
+		*(out++) = 0;
+	} else {
+		*(out++) = MODE_REG_INDIRECT | src | (dst << 3);
+		if (src == RSP) {
+			//add SIB byte, with no index and RSP as base
+			*(out++) = (RSP << 3) | RSP;
+		}
+	}
+	*(out)++ = shuff;
+	code->cur = out;
+}
+
+void pshuflw_rdispr(code_info *code, uint8_t src, int32_t src_disp, uint8_t dst, uint8_t shuff)
+{
+	check_alloc_code(code, 11);
+	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_DOUBLE;
+	if (dst >= XMM8 || src >= R8) {
+#ifdef X86_64
+		*out = PRE_REX;
+		if (dst >= XMM8) {
+			*out |= REX_REG_FIELD;
+			dst -= (XMM8 - XMM0);
+		}
+		if (src >= R8) {
+			*out |= REX_RM_FIELD;
+			src -= (R8 - X86_R8);
+		}
+		out++;
+#else
+		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_DOUBLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
+#endif
+	}
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_PSHUFW;
+	if (src_disp < 128 && src_disp >= -128) {
+		*(out++) = MODE_REG_DISPLACE8 | src | (dst << 3);
+	} else {
+		*(out++) = MODE_REG_DISPLACE32 | src | (dst << 3);
+	}
+	if (src == RSP) {
+		//add SIB byte, with no index and RSP as base
+		*(out++) = (RSP << 3) | RSP;
+	}
+	*(out++) = src_disp;
+	if (src_disp >= 128 || src_disp < -128) {
+		*(out++) = src_disp >> 8;
+		*(out++) = src_disp >> 16;
+		*(out++) = src_disp >> 24;
+	}
+	*(out++) = shuff;
+	code->cur = out;
+}
+
+void pshuflw_rindexr(code_info *code, uint8_t src_base, uint8_t src_index, uint8_t scale, uint8_t dst, uint8_t shuff)
+{
+	check_alloc_code(code, 7);
+	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_DOUBLE;
+	if (dst >= XMM8 || src_base >= R8) {
+#ifdef X86_64
+		*out = PRE_REX;
+		if (dst >= XMM8) {
+			*out |= REX_REG_FIELD;
+			dst -= (XMM8 - XMM0);
+		}
+		if (src_base >= R8) {
+			*out |= REX_RM_FIELD;
+			src_base -= (R8 - X86_R8);
+		}
+		out++;
+#else
+		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_DOUBLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src_base]);
+#endif
+	}
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_PSHUFW;
+	*(out++) = MODE_REG_INDIRECT | RSP | (dst << 3);
+	if (scale == 4) {
+		scale = 2;
+	} else if(scale == 8) {
+		scale = 3;
+	} else {
+		scale--;
+	}
+	*(out++) = scale << 6 | (src_index << 3) | src_base;
+	*(out++) = shuff;
+	code->cur = out;
+}
+
+void pshufhw_rr(code_info *code, uint8_t src, uint8_t dst, uint8_t shuff)
+{
+	check_alloc_code(code, 6);
+	code_ptr out = code->cur;
+	*(out++) = PRE_SCALAR_SINGLE;
+	if (dst >= XMM8 || src >= R8) {
+#ifdef X86_64
+		*out = PRE_REX;
+		if (dst >= XMM8) {
+			*out |= REX_REG_FIELD;
+			dst -= (XMM8 - XMM0);
+		}
+		if (src >= R8) {
+			*out |= REX_RM_FIELD;
+			src -= (R8 - X86_R8);
+		}
+		out++;
+#else
+		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X:%X, reg: XMM%d, base: %s\n", PRE_SCALAR_SINGLE, PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
+#endif
+	}
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_PSHUFW;
+	*(out++) = MODE_REG_DIRECT | src | (dst << 3);
+	*(out++) = shuff;
+	code->cur = out;
+}
+
+void pshufw_rindr(code_info *code, uint8_t src, uint8_t dst, uint8_t shuff)
+{
+	check_alloc_code(code, 6);
+	code_ptr out = code->cur;
+	if (src >= R8) {
+#ifdef X86_64
+		*out = PRE_REX;
+		if (src >= R8) {
+			*out |= REX_RM_FIELD;
+			src -= (R8 - X86_R8);
+		}
+		out++;
+#else
+		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X, reg: MM%d, base: %s\n", PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
+#endif
+	}
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_PSHUFW;
+	if (src == RBP) {
+		//add a dummy 8-bit displacement since MODE_REG_INDIRECT with
+		//an R/M field of RBP selects RIP, relative addressing
+		*(out++) = MODE_REG_DISPLACE8 | src | (dst << 3);
+		*(out++) = 0;
+	} else {
+		*(out++) = MODE_REG_INDIRECT | src | (dst << 3);
+		if (src == RSP) {
+			//add SIB byte, with no index and RSP as base
+			*(out++) = (RSP << 3) | RSP;
+		}
+	}
+	*(out)++ = shuff;
+	code->cur = out;
+}
+
+void pshufw_rdispr(code_info *code, uint8_t src, int32_t src_disp, uint8_t dst, uint8_t shuff)
+{
+	check_alloc_code(code, 10);
+	code_ptr out = code->cur;
+	if (src >= R8) {
+#ifdef X86_64
+		*out = PRE_REX;
+		if (src >= R8) {
+			*out |= REX_RM_FIELD;
+			src -= (R8 - X86_R8);
+		}
+		out++;
+#else
+		fatal_error("Instruction requires REX prefix but this is a 32-bit build | opcode: %X:%X, reg: MM%d, base: %s\n", PRE_2BYTE, OP2_PSHUFW, dst, x86_reg_names[src]);
+#endif
+	}
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_PSHUFW;
+	if (src_disp < 128 && src_disp >= -128) {
+		*(out++) = MODE_REG_DISPLACE8 | src | (dst << 3);
+	} else {
+		*(out++) = MODE_REG_DISPLACE32 | src | (dst << 3);
+	}
+	if (src == RSP) {
+		//add SIB byte, with no index and RSP as base
+		*(out++) = (RSP << 3) | RSP;
+	}
+	*(out++) = src_disp;
+	if (src_disp >= 128 || src_disp < -128) {
+		*(out++) = src_disp >> 8;
+		*(out++) = src_disp >> 16;
+		*(out++) = src_disp >> 24;
+	}
+	*(out++) = shuff;
+	code->cur = out;
+}
+
+void movq_rrind(code_info *code, uint8_t src, uint8_t dst)
+{
+	x86_rrind_sizedir(code, OP2_MOVD | (PRE_2BYTE << 8), src, dst, SZ_D, BIT_DIR_MMX);
+}
+
+void movq_rrdisp(code_info *code, uint8_t src, uint8_t dst, int32_t dst_disp)
+{
+	x86_rrdisp_sizedir(code, OP2_MOVD | (PRE_2BYTE << 8), src, dst, dst_disp, SZ_D, BIT_DIR_MMX);
+}
+
+void emms(code_info *code)
+{
+	check_alloc_code(code, 2);
+	code_ptr out = code->cur;
+	*(out++) = PRE_2BYTE;
+	*(out++) = OP2_EMMS;
 	code->cur = out;
 }
 
@@ -2342,4 +2652,44 @@ uint32_t x86_inst_size(code_ptr start)
 	}
 
 	return code-start;
+}
+
+static uint8_t did_feature_detect;
+static uint8_t has_sse2;
+static uint8_t has_popcnt;
+static void cpu_feature_detect(void)
+{
+	if (did_feature_detect) {
+		return;
+	}
+	did_feature_detect = 1;
+#if defined(_MSC_VER) && !defined(__llvm__)
+	int info[4];
+	__cpuid(info, 0);
+	if (info[0] >= 1) {
+		__cpuid(info, 1);
+		has_sse2 = !!(info[3] & (1 << 26));
+		has_popcnt = !!(info[2] & (1 << 23));
+	}
+#else
+	__builtin_cpu_init();
+	has_sse2 = __builtin_cpu_supports("sse2");
+	has_popcnt = __builtin_cpu_supports("popcnt");
+#endif
+}
+
+uint8_t cpu_has_sse2(void)
+{
+#ifdef X86_64
+	return 1;
+#else
+	cpu_feature_detect();
+	return has_sse2;
+#endif
+}
+
+uint8_t cpu_has_popcnt(void)
+{
+	cpu_feature_detect();
+	return has_popcnt;
 }

@@ -26,6 +26,8 @@ z80.c
 z80.h
 m68k.c
 m68k.h
+sh2.c
+sh2.h
 android/.gradle
 android/app/build
 android/app/jni/SDL

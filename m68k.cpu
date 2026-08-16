@@ -68,7 +68,7 @@ regs
 	reset_handler ptrvoid
 	int_ack_handler ptrvoid
 	sync_components ptrsync_fun
-	mem_pointers ptr16 10
+	mem_pointers ptr16 12
 	read16 interp_read_16 256
 	read8 interp_read_8 256
 	write16 interp_write_16 256

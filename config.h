@@ -8,6 +8,16 @@
 #include "tern.h"
 #include "system.h"
 
+typedef void (*debug_callback)(void *data);
+
+enum {
+	CHOICE_NOT_SET,
+	CHOICE_FATAL,
+	CHOICE_ASK,
+	CHOICE_DEBUG,
+	CHOICE_IGNORE
+};
+
 tern_node *parse_config_file(char *config_path);
 tern_node *parse_bundled_config(char *config_name);
 tern_node *parse_config(char * config_data);
@@ -24,6 +34,8 @@ uint32_t get_lowpass_cutoff(tern_node *config);
 tern_node *get_systems_config(void);
 tern_node *get_model(tern_node *config, system_type stype);
 uint8_t is_config_in_exe_dir(tern_node *app_config);
+tern_node *set_machine_feeze_choice(tern_node *config, uint8_t choice);
+void machine_freeze(tern_node *config, debug_callback callback, void *data, char *format, ...);
 
 #endif //CONFIG_H_
 

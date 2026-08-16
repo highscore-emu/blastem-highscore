@@ -18,5 +18,13 @@ void * write_eeprom_i2c_w(uint32_t address, void * context, uint16_t value);
 void * write_eeprom_i2c_b(uint32_t address, void * context, uint8_t value);
 uint16_t read_eeprom_i2c_w(uint32_t address, void * context);
 uint8_t read_eeprom_i2c_b(uint32_t address, void * context);
+void *s32x_write_eeprom_i2c_w(uint32_t address, void *vcontext, uint16_t value);
+void *s32x_write_eeprom_i2c_b(uint32_t address, void *vcontext, uint8_t value);
+uint16_t s32x_read_eeprom_i2c_w(uint32_t address, void *vcontext);
+uint8_t s32x_read_eeprom_i2c_b(uint32_t address, void *vcontext);
+void *s32x_write_eeprom_i2c_low_w(uint32_t address, void *vcontext, uint16_t value);
+void *s32x_write_eeprom_i2c_low_b(uint32_t address, void *vcontext, uint8_t value);
+uint16_t s32x_read_eeprom_i2c_low_w(uint32_t address, void *vcontext);
+uint8_t s32x_read_eeprom_i2c_low_b(uint32_t address, void *vcontext);
 
 #endif //I2C_H_

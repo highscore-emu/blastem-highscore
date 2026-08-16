@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stddef.h>
 #include "vgm.h"
+#include "util.h"
 
 vgm_writer *vgm_write_open(char *filename, uint32_t rate, uint32_t clock, uint32_t cycle)
 {

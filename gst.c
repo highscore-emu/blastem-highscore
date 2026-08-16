@@ -7,6 +7,7 @@
 #include "gst.h"
 #include <string.h>
 #include <stdio.h>
+#include "util.h"
 
 #define GST_68K_REGS 0x80
 #define GST_68K_REG_SIZE (0xDA-GST_68K_REGS)

@@ -146,19 +146,19 @@ EM_JS(void, show_html_chooser, (const char *title, const char *extensions, int n
 				if (normal_open) {
 					prevPath = 'previousRomPath';
 				} else if (is_settings) {
-					prefix = '/firmware';
+					prefix = '/home/web_user/firmware';
 				} else {
 					prevPath = 'previousSpecialPath';
 				}
 				if (prevPath && window[prevPath]) {
 					FS.unlink(window[prevPath]);
 				} else {
-					FS.mkdir(prefix);
+					FS.mkdirTree(prefix);
 				}
 				
 				let buffer = new Uint8Array(event.target.result);
-				FS.createDataFile(prefix, name, buffer, true, false, false);
 				let fullPath = prefix + "/" + name;
+				FS.writeFile(fullPath, buffer);
 				if (prevPath) {
 					window[prevPath] = fullPath;
 				}
@@ -657,11 +657,13 @@ void view_key_bindings(struct nk_context *context)
 		"ui.next_speed", "ui.prev_speed",
 		"ui.set_speed.0", "ui.set_speed.1", "ui.set_speed.2" ,"ui.set_speed.3", "ui.set_speed.4",
 		"ui.set_speed.5", "ui.set_speed.6", "ui.set_speed.7" ,"ui.set_speed.8", "ui.set_speed.9",
+		"ui.pause", "ui.advance",
 	};
 	static const char *speed_names[] = {
 		"Next", "Previous",
 		"Default Speed", "Set Speed 1", "Set Speed 2", "Set Speed 3", "Set Speed 4",
-		"Set Speed 5", "Set Speed 6", "Set Speed 7", "Set Speed 8", "Set Speed 9"
+		"Set Speed 5", "Set Speed 6", "Set Speed 7", "Set Speed 8", "Set Speed 9",
+		"Pause", "Advance Frame"
 	};
 	static const char *debug_binds[] = {
 		"ui.enter_debugger", "ui.plane_debug", "ui.vram_debug", "ui.cram_debug",
@@ -820,6 +822,8 @@ const char *translate_binding_option(const char *option)
 		conf_names = tern_insert_ptr(conf_names, "ui.set_speed.9", "Set Speed 9");
 		conf_names = tern_insert_ptr(conf_names, "ui.next_speed", "Next Speed");
 		conf_names = tern_insert_ptr(conf_names, "ui.prev_speed", "Prev. Speed");
+		conf_names = tern_insert_ptr(conf_names, "ui.pause", "Pause");
+		conf_names = tern_insert_ptr(conf_names, "ui.advance", "Advance Frame");
 		conf_names = tern_insert_ptr(conf_names, "ui.toggle_fullscreen", "Toggle Fullscreen");
 		conf_names = tern_insert_ptr(conf_names, "ui.soft_reset", "Soft Reset");
 		conf_names = tern_insert_ptr(conf_names, "ui.reload", "Reload ROM");
@@ -908,7 +912,9 @@ static void view_button_binding(struct nk_context *context)
 		"ui.set_speed.6",
 		"ui.set_speed.7",
 		"ui.set_speed.8",
-		"ui.set_speed.9"
+		"ui.set_speed.9",
+		"ui.pause",
+		"ui.advance"
 	};
 
 	if (nk_begin(context, "Button Binding", nk_rect(0, 0, render_width(), render_height()), 0)) {
@@ -1928,7 +1934,7 @@ void settings_int_input(struct nk_context *context, char *label, char *path, cha
 	}
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, sizeof(buffer)-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, sizeof(buffer)-1, nk_filter_decimal);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, sizeof(buffer), nk_filter_decimal);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
@@ -1945,7 +1951,7 @@ void settings_string(struct nk_context *context, char *label, char *path, char *
 	char *buffer = malloc(buffer_len);
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, buffer_len-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len-1, nk_filter_default);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len, nk_filter_default);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
@@ -1959,11 +1965,11 @@ void settings_path(struct nk_context *context, char *label, char *path, char *de
 	nk_label(context, label, NK_TEXT_LEFT);
 	char *curstr = tern_find_path_default(config, path, (tern_val){.ptrval = def}, TVAL_PTR).ptrval;
 	uint32_t len = strlen(curstr);
-	uint32_t buffer_len = len > 100 ? len + 1 : 101;
+	uint32_t buffer_len = len > 260 ? len + 1 : 261;
 	char *buffer = malloc(buffer_len);
 	memcpy(buffer, curstr, len);
 	memset(buffer+len, 0, buffer_len-len);
-	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len-1, nk_filter_default);
+	nk_edit_string(context, NK_EDIT_SIMPLE, buffer, &len, buffer_len, nk_filter_default);
 	buffer[len] = 0;
 	if (strcmp(buffer, curstr)) {
 		config_dirty = 1;
@@ -2522,6 +2528,9 @@ void view_bios_settings(struct nk_context *context)
 		settings_path(context, "US CD BIOS", "system\0scd_bios_us\0", "cdbios.md", exts, 3);
 		settings_path(context, "JP CD BIOS", "system\0scd_bios_jp\0", "cdbios.md", exts, 3);
 		settings_path(context, "EU CD BIOS", "system\0scd_bios_eu\0", "cdbios.md", exts, 3);
+		settings_path(context, "32X Main SH2 BIOS", "system\0s32x_main_bios\0", "32X_M_BIOS.bin", exts, 3);
+		settings_path(context, "32X Sub SH2 BIOS", "system\0s32x_sub_bios\0", "32X_S_BIOS.bin", exts, 3);
+		settings_path(context, "32X 68K BIOS", "system\0s32x_68k_bios\0", "32X_G_BIOS.bin", exts, 3);
 		static const char* coleco_exts[] = {"col", "bin", "rom"};
 		settings_path(context, "Colecovision BIOS", "system\0coleco_bios_path\0", "colecovision_bios.col", coleco_exts, 3);
 		if (nk_button_label(context, "Back")) {
@@ -2553,6 +2562,45 @@ void view_settings(struct nk_context *context)
 
 	if (nk_begin(context, "Settings Menu", nk_rect(0, 0, render_width(), render_height()), 0)) {
 		menu(context, sizeof(items)/sizeof(*items), items, NULL);
+		nk_end(context);
+	}
+}
+
+static uint8_t machine_freeze_choice;
+static uint8_t machine_freeze_choice_remember;
+static const char *machine_freeze_msg;
+static void view_freeze_choice(struct nk_context *context)
+{
+	if (nk_begin(context, "Choose Machine Freeze Action", nk_rect(0, 0, render_width(), render_height()), 0)) {
+		nk_layout_row_static(context, context->style.font->height * 1.25f, render_width() - 4 * context->style.font->height, 1);
+		nk_label(context, "Content performed an action that would lock up real hardware.", NK_TEXT_LEFT);
+		nk_label(context, "Choose how to procede. Details of the error below:", NK_TEXT_LEFT);
+		nk_label(context, machine_freeze_msg, NK_TEXT_LEFT);
+		nk_label(context, "", NK_TEXT_LEFT);
+		nk_label(context, "Perform the chosen action...", NK_TEXT_LEFT);
+		if (nk_option_label(context, "This time only", machine_freeze_choice_remember == 0)) {
+			machine_freeze_choice_remember = 0;
+		}
+		if (nk_option_label(context, "For the rest of this session", machine_freeze_choice_remember == 1)) {
+			machine_freeze_choice_remember = 1;
+		}
+		if (nk_option_label(context, "Always", machine_freeze_choice_remember == 2)) {
+			machine_freeze_choice_remember = 2;
+		}
+		nk_layout_row_static(context, context->style.font->height * 1.25f, (render_width() - 4 * context->style.font->height) / 3, 3);
+		if (nk_button_label(context, "Exit")) {
+			machine_freeze_choice = CHOICE_FATAL;
+			show_play_view();
+		}
+		if (nk_button_label(context, "Enter Debugger")) {
+			machine_freeze_choice = CHOICE_DEBUG;
+			show_play_view();
+		}
+		if (nk_button_label(context, "Ignore & Continue")) {
+			machine_freeze_choice = CHOICE_IGNORE;
+			show_play_view();
+		}
+		
 		nk_end(context);
 	}
 }
@@ -2753,8 +2801,19 @@ static void font_init(uint8_t window, struct nk_context *ctx)
 	if (!font) {
 		fatal_error("Failed to find default font path\n");
 	}
-	def_font = nk_font_atlas_add_from_memory(atlas, font, font_size, height / 24, NULL);
-	free(font);
+	struct nk_font_config font_config = nk_font_config(height / 24);
+	static const nk_rune ranges[] = {
+		0x20, 0x7E, //ASCII
+		0xA0, 0x233, //Latin 1 and Latin Extened A & B
+		0x370, 0x4FF, //Greek, Coptic and Cyrillic
+		0
+	};
+	font_config.range = ranges;
+	font_config.ttf_blob = font;
+	font_config.ttf_size = font_size;
+	font_config.size = height / 24;
+	font_config.ttf_data_owned_by_atlas = 1;
+	def_font = nk_font_atlas_add(atlas, &font_config);
 	if (fb_context) {
 		nk_rawfb_font_stash_end(fb_context);
 	} else {
@@ -2833,6 +2892,48 @@ void show_play_view(void)
 	set_content_binding_state(1);
 	current_view = view_play;
 	context->input.selected_widget = 0;
+}
+
+uint8_t show_freeze_choice(uint8_t *session_default, const char *msg)
+{
+	uint8_t ret;
+#ifdef __EMSCRIPTEN__
+	//TODO: implement this properly for web
+	*session_default = CHOICE_IGNORE;
+	ret = *session_default;
+#else
+	clear_view_stack();
+	context->style.window.background = nk_rgba(45, 45, 45, 255);
+	context->style.window.fixed_background = nk_style_item_color(nk_rgba(45, 45, 45, 255));
+	current_view = view_freeze_choice;
+	context->input.selected_widget = 0;
+	set_content_binding_state(0);
+	ui_enter();
+	machine_freeze_msg = msg;
+	machine_freeze_choice = CHOICE_FATAL;
+	machine_freeze_choice_remember = 0;
+	const uint32_t MIN_UI_DELAY = 15;
+	static uint32_t last;
+	while (current_view != view_play)
+	{
+		uint32_t current = render_elapsed_ms();
+		if ((current - last) < MIN_UI_DELAY) {
+			render_sleep_ms(MIN_UI_DELAY - (current - last) - 1);
+		}
+		last = current;
+		render_update_display();
+	}
+	ui_exit();
+	ret = machine_freeze_choice;
+	if (machine_freeze_choice_remember) {
+		if (machine_freeze_choice_remember == 2) {
+			config = set_machine_feeze_choice(config, ret);
+			config_dirty = 1;
+		}
+		*session_default = ret;
+	}
+#endif
+	return ret;
 }
 
 static uint8_t active;

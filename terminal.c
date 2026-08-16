@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <signal.h>
-#include "util.h"
+#include "paths.h"
 #include "terminal.h"
 
 pid_t child;

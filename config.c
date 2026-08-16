@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef DISABLE_NUKLEAR
+#include "nuklear_ui/blastem_nuklear.h"
+#endif
 
 #ifdef __MINGW64_VERSION_MAJOR
 #define MINGW_W64_VERSION (__MINGW64_VERSION_MAJOR * 1000 + __MINGW64_VERSION_MINOR)
@@ -316,7 +319,7 @@ static void update_pad_menu_binding(char *key, tern_val val, uint8_t valtype, vo
 	*pads = tern_insert_node(*pads, key, val.ptrval);
 }
 
-#define CONFIG_VERSION 11
+#define CONFIG_VERSION 13
 static tern_node *migrate_config(tern_node *config, int from_version)
 {
 	tern_node *def_config = parse_bundled_config("default.cfg");
@@ -479,7 +482,6 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		}
 		free(exts[0]);//All extensions in this list share an allocation, first one is a pointer to the buffer
 		free(exts);
-		break;
 	}
 	case 9: {
 		//Add pre-SMS 8-bit image formats to ui.extensions
@@ -515,7 +517,6 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		}
 		char *combined = alloc_join(new_size, (char const **)ext_list, ' ');
 		config = tern_insert_path(config, "ui\0extensions\0", (tern_val){.ptrval = combined}, TVAL_PTR);
-		break;
 	}
 	case 10: {
 		//Add default bindings for cassette actions
@@ -531,7 +532,53 @@ static tern_node *migrate_config(tern_node *config, int from_version)
 		if (!bind) {
 			config = tern_insert_path(config, "bindings\0keys\0f4\0", (tern_val){.ptrval = strdup("cassette.rewind")}, TVAL_PTR);
 		}
-		break;
+	}
+	case 11: {
+		//Add default bindings for pause and frame advance
+		char *bind = tern_find_path(config, "bindings\0keys\0f7\0", TVAL_PTR).ptrval;
+		if (!bind) {
+			config = tern_insert_path(config, "bindings\0keys\0f7\0", (tern_val){.ptrval = strdup("ui.pause")}, TVAL_PTR);
+		}
+		bind = tern_find_path(config, "bindings\0keys\0f8\0", TVAL_PTR).ptrval;
+		if (!bind) {
+			config = tern_insert_path(config, "bindings\0keys\0f8\0", (tern_val){.ptrval = strdup("ui.advance")}, TVAL_PTR);
+		}
+	}
+	case 12: {
+		uint32_t num_exts;
+		char **exts = get_extension_list(config, &num_exts);
+		char *need_add[] = {"32x"};
+		uint32_t num_need_add = sizeof(need_add)/sizeof(*need_add);
+		for (uint32_t i = 0; i < num_exts && num_need_add; i++)
+		{
+			for (uint32_t j = 0; j < num_need_add; j++)
+			{
+				if (!strcmp(exts[i], need_add[j])) {
+					num_need_add--;
+					need_add[j] = need_add[num_need_add];
+					break;
+				}
+			}
+		}
+		if (num_need_add) {
+			const char **parts = calloc(2 * (num_exts + num_need_add) - 1, sizeof(char*));
+			uint32_t dest = 0;
+			for (uint32_t i = 0; i < num_exts; i++)
+			{
+				parts[dest++] = exts[i];
+				parts[dest++] = " ";
+			}
+			for (uint32_t i = 0; i < num_need_add - 1; i++)
+			{
+				parts[dest++] = need_add[i];
+				parts[dest++] = " ";
+			}
+			parts[dest++] = need_add[num_need_add - 1];
+			config = tern_insert_path(config, "ui\0extensions\0", (tern_val){.ptrval = alloc_concat_m(dest, parts)}, TVAL_PTR);
+			free(parts);
+		}
+		free(exts[0]);//All extensions in this list share an allocation, first one is a pointer to the buffer
+		free(exts);
 	}
 	}
 	char buffer[16];
@@ -650,4 +697,106 @@ tern_node *get_model(tern_node *config, system_type stype)
 {
 	char *model = tern_find_path_default(config, stype == SYSTEM_SMS ? "sms\0system\0model\0" : "system\0model\0", (tern_val){.ptrval = "md1va3"}, TVAL_PTR).ptrval;
 	return tern_find_node(get_systems_config(), model);
+}
+
+tern_node *set_machine_feeze_choice(tern_node *config, uint8_t choice)
+{
+	char *str;
+	switch (choice)
+	{
+	case CHOICE_FATAL: str = "fatal"; break;
+	default:
+	case CHOICE_ASK: str = "ask"; break;
+	case CHOICE_DEBUG: str = "debug"; break;
+	case CHOICE_IGNORE: str = "ignore"; break;
+	}
+	return tern_insert_path(config, "ui\0machine_freeze_action\0", (tern_val){.ptrval = strdup(str)}, TVAL_PTR);
+}
+
+void machine_freeze(tern_node *config, debug_callback callback, void *data, char *format, ...)
+{
+#ifdef ISLIB
+	return;
+#else
+	static uint8_t freeze_choice;
+	if (!freeze_choice) {
+#ifdef DISABLE_NUKLEAR
+		tern_val def = {.ptrval = "fatal"};
+		freeze_choice = CHOICE_FATAL;
+#else
+		tern_val def = {.ptrval = "ask"};
+		freeze_choice = CHOICE_ASK;
+#endif
+		char *choice = tern_find_path_default(config, "ui\0machine_freeze_action\0", def, TVAL_PTR).ptrval;
+		if (!strcmp(choice, "fatal")) {
+			freeze_choice = CHOICE_FATAL;
+#ifndef DISABLE_NUKLEAR
+		} else if (!strcmp(choice, "ask")) {
+			freeze_choice = CHOICE_ASK;
+#endif
+		} else if (!strcmp(choice, "debug")) {
+			freeze_choice = CHOICE_DEBUG;
+		} else if (!strcmp(choice, "ignore")) {
+			freeze_choice = CHOICE_IGNORE;
+		}
+	}
+	uint8_t keep_going = 1;
+	uint8_t cur_choice = freeze_choice;
+	va_list args;
+	while (keep_going)
+	{
+		keep_going = 0;
+		switch (cur_choice)
+		{
+		default:
+		case CHOICE_FATAL:
+			va_start(args, format);
+			log_msg(format, FATAL, args);
+			va_end(args);
+			exit(1);
+			break;
+#ifndef DISABLE_NUKLEAR
+		case CHOICE_ASK:
+			{
+				//take a guess at the final size
+				int32_t size = strlen(format) * 2;
+				char *buf = malloc(size);
+				va_start(args, format);
+				va_list tmp;
+				va_copy(tmp, args);
+				int32_t actual = vsnprintf(buf, size, format, args);
+				va_end(tmp);
+				if (actual >= size || actual < 0) {
+					if (actual < 0) {
+						//seems on windows, vsnprintf is returning -1 when the buffer is too small
+						//since we don't know the proper size, a generous multiplier will hopefully suffice
+						actual = size * 4;
+					} else {
+						actual++;
+					}
+					free(buf);
+					buf = malloc(actual);
+					vsnprintf(buf, actual, format, args);
+				}
+				cur_choice = show_freeze_choice(&freeze_choice, strip_ws(buf));
+				va_end(args);
+				keep_going = 1;
+				free(buf);
+			}
+			break;
+#endif
+		case CHOICE_DEBUG:
+			va_start(args, format);
+			log_msg(format, DEBUG, args);
+			va_end(args);
+			callback(data);
+			break;
+		case CHOICE_IGNORE:
+			va_start(args, format);
+			log_msg(format, DEBUG, args);
+			va_end(args);
+			break;
+		}
+	}
+#endif
 }

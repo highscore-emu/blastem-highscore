@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 #include "system.h"
-#include "util.h"
+#include "paths.h"
 #include "wave.h"
 
 uint8_t cdrom_scramble(uint16_t *lsfr, uint8_t data)
@@ -451,7 +451,7 @@ uint8_t parse_cue(system_media *media)
 		
 		if (tracks[0].type == TRACK_DATA) {
 			//replace cue sheet with first sector
-			free(media->buffer);
+			aligned_free(media->buffer);
 			media->buffer = calloc(2048, 1);
 			fseek(tracks[0].f, tracks[0].sector_bytes >= 2352 ? 16 : 0, SEEK_SET);
 			media->size = fread(media->buffer, 1, 2048, tracks[0].f);
@@ -610,7 +610,7 @@ uint8_t parse_toc(system_media *media)
 	} while (line);
 	if (media->num_tracks > 0 && media->tracks[0].f) {
 		//replace cue sheet with first sector
-		free(media->buffer);
+		aligned_free(media->buffer);
 		media->buffer = calloc(2048, 1);
 		uint32_t old_fake_pregap = tracks[0].fake_pregap;
 		if (tracks[0].type == TRACK_DATA && tracks[0].sector_bytes == 2352) {
@@ -719,4 +719,14 @@ void cdimage_deserialize(deserialize_buffer *buf, void *vmedia)
 		media->byte_storage[1] = load_int8(buf);
 		media->byte_storage[2] = load_int8(buf);
 	}
+}
+
+void cdimage_free(system_media *media)
+{
+	if (media->type != MEDIA_CDROM) {
+		return;
+	}
+	//dir, name, extension and orig_path are handled elsewhere
+	free(media->buffer);
+	free(media->tracks);
 }

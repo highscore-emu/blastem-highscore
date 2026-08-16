@@ -10,6 +10,7 @@
 #include "util.h"
 #include "cdimage.h"
 #include "laseractive.h"
+#include "32x.h"
 
 #define SMD_HEADER_SIZE 512
 #define SMD_MAGIC1 0x03
@@ -33,8 +34,14 @@
 #define ROMFILE gzFile
 #ifdef __ANDROID__
 #define romopen gzopen_wrapper
+gzFile gzopen_wrapper(const char *path, const char *mode);
+#else
+#ifdef _WIN32
+#define romopen gzopen_utf8
+gzFile gzopen_utf8(const char *path, const char *mode);
 #else
 #define romopen gzopen
+#endif
 #endif
 #define romread gzfread
 #define romseek gzseek
@@ -58,14 +65,16 @@ int load_smd_rom(ROMFILE f, void **buffer)
 	size_t filesize = 512 * 1024;
 	size_t readsize = 0;
 	uint16_t *dst, *buf;
-	dst = buf = malloc(filesize);
-
+	dst = buf = aligned_calloc(1, filesize, 16);
 
 	size_t read;
 	do {
 		if ((readsize + SMD_BLOCK_SIZE > filesize)) {
 			filesize *= 2;
-			buf = realloc(buf, filesize);
+			uint16_t *tmp = buf;
+			buf = aligned_calloc(1, filesize, 16);
+			memcpy(buf, tmp, filesize >> 1);
+			aligned_free(tmp);
 			dst = buf + readsize/sizeof(uint16_t);
 		}
 		read = romread(block, 1, SMD_BLOCK_SIZE, f);
@@ -103,7 +112,7 @@ uint8_t is_smd_format(const char *filename, uint8_t *header)
 #ifndef IS_LIB
 uint32_t load_media_zip(const char *filename, system_media *dst)
 {
-	static const char *valid_exts[] = {"bin", "md", "gen", "sms", "gg", "rom", "smd", "sg", "sc", "sf7"};
+	static const char *valid_exts[] = {"bin", "md", "gen", "sms", "gg", "rom", "smd", "sg", "sc", "sf7", "32x"};
 	const uint32_t num_exts = sizeof(valid_exts)/sizeof(*valid_exts);
 	zip_file *z = zip_open(filename);
 	if (!z) {
@@ -120,7 +129,7 @@ uint32_t load_media_zip(const char *filename, system_media *dst)
 		{
 			if (!strcasecmp(ext, valid_exts[j])) {
 				size_t out_size = nearest_pow2(z->entries[i].size);
-				dst->buffer = zip_read(z, i, &out_size);
+				dst->buffer = zip_read(z, i, &out_size, 16);
 				if (dst->buffer) {
 					if (is_smd_format(z->entries[i].name, dst->buffer)) {
 						size_t offset;
@@ -151,6 +160,12 @@ uint32_t load_media_zip(const char *filename, system_media *dst)
 	return 0;
 }
 #endif
+
+uint8_t safe_cmp(const char *str, long offset, const uint8_t *buffer, long filesize)
+{
+	long len = strlen(str);
+	return filesize >= offset+len && !memcmp(str, buffer + offset, len);
+}
 
 uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 {
@@ -210,7 +225,7 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 		size_t filesize = 512 * 1024;
 		size_t readsize = sizeof(header);
 
-		char *buf = malloc(filesize);
+		char *buf = aligned_calloc(1, filesize, 16);
 		memcpy(buf, header, readsize);
 
 		size_t read;
@@ -222,7 +237,10 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 					int one_more = romgetc(f);
 					if (one_more >= 0) {
 						filesize *= 2;
-						buf = realloc(buf, filesize);
+						char *tmp = buf;
+						buf = aligned_calloc(1, filesize, 16);
+						memcpy(buf, tmp, filesize >> 1);
+						aligned_free(tmp);
 						buf[readsize++] = one_more;
 					} else {
 						read = 0;
@@ -245,14 +263,22 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 		if (parse_cue(dst)) {
 			ret = dst->size;
 			if (stype) {
-				*stype = SYSTEM_SEGACD;
+				if (safe_cmp("SEGA 32X", 0x100, dst->buffer, dst->size)) {
+					*stype = SYSTEM_32XCD;
+				} else {
+					*stype = SYSTEM_SEGACD;
+				}
 			}
 		}
 	} else if (!strcasecmp(dst->extension, "toc")) {
 		if (parse_toc(dst)) {
 			ret = dst->size;
 			if (stype) {
-				*stype = SYSTEM_SEGACD;
+				if (safe_cmp("SEGA 32X", 0x100, dst->buffer, dst->size)) {
+					*stype = SYSTEM_32XCD;
+				} else {
+					*stype = SYSTEM_SEGACD;
+				}
 			}
 		}
 	}
@@ -263,12 +289,6 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 #endif
 
 	return ret;
-}
-
-uint8_t safe_cmp(char *str, long offset, uint8_t *buffer, long filesize)
-{
-	long len = strlen(str);
-	return filesize >= offset+len && !memcmp(str, buffer + offset, len);
 }
 
 system_type detect_system_type(system_media *media)
@@ -286,9 +306,17 @@ system_type detect_system_type(system_media *media)
 	if (safe_cmp("SEGA", 0x100, media->buffer, media->size)) {
 		//TODO: support other bootable identifiers
 		if (safe_cmp("SEGADISCSYSTEM", 0, media->buffer, media->size)) {
+			if (safe_cmp(" 32X", 0x104, media->buffer, media->size)) {
+				return SYSTEM_32XCD;
+			}
 			return SYSTEM_SEGACD;
 		}
-		//TODO: Differentiate between vanilla Genesis and 32X games
+		//This string is part of the "security" block so is more reliable than checking for "SEGA 32X"
+		//in the system type header field
+		static const char *mars_security = "MARS Initial & Security Program          Cartridge Version";
+		if (safe_cmp(mars_security, 0x512, media->buffer, media->size) || !strcmp("32x", media->extension)) {
+			return SYSTEM_32X;
+		}
 		return SYSTEM_GENESIS;
 	}
 	if (safe_cmp("TMR SEGA", 0x1FF0, media->buffer, media->size)
@@ -308,6 +336,10 @@ system_type detect_system_type(system_media *media)
 				}
 			}
 			if (i == 0x400) {
+				if (safe_cmp("SEGA ", 0x80100, media->buffer, media->size)) {
+					//probably a Radica multi-game with the menu at address 0
+					return SYSTEM_GENESIS;
+				}
 				return SYSTEM_COPERA;
 			}
 		}
@@ -341,6 +373,9 @@ system_type detect_system_type(system_media *media)
 	if (media->extension) {
 		if (!strcmp("md", media->extension) || !strcmp("gen", media->extension)) {
 			return SYSTEM_GENESIS;
+		}
+		if (!strcmp("32x", media->extension)) {
+			return SYSTEM_32X;
 		}
 		if (!strcmp("sms", media->extension)) {
 			return SYSTEM_SMS;
@@ -408,6 +443,10 @@ system_header *alloc_config_system(system_type stype, system_media *media, uint3
 		return &(alloc_config_pico(media->buffer, media->size, lock_on, lock_on_size, opts, force_region, stype))->header;
 	case SYSTEM_LASERACTIVE:
 		return &(alloc_laseractive(media, opts))->header;
+	case SYSTEM_32X:
+		return &(alloc_genesis_32x(media, opts, force_region))->header;
+	case SYSTEM_32XCD:
+		return &(alloc_genesis_32x_cdboot(media, opts, force_region))->header;
 	default:
 		return NULL;
 	}
@@ -448,7 +487,7 @@ void* load_media_subfile(const system_media *media, char *path, uint32_t *sizeou
 		}
 		if (i < media->zip->num_entries) {
 			size_t zsize = media->zip->entries[i].size + 1;
-			buffer = zip_read(media->zip, i, &zsize);
+			buffer = zip_read(media->zip, i, &zsize, 0);
 			size = zsize;
 			if (buffer) {
 				((uint8_t *)buffer)[size] = 0;
@@ -476,3 +515,34 @@ end:
 	return buffer;
 #endif
 }
+
+#ifndef DISABLE_ZLIB
+
+#ifdef __ANDROID__
+gzFile gzopen_wrapper(const char *path, const char *mode)
+{
+	if (startswith(path, "content://")) {
+		debug_message("gzopen_wrapper(%s, %s) - Using Storage Access Framework\n", path, mode);
+		int fd = open_uri(path, mode);
+		if (!fd) {
+			return NULL;
+		}
+		return gzdopen(fd, mode);
+	} else {
+		debug_message("fopen_wrapper(%s, %s) - Norma gzopen\n", path, mode);
+		return gzopen(path, mode);
+	}
+}
+#endif
+
+#ifdef _WIN32
+gzFile gzopen_utf8(const char *path, const char *mode)
+{
+	wchar_t *widepath = to_windows_path(path);
+	gzFile ret = gzopen_w(widepath, mode);
+	free(widepath);
+	return ret;
+}
+#endif
+
+#endif

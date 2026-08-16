@@ -191,7 +191,7 @@ void jump_m68k_abs(m68k_options * opts, uint32_t address)
 	code_info *code = &opts->gen.code;
 	code_ptr dest_addr = get_native_address(opts, address);
 	if (!dest_addr) {
-		opts->gen.deferred = defer_address(opts->gen.deferred, address, code->cur + 1);
+		opts->gen.deferred = defer_address(opts->gen.deferred, address & 0xFFFFFF, code->cur + 1);
 		//dummy address to be replaced later, make sure it generates a 4-byte displacement
 		dest_addr = code->cur + 256;
 	}
@@ -227,6 +227,9 @@ static void translate_m68k_jmp_jsr(m68k_options * opts, m68kinst * inst)
 			push_const(opts, inst->address+2);
 		}
 		areg_to_native(opts, inst->src.params.regs.pri, opts->gen.scratch1);
+		if (is_jsr && inst->src.params.regs.pri == 7) {
+			addi_native(opts, 4, opts->gen.scratch1);
+		}
 		call(code, opts->native_addr);
 		jmp_r(code, opts->gen.scratch1);
 		break;
@@ -903,8 +906,8 @@ static void m68k_enable_watchpoints(m68k_context *context)
 	context->opts->gen.check_watchpoints_16 = m68k_watchpoint_check16;
 	context->opts->gen.check_watchpoints_8 = m68k_watchpoint_check8;
 	//re-generate write handlers with watchpoints enabled
-	code_ptr new_write16 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_16, NULL);
-	code_ptr new_write8 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_8, NULL);
+	code_ptr new_write16 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_16, NULL, 0);
+	code_ptr new_write8 = gen_mem_fun(&context->opts->gen, context->opts->gen.memmap, context->opts->gen.memmap_chunks, WRITE_8, NULL, 0);
 
 	//patch old write handlers to point to the new ones
 	code_info code = {
@@ -1135,6 +1138,10 @@ static void translate_m68k(m68k_context *context, m68kinst * inst)
 uint16_t m68k_instruction_fetch(uint32_t address, void *vcontext)
 {
 	m68k_context *context = vcontext;
+	uint16_t *ptr = get_native_pointer(address, (void **)context->mem_pointers, &context->opts->gen);
+	if (ptr) {
+		return *ptr;
+	}
 	return read_word(address, (void **)context->mem_pointers, &context->opts->gen, context);
 }
 

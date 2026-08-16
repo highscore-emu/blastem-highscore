@@ -19,7 +19,7 @@ typedef struct {
 } zip_file;
 
 zip_file *zip_open(const char *filename);
-uint8_t *zip_read(zip_file *f, uint32_t index, size_t *out_size);
+uint8_t *zip_read(zip_file *f, uint32_t index, size_t *out_size, size_t aligned);
 void zip_close(zip_file *f);
 
 #endif //ZIP_H_
