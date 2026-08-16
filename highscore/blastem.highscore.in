@@ -9,3 +9,8 @@ Website=https://www.retrodev.com/blastem/
 License=GPL-3.0-or-later
 StateVersion=@states@
 Platforms=MegaDrive;MegaCD;
+
+[Firmware:MegaCD]
+europe=required
+japan=required
+north-america=required
