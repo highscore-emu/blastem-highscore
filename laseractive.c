@@ -435,9 +435,11 @@ static void start_laseractive(system_header *system, char *statefile)
 	la->upd->port_input[7] = 0xF7;
 	la->upd->pc = la->upd_rom[0] | la->upd_rom[1] << 8;
 	memset(la->pd0093a_buffer, 0x7F, sizeof(la->pd0093a_buffer));
+#ifndef IS_LIB
 	if (la->header.enter_debugger) {
 		upd78k2_insert_breakpoint(la->upd, la->upd->pc, upd_debugger);
 	}
+#endif
 	upd78k2_schedule_port2_transition(la->upd, la->mecha.next_shake, 2, 0, laseractive_next_shake);
 	resume_laseractive(system);
 }
