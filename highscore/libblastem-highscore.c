@@ -57,14 +57,9 @@ uint32_t *render_get_framebuffer(uint8_t which, int *pitch)
   if (!self->context)
     return NULL;
 
-  uint *fb = self->framebuffer;
+  *pitch = LINEBUF_SIZE * sizeof(uint32_t);
 
-  *pitch = LINEBUF_SIZE * sizeof(uint32_t) * 2;
-
-  if (which == FRAMEBUFFER_EVEN)
-    return fb + LINEBUF_SIZE;
-
-  return fb;
+  return self->framebuffer;
 }
 
 void render_framebuffer_updated(uint8_t which, int width)
@@ -85,13 +80,12 @@ void render_framebuffer_updated(uint8_t which, int width)
   }
 
   guint8 *fb = hs_software_context_acquire_framebuffer (self->context);
-  memcpy (fb, self->framebuffer, LINEBUF_SIZE * sizeof (uint32_t) * game_height * 2);
+  memcpy (fb, self->framebuffer, LINEBUF_SIZE * sizeof (uint32_t) * game_height);
   hs_software_context_release_framebuffer (self->context);
 
-  HsRectangle area = HS_RECTANGLE_INIT (0, 0, width, game_height * height_multiplier);
+  HsRectangle area = HS_RECTANGLE_INIT (0, 0, width, game_height);
 
   hs_software_context_set_area (self->context, &area);
-  hs_software_context_set_row_stride (self->context, LINEBUF_SIZE * sizeof(uint32_t) * 2 / height_multiplier);
 
   HsInterlacingMode mode;
 
@@ -106,10 +100,13 @@ void render_framebuffer_updated(uint8_t which, int width)
 
   hs_software_context_set_interlacing (self->context, mode);
 
-  HsBorder overscan = HS_BORDER_INIT_FULL (overscan_top * height_multiplier,
-                                           overscan_bot * height_multiplier,
-                                           overscan_left, overscan_right);
+  HsBorder overscan = HS_BORDER_INIT_FULL (overscan_top, overscan_bot, overscan_left, overscan_right);
   hs_software_context_set_overscan (self->context, &overscan);
+
+  if (video_standard == VID_PAL)
+    hs_software_context_set_colorburst (self->context, (width - HORIZ_BORDER) * 3.0 / 640.0, 0.0, 0.0);
+  else
+    hs_software_context_set_colorburst (self->context, (width - HORIZ_BORDER) * 3.0 / 512.0, 0.0, 0.0);
 
   system_request_exit (current_system, 0);
 }
