@@ -2974,7 +2974,9 @@ static genesis_context *shared_init_gen(rom_info info, void *lock_on, uint32_t l
 	gen->z80->mem_pointers[1] = gen->z80->mem_pointers[2] = rom;
 
 	gen->cart = rom;
-	gen->lock_on = lock_on;
+	if (current_media()->chain && current_media()->chain->type != MEDIA_CDROM) {
+		gen->lock_on = lock_on;
+	}
 
 	setup_io_devices(config, &info, &gen->io);
 	gen->header.has_keyboard = io_has_keyboard(&gen->io);

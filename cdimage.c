@@ -729,4 +729,6 @@ void cdimage_free(system_media *media)
 	//dir, name, extension and orig_path are handled elsewhere
 	free(media->buffer);
 	free(media->tracks);
+	media->buffer = NULL;
+	media->tracks = NULL;
 }
