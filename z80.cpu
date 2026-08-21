@@ -1340,8 +1340,11 @@ fd 10111110 cp_iyd
 	update_flags SZYHVXN0
 	
 dd 00100100 inc_ixh
+	local tmp 16
 	add 0x100 ix ix
-	update_flags SZYHVXN0
+	update_flags SYHVXN0
+	tmp = 0xFF00 & ix
+	update_flags Z
 	
 dd 00101100 inc_ixl
 	local tmp 8
@@ -1352,8 +1355,11 @@ dd 00101100 inc_ixl
 	or tmp ix ix
 	
 fd 00100100 inc_iyh
+	local tmp 16
 	add 0x100 iy iy
-	update_flags SZYHVXN0
+	update_flags SYHVXN0
+	tmp = 0xFF00 & iy
+	update_flags Z
 	
 fd 00101100 inc_iyl
 	local tmp 8
@@ -1433,8 +1439,11 @@ fd 00100011 inc_iy
 	update_flags SZYHVXN1
 	
 dd 00100101 dec_ixh
+	local tmp 16
 	sub 0x100 ix ix
-	update_flags SZYHVXN1
+	update_flags SYHVXN1
+	tmp = 0xFF00 & ix
+	update_flags Z
 	
 dd 00101101 dec_ixl
 	local tmp 8
@@ -1445,8 +1454,11 @@ dd 00101101 dec_ixl
 	or tmp ix ix
 	
 fd 00100101 dec_iyh
+	local tmp 16
 	sub 0x100 iy iy
-	update_flags SZYHVXN1
+	update_flags SYHVXN1
+	tmp = 0xFF00 & iy
+	update_flags Z
 	
 fd 00101101 dec_iyl
 	local tmp 8
