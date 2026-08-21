@@ -91,14 +91,14 @@ typedef struct {
 	uint32_t      address;
 } breakpoint;
 
-typedef uint8_t * (*native_addr_func)(void * context, uint32_t address);
+typedef code_ptr (*native_addr_func)(void * context, uint32_t address);
 
 typedef uint16_t (*interp_read_16)(uint32_t address, void *context, void *data);
 typedef uint8_t (*interp_read_8)(uint32_t address, void *context, void *data);
 typedef void (*interp_write_16)(uint32_t address, void *context, uint16_t value, void *data);
 typedef void (*interp_write_8)(uint32_t address, void *context, uint8_t value, void *data);
 
-deferred_addr * defer_address(deferred_addr * old_head, uint32_t address, uint8_t *dest);
+deferred_addr * defer_address(deferred_addr * old_head, uint32_t address, code_ptr dest);
 void remove_deferred_until(deferred_addr **head_ptr, deferred_addr * remove_to);
 void process_deferred(deferred_addr ** head_ptr, void * context, native_addr_func get_native);
 

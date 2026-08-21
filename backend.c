@@ -6,7 +6,7 @@
 #include "backend.h"
 #include <stdlib.h>
 
-deferred_addr * defer_address(deferred_addr * old_head, uint32_t address, uint8_t *dest)
+deferred_addr * defer_address(deferred_addr * old_head, uint32_t address, code_ptr dest)
 {
 	deferred_addr * new_head = malloc(sizeof(deferred_addr));
 	new_head->next = old_head;
