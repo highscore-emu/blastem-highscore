@@ -249,21 +249,21 @@ ifdef NO_FILE_CHOOSER
 CHOOSER:=nuklear_ui/filechooser_nulll.o
 endif
 
+ifeq ($(CPU),x86_64)
+TRANSOBJS+= gen_x86.o backend_x86.o
+else
+ifeq ($(CPU),i686)
+TRANSOBJS+= gen_x86.o backend_x86.o
+endif
+endif
+
 ifdef NEW_CORE
 Z80OBJS=z80.o z80inst.o
 M68KOBJS+= m68k.o
 CFLAGS+= -DNEW_CORE
 else
 Z80OBJS=z80inst.o z80_to_x86.o
-ifeq ($(CPU),x86_64)
 M68KOBJS+= m68k_core.o m68k_core_x86.o
-TRANSOBJS+= gen_x86.o backend_x86.o
-else
-ifeq ($(CPU),i686)
-M68KOBJS+= m68k_core.o m68k_core_x86.o
-TRANSOBJS+= gen_x86.o backend_x86.o
-endif
-endif
 endif
 AUDIOOBJS=ym2612.o ymf262.o ym_common.o psg.o wave.o flac.o vgm.o event_log.o render_audio.o rf5c164.o
 CONFIGOBJS=config.o tern.o util.o paths.o
