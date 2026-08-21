@@ -3638,7 +3638,7 @@ static void vdp_h40_line(vdp_context * context)
 		context->col_2
 	);
 	scan_sprite_table(context->vcounter, context);
-
+	draw_right_border(context);
 	//Do palette lookup for end of previous line
 	uint8_t *src = context->compositebuf + (LINE_CHANGE_H40 - BG_START_SLOT) *2;
 	pixel_t *dst = context->output + (LINE_CHANGE_H40 - BG_START_SLOT) *2;
@@ -3692,8 +3692,8 @@ static void vdp_h40_line(vdp_context * context)
 	context->hscroll_b = context->vdpmem[address+2] << 8 | context->vdpmem[address+3];
 	context->hscroll_b_fine = context->hscroll_b & 0xF;
 	//printf("%d: HScroll A: %d, HScroll B: %d\n", context->vcounter, context->hscroll_a, context->hscroll_b);
-	//243-246 inclusive
-	for (int i = 0; i < 3; i++)
+	//245-246 inclusive
+	for (int i = 0; i < 2; i++)
 	{
 		render_sprite_cells(context);
 		scan_sprite_table(context->vcounter, context);
