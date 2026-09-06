@@ -6,6 +6,12 @@
 #include "tern.h"
 
 typedef struct {
+	uint64_t offset;
+	uint16_t crc16;
+	uint8_t  compression;
+} chd_hunk_info;
+
+typedef struct {
 	char tag[8];
 	uint32_t length;
 	uint32_t version;
@@ -71,17 +77,38 @@ typedef struct {
 } chd_meta_list;
 
 typedef struct {
-	FILE       *f;
-	chd_header header;
-	tern_node  *meta;
-	uint8_t    media_type;
+	FILE          *f;
+	chd_header    header;
+	tern_node     *meta;
+	chd_hunk_info *hunk_info;
+	uint32_t      num_hunks;
+	uint8_t       media_type;
 } chd;
 
-#define CHD_ZLIB 'zlib'
-#define CHD_ZSTD 'zstd'
-#define CHD_HUFF 'huff'
-#define CHD_FLAC 'flac'
-#define CHD_LZMA 'lzma'
+enum {
+	CHD_V5_MAP_T0,
+	CHD_V5_MAP_T1,
+	CHD_V5_MAP_T2,
+	CHD_V5_MAP_T3,
+	CHD_V5_MAP_NONE,
+	CHD_V5_MAP_SELF,
+	CHD_V5_MAP_PARENT,
+	CHD_V5_MAP_RLE4,
+	CHD_V5_MAP_RLE8,
+	CHD_V5_MAP_SELF_LAST,
+	CHD_V5_MAP_SELF_LAST_PL1,
+	CHD_V5_MAP_PARENT_SELF,
+	CHD_V5_MAP_PARENT_LAST,
+	CHD_V5_MAP_PARENT_LAST_PL1,
+};
+
+#define CHD_COMPRESSOR(a,b,c,d) (((uint32_t)a) << 24 | ((uint32_t)b)<< 16 | ((uint32_t)c) << 8 | ((uint32_t)d))
+
+#define CHD_ZLIB CHD_COMPRESSOR('z','l','i','b')
+#define CHD_ZSTD CHD_COMPRESSOR('z','s','t','d')
+#define CHD_HUFF CHD_COMPRESSOR('h','u','f','f')
+#define CHD_FLAC CHD_COMPRESSOR('f','l','a','c')
+#define CHD_LZMA CHD_COMPRESSOR('l','z','m','a')
 
 enum {
 	CHD_MEDIA_HD,
