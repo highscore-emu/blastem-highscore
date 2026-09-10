@@ -3321,7 +3321,7 @@ genesis_context *alloc_genesis_32x(system_media *media, uint32_t opts, uint8_t f
 	);
 	genesis_context *gen = shared_init_gen(info, media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, opts, force_region);
 	gen->mars = alloc_32x(media, gen->version_reg & HZ50, 0);
-	gen->header.type = SYSTEM_32X;
+	gen->header.type = gen->header.type == SYSTEM_SEGACD ? SYSTEM_32XCD : SYSTEM_32X;
 	gen->vdp->s32x_vid = &gen->mars->video;
 	if (gen->vdp->renderer) {
 		gen->vdp->renderer->s32x_vid = &gen->mars->video;
