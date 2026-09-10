@@ -277,6 +277,7 @@ endif
 
 ifdef NOZLIB
 CFLAGS+= -DDISABLE_ZLIB
+LIBZOBJS=
 else
 RENDEROBJS+= $(LIBZOBJS) png.o
 endif
@@ -286,7 +287,7 @@ COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o n
 	$(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o gen_player.o coleco.o pico_pcm.o ymz263b.o \
 	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o \
 	laseractive.o upd78k2_dis.o upd78k2.o osd_font.o pd0178.o radica.o 32x.o 32x_video.o sh2.o \
-	sh2_decode.o sh7095.o
+	sh2_decode.o sh7095.o chd.o
 
 ifdef NOZ80
 CFLAGS+=-DNO_Z80
@@ -424,6 +425,9 @@ upddis$(EXE) : $(UPDDISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 sh2dis$(EXE) : $(SH2DISOBJS:%.o=$(OBJDIR)/%.o)
+	$(CC) -o $@ $^ $(OPT)
+
+chdtool$(EXE) : $(OBJDIR)/chdtool.o $(OBJDIR)/chd.o $(OBJDIR)/util.o $(OBJDIR)/tern.o $(OBJDIR)/flac.o $(LIBZOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c

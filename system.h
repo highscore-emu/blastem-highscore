@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include "flac.h"
 #include "zip.h"
+#include "chd.h"
 
 typedef struct system_header system_header;
 typedef struct system_media system_media;
@@ -94,6 +95,8 @@ struct system_media {
 	track_info   *tracks;
 	uint8_t      *tmp_buffer;
 	zip_file     *zip;
+	chd          *chd;
+	chd_decompression_state *chd_decomp;
 	seek_fun     seek;
 	read_fun     read;
 	read_fun     read_subcodes;
@@ -101,6 +104,7 @@ struct system_media {
 	uint32_t     cur_track;
 	uint32_t     size;
 	uint32_t     cur_sector;
+	uint32_t     hunk_offset;
 	uint16_t     cdrom_scramble_lsfr;
 	media_type   type;
 	uint8_t      in_fake_pregap;

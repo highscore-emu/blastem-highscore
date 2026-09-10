@@ -3,6 +3,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include "chd.h"
+#include "util.h"
 
 uint16_t bswap16(uint16_t in)
 {
@@ -90,7 +91,7 @@ static uint8_t chd_read_meta(chd *chd, uint64_t meta_offset)
 	return 1;
 }
 
-static int chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_len, uint8_t *huff_bits, uint8_t *codes, uint8_t *lookup)
+static int chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_len, uint8_t *huff_bits, uint8_t *lookup)
 {
 	uint8_t is_left = 1;
 	int cur = 0;
@@ -138,6 +139,7 @@ static int chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_l
 				huff_bits[j] = huff_bits[i];
 			}
 			i = val;
+			state = STATE_NORMAL;
 			break;
 		}
 	}
@@ -148,7 +150,6 @@ static int chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_l
 		for (int j = 0; j < 16; j++)
 		{
 			if (huff_bits[j] == i) {
-				codes[j] = cur_code;
 				for (uint32_t next = cur_code + inc; cur_code < next; cur_code++)
 				{
 					lookup[cur_code] = j;
@@ -270,22 +271,11 @@ static uint8_t chd_read_map_v5(chd *chd)
 		//HERE: do huffman decode
 		uint8_t huff_bits[16];
 		uint8_t lookup[256];
-		uint8_t codes[16];
-		int cur = chd_decode_map_huffman(compressed_map, header.length, huff_bits, codes, lookup);
+		int cur = chd_decode_map_huffman(compressed_map, header.length, huff_bits, lookup);
 		if (cur < 0) {
 			return 0;
 		}
-		
-		puts("Huffman table:");
-		for (int i = 0; i < 16; i++)
-		{
-			printf("\t%d - %02X - ", huff_bits[i], codes[i]);
-			for (int j = 7; j >= 8 - huff_bits[i]; j--)
-			{
-				putchar('0' + ((codes[i] >> j) & 1));
-			}
-			putchar('\n');
-		}
+
 		bitpos pos = chd_decode_map_rle(chd, compressed_map, header.length, cur, huff_bits, lookup);
 		if (pos.offset < 0) {
 			return 0;
@@ -351,6 +341,7 @@ static uint8_t chd_read_map_v5(chd *chd)
 					chd->hunk_info[hunk++].offset = ++parent_off;
 					break;
 				default:
+					//TODO: populate offset for PARENT_SELF
 					hunk++;
 					break;
 				}
@@ -371,6 +362,7 @@ static uint8_t chd_read_map_v5(chd *chd)
 				switch (state)
 				{
 				case STATE_LENGTH:
+					chd->hunk_info[hunk].compressed_len = value;
 					offset += value;
 					state = STATE_CRC;
 					break;
@@ -422,6 +414,10 @@ const char* chd_compressor_name(uint32_t comp)
 	case CHD_HUFF: return "huff";
 	case CHD_FLAC: return "flac";
 	case CHD_LZMA: return "lzma";
+	case CHD_CD_ZLIB: return "cdzl";
+	case CHD_CD_ZSTD: return "cdzs";
+	case CHD_CD_LZMA: return "cdlz";
+	case CHD_CD_FLAC: return "cdfl";
 	}
 	return NULL;
 }
@@ -454,8 +450,9 @@ void chd_print_hunk_info(chd *chd)
 	}
 }
 
-uint8_t chd_read(FILE *f, chd *out)
+uint8_t chd_init(FILE *f, chd *out)
 {
+	memset(out, 0, sizeof(chd));
 	fseek(f, 0, SEEK_SET);
 	if (1 != fread(&out->header, sizeof(chd_header), 1, f)) {
 		return 0;
@@ -492,50 +489,233 @@ uint8_t chd_read(FILE *f, chd *out)
 	return 1;
 }
 
-int main(int argc, char **argv)
+static void chd_metadata_free_each(char *key, tern_val val, uint8_t valtype, void *data)
 {
-	FILE *f = fopen(argv[1], "rb");
-	if (!f) {
-		return 1;
+	free(val.ptrval);
+}
+
+void chd_free(chd *chd)
+{
+	tern_foreach(chd->meta, chd_metadata_free_each, NULL);
+	free(chd->hunk_info);
+	fclose(chd->f);
+}
+
+void chd_decompression_state_free(chd_decompression_state *decomp)
+{
+	free(decomp->src_buffer);
+	free(decomp->dst_buffer);
+	free(decomp->subcode_buffer);
+	if (decomp->flac) {
+		free(decomp->flac->subframes);
+		free(decomp->flac->seekpoints);
 	}
-	chd chd;
-	if (!chd_read(f, &chd)) {
-		return 1;
-	}
-	chd_header *head = &chd.header;
-	printf(
-		"Tag: %c%c%c%c%c%c%c%c\n"
-		"Length: %u\n"
-		"Version: %u\n"
-		"Compressors:\n", 
-		head->tag[0], head->tag[1], head->tag[2], head->tag[3], head->tag[4], head->tag[5], head->tag[6], head->tag[7],
-		head->length, head->version);
-	if (head->version < 5) {
-		return 0;
-	}
-	for (int i = 0; i < 4; i++)
+	free(decomp->flac);
+}
+
+uint32_t chd_hunk_size(chd *chd)
+{
+	switch (chd->header.version)
 	{
-		if (!head->v.v5.compressors[i]) {
+	case 1:
+	case 2: return chd->header.v.old.v.v2.hunksize;
+	case 3: return chd->header.v.old.v.v3.hunk_bytes;
+	case 4: return chd->header.v.old.v.v4.hunk_bytes;
+	case 5: return chd->header.v.v5.hunk_bytes;
+	default: return 0;
+	}
+}
+
+uint64_t chd_total_size(chd *chd)
+{
+	switch (chd->header.version)
+	{
+	case 1:
+	case 2: return ((uint64_t)chd->header.v.old.v.v2.hunksize) * ((uint64_t)chd->header.v.old.v.v2.total_hunks);
+	case 3: return chd->header.v.old.v.v3.logical_bytes;
+	case 4: return chd->header.v.old.v.v4.logical_bytes;
+	case 5: return chd->header.v.v5.logical_bytes;
+	default: return 0;
+	}
+}
+
+uint8_t chd_is_cd_compressor(uint32_t compressor)
+{
+	return (compressor & CHD_COMPRESSOR(0xFF, 0xFF, 0, 0)) == CHD_COMPRESSOR('c', 'd', 0, 0);
+}
+
+uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint32_t offset, uint32_t length)
+{
+	if (hunk != decomp->current_hunk || !decomp->dst_buffer) {
+		chd_hunk_info *info = chd->hunk_info + hunk;
+		if (info->compression == CHD_V5_MAP_SELF) {
+			hunk = info->offset;
+			info = chd->hunk_info + hunk;
+		}
+		if (hunk != decomp->current_hunk || !decomp->dst_buffer) {
+			decomp->current_hunk = hunk;
+			decomp->hunk_decode_progress = 0;
+			if (decomp->src_buffer_size < info->compressed_len) {
+				decomp->src_buffer_size = decomp->src_buffer_size ? decomp->src_buffer_size * 3 / 2 : info->compressed_len;
+				if (decomp->src_buffer_size < info->compressed_len) {
+					decomp->src_buffer_size = info->compressed_len;
+				}
+				decomp->src_buffer = realloc(decomp->src_buffer, decomp->src_buffer_size);
+			}
+			if (!decomp->dst_buffer) {
+				decomp->dst_buffer = calloc(chd_hunk_size(chd), 1);
+			}
+			if (info->compression < CHD_V5_MAP_NONE) {
+				decomp->compressor = chd->header.v.v5.compressors[info->compression];
+			} else {
+				decomp->compressor = 0;
+			}
+			if (decomp->compressor) {
+				if (chd_is_cd_compressor(decomp->compressor) && !decomp->subcode_buffer) {
+					uint32_t sectors = chd_hunk_size(chd) / (2352 + 96);
+					decomp->subcode_buffer = calloc(sectors, 96);
+				}
+				fseek(chd->f, info->offset, SEEK_SET);
+				if (info->compressed_len != fread(decomp->src_buffer, 1, info->compressed_len, chd->f)) {
+					warning("Failed to read %d bytes from CHD file for hunk %u\n", info->compressed_len, hunk);
+					return 0;
+				}
+				switch (decomp->compressor)
+				{
+				case CHD_ZLIB:
+				case CHD_CD_ZLIB:
+					if (decomp->compressor == CHD_CD_ZLIB) {
+						uint32_t sectors = chd_hunk_size(chd) / (2352 + 96);
+						uint32_t base_size_off = (sectors + 7) >> 3; //1-bit per sector rounded to the nearest byte
+						uint32_t header_len;
+						uint32_t base_size;
+						if (chd_hunk_size(chd) < 0x10000) {
+							header_len = base_size_off + 2;
+							base_size = decomp->src_buffer[base_size_off] << 8 | decomp->src_buffer[base_size_off+1];
+						} else {
+							header_len = base_size_off + 3;
+							base_size = decomp->src_buffer[base_size_off] << 16 | decomp->src_buffer[base_size_off+1] << 8 | decomp->src_buffer[base_size_off+2];
+						}
+						if (base_size + header_len > info->compressed_len) {
+							warning("Invalid base compressed length %u in CHD hunk %u\n", base_size, hunk);
+							base_size = info->compressed_len - header_len;
+						}
+						decomp->zlib.avail_in = base_size;
+						decomp->zlib.next_in = decomp->src_buffer + header_len;
+					} else {
+						decomp->zlib.avail_in = info->compressed_len;
+						decomp->zlib.next_in = decomp->src_buffer;
+					}
+					decomp->zlib.total_in = 0;
+					decomp->zlib.next_out = decomp->dst_buffer;
+					decomp->zlib.avail_out = chd_hunk_size(chd);
+					decomp->zlib.total_out = 0;
+					if (Z_OK != inflateInit2(&decomp->zlib, -15)) {
+						warning("Failed to initialize inflate for CHD hunk %u\n", hunk);
+						return 0;
+					}
+					break;
+				case CHD_FLAC:
+				case CHD_CD_FLAC:
+					//first byte indicates endianness??? for non-CD FLAC
+					uint32_t offset = decomp->compressor == CHD_FLAC;
+					if (decomp->flac) {
+						flac_reset_buffer_raw(decomp->flac, decomp->src_buffer + offset, info->compressed_len - offset);
+					} else {
+						decomp->flac = flac_file_from_buffer_raw(decomp->src_buffer + offset, info->compressed_len - offset, 44100, 2, 16);
+					}
+					break;
+				default:
+					warning("Unsupported compressor type %s for hunk %u\n", chd_compressor_name(decomp->compressor), hunk);
+					return 0;
+				}
+			}
+		}
+	}
+	uint32_t end = offset + length;
+	if (end > decomp->hunk_decode_progress) {
+		switch (decomp->compressor)
+		{
+		case 0: {
+			chd_hunk_info *info = chd->hunk_info + hunk;
+			fseek(chd->f, info->offset, SEEK_SET);
+			decomp->hunk_decode_progress += fread(decomp->dst_buffer + decomp->hunk_decode_progress, 1, end - decomp->hunk_decode_progress, chd->f);
 			break;
 		}
-		const char *comp = chd_compressor_name(head->v.v5.compressors[i]);
-		if (comp) {
-			printf("  %s\n", comp);
-		} else {
-			printf("  unknown: %c%c%c%c\n", head->v.v5.compressors[i] >> 24, head->v.v5.compressors[i] >> 16 & 0xFF, head->v.v5.compressors[i] >> 8 & 0xFF, head->v.v5.compressors[i] & 0xFF);
+		case CHD_ZLIB:
+			while (end > decomp->hunk_decode_progress)
+			{
+				int ret = inflate(&decomp->zlib, Z_BLOCK);
+				if (ret != Z_OK && ret != Z_STREAM_END) {
+					warning("inflate failed for hunk %u\n", hunk);
+					return 0;
+				}
+				decomp->hunk_decode_progress = decomp->zlib.total_out;
+				if (ret == Z_STREAM_END) {
+					break;
+				}
+			}
+			break;
+		case CHD_CD_ZLIB: {
+			//TODO: handle a final hunk that is not full sized
+			uint32_t sectors = chd_hunk_size(chd) / (2352 + 96);
+			if (Z_STREAM_END != inflate(&decomp->zlib, Z_FINISH)) {
+				warning("inflate failed for hunk %u\n", hunk);
+				return 0;
+			}
+			chd_hunk_info *info = chd->hunk_info + hunk;
+			decomp->zlib.avail_in = chd->hunk_info[hunk].compressed_len - decomp->zlib.total_in;
+			decomp->zlib.total_in = 0;
+			decomp->zlib.next_out = decomp->subcode_buffer;
+			decomp->zlib.avail_out = sectors * 96;
+			decomp->zlib.total_out = 0;
+			if (Z_OK != inflateInit2(&decomp->zlib, -15)) {
+				warning("Failed to initialize inflate for CHD hunk %u subcode data\n", hunk);
+			}
+			if (Z_STREAM_END != inflate(&decomp->zlib, Z_FINISH)) {
+				warning("inflate failed for hunk %u subcode data\n", hunk);
+			}
+			decomp->hunk_decode_progress = chd_hunk_size(chd);
+			break;
+		}
+		case CHD_FLAC:
+			while (end > decomp->hunk_decode_progress)
+			{
+				if (!flac_get_sample(decomp->flac, (int16_t *)(decomp->dst_buffer + decomp->hunk_decode_progress), 2)) {
+					warning("FLAC decode failed for hunk %u\n", hunk);
+					return 0;
+				}
+				decomp->hunk_decode_progress += 4;
+			}
+			break;
+		case CHD_CD_FLAC:{
+			//TODO: handle a final hunk that is not full sized
+			uint32_t sectors = chd_hunk_size(chd) / (2352 + 96);
+			uint32_t samples = sectors * (44100 / 75);
+			for (uint32_t i = 0; i < samples; i++)
+			{
+				if (!flac_get_sample(decomp->flac, (int16_t *)(decomp->dst_buffer + i * 4), 2)) {
+					warning("FLAC decode failed for hunk %u\n", hunk);
+					return 0;
+				}
+			}
+			chd_hunk_info *info = chd->hunk_info + hunk;
+			decomp->zlib.avail_in = info->compressed_len - decomp->flac->offset;
+			decomp->zlib.next_in = decomp->src_buffer + decomp->flac->offset;
+			decomp->zlib.total_in = 0;
+			decomp->zlib.next_out = decomp->subcode_buffer;
+			decomp->zlib.avail_out = sectors * 96;
+			decomp->zlib.total_out = 0;
+			if (Z_OK != inflateInit2(&decomp->zlib, -15)) {
+				warning("Failed to initialize inflate for CHD hunk %u subcode data\n", hunk);
+			}
+			if (Z_STREAM_END != inflate(&decomp->zlib, Z_FINISH)) {
+				warning("inflate failed for hunk %u subcode data\n", hunk);
+			}
+			decomp->hunk_decode_progress = chd_hunk_size(chd);
+			break;
+		}
 		}
 	}
-	printf(
-		"Logical Bytes: %" PRIu64 "\n"
-		"Hunk Bytes: %u\n"
-		"Unit Bytes: %u\n"
-		"Map Offset: %"  PRIX64 "\n"
-		"Metadata:\n",
-		head->v.v5.logical_bytes, head->v.v5.hunk_bytes, head->v.v5.unit_bytes, head->v.v5.map_offset
-	);
-	chd_print_meta(&chd, "\t");
-	if (chd.hunk_info) {
-		chd_print_hunk_info(&chd);
-	}
-	return 0;
+	return 1;
 }

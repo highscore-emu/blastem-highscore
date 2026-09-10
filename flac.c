@@ -199,6 +199,21 @@ flac_file *flac_file_from_buffer(void *buffer, uint32_t size)
 	return NULL;
 }
 
+flac_file *flac_file_from_buffer_raw(void *buffer, uint32_t size, uint32_t sample_rate, uint8_t channels, uint8_t bits_per_sample)
+{
+	flac_file *f = calloc(1, sizeof(flac_file));
+	f->read_data = buffer;
+	f->read_byte = read_byte_buffer;
+	f->seek = seek_buffer;
+	f->tell = tell_buffer;
+	f->buffer_size = size;
+	f->sample_rate = sample_rate;
+	f->channels = channels;
+	f->bits_per_sample = bits_per_sample;
+	f->first_frame_offset = 0;
+	return f;
+}
+
 flac_file *flac_file_from_file(FILE *file)
 {
 	flac_file *f = calloc(1, sizeof(flac_file));
@@ -211,6 +226,23 @@ flac_file *flac_file_from_file(FILE *file)
 	}
 	free(f);
 	return NULL;
+}
+
+void flac_reset_buffer_raw(flac_file *f, void *buffer, uint32_t size)
+{
+	if (f->read_byte != read_byte_buffer) {
+		f->read_byte = read_byte_buffer;
+		f->seek = seek_buffer;
+		f->tell = tell_buffer;
+	}
+	f->read_data = buffer;
+	f->buffer_size = size;
+	f->first_frame_offset = 0;
+	f->frame_start_sample = 0;
+	f->offset = 0;
+	f->frame_sample_pos =  f->frame_sample_rate = f->frame_block_size = 0;
+	f->frame_bits_per_sample = f->frame_channels = f->frame_joint_stereo = f->cur_byte = f->bits = 0;
+	
 }
 
 static uint64_t read_utf64(flac_file *f)

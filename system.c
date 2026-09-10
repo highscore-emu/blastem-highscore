@@ -190,6 +190,12 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 		}
 		return make_iso_media(dst, filename);
 	}
+	if (ext && !strcasecmp(ext, "chd")) {
+		if (stype) {
+			*stype = SYSTEM_SEGACD;
+		}
+		return make_chd_media(dst, filename);
+	}
 
 	ROMFILE f = romopen(filename, "rb");
 	if (!f) {

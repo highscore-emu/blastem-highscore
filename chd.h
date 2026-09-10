@@ -4,9 +4,14 @@
 #include <stdint.h>
 
 #include "tern.h"
+#ifndef DISABLE_ZLIB
+#include "zlib/zlib.h"
+#endif
+#include "flac.h"
 
 typedef struct {
 	uint64_t offset;
+	uint32_t compressed_len;
 	uint16_t crc16;
 	uint8_t  compression;
 } chd_hunk_info;
@@ -82,8 +87,21 @@ typedef struct {
 	tern_node     *meta;
 	chd_hunk_info *hunk_info;
 	uint32_t      num_hunks;
-	uint8_t       media_type;
 } chd;
+
+typedef struct {
+#ifndef DISABLE_ZLIB
+	z_stream  zlib;
+#endif
+	flac_file *flac;
+	uint8_t   *src_buffer;
+	uint8_t   *dst_buffer;
+	uint8_t   *subcode_buffer;
+	uint32_t  src_buffer_size;
+	uint32_t  current_hunk;
+	uint32_t  hunk_decode_progress;
+	uint32_t  compressor;
+} chd_decompression_state;
 
 enum {
 	CHD_V5_MAP_T0,
@@ -109,6 +127,10 @@ enum {
 #define CHD_HUFF CHD_COMPRESSOR('h','u','f','f')
 #define CHD_FLAC CHD_COMPRESSOR('f','l','a','c')
 #define CHD_LZMA CHD_COMPRESSOR('l','z','m','a')
+#define CHD_CD_ZLIB CHD_COMPRESSOR('c','d','z','l')
+#define CHD_CD_ZSTD CHD_COMPRESSOR('c','d','z','s')
+#define CHD_CD_LZMA CHD_COMPRESSOR('c','d','l','z')
+#define CHD_CD_FLAC CHD_COMPRESSOR('c','d','f','l')
 
 enum {
 	CHD_MEDIA_HD,
@@ -117,5 +139,17 @@ enum {
 	CHD_MEDIA_DVD,
 	CHD_MEDIA_AV
 };
+
+void chd_print_hunk_info(chd *chd);
+uint8_t chd_init(FILE *f, chd *out);
+void chd_print_meta(chd *chd, const char *indent);
+void chd_print_hunk_info(chd *chd);
+uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint32_t offset, uint32_t length);
+uint32_t chd_hunk_size(chd *chd);
+uint64_t chd_total_size(chd *chd);
+uint8_t chd_is_cd_compressor(uint32_t compressor);
+void chd_free(chd *chd);
+
+const char* chd_compressor_name(uint32_t comp);
 
 #endif //CHD_H_
