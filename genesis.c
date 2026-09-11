@@ -999,7 +999,7 @@ static m68k_context *int_ack(m68k_context *context)
 	//We add 5 + the current cycle count (in 68K cycles) mod 10 to simulate the
 	//additional variable delay from the use of the 6800 cycle
 	uint32_t cycle_count = context->cycles / context->opts->gen.clock_divider;
-	context->cycles += 5 + (cycle_count % 10);
+	context->cycles += (5 + (cycle_count % 10)) * context->opts->gen.clock_divider;
 
 	return context;
 }
