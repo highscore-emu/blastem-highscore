@@ -232,10 +232,12 @@ static uint8_t cd_chd_seek(system_media *media, uint32_t sector)
 		uint32_t hunk = lba / sectors_per_hunk;
 		chd_read(media->chd, media->chd_decomp, hunk, 0, 0);
 		media->hunk_offset = lba % sectors_per_hunk;
+		//CHD treats CDDA as big-endian, but we need little-endian order
+		media->byte_storage[1] = media->tracks[track].type == TRACK_AUDIO && media->chd_decomp->compressor != CHD_CD_FLAC;
 		if (chd_is_cd_compressor(media->chd_decomp->compressor)) {
 			media->tmp_buffer = media->chd_decomp->subcode_buffer + media->hunk_offset * 96;
 			media->hunk_offset *= 2352;
-			media->byte_storage[0] = 12;
+			media->byte_storage[0] = media->tracks[track].type == TRACK_AUDIO ? 0 : 12;
 		} else {
 			media->hunk_offset *= 2352 + 96;
 			media->tmp_buffer = media->chd_decomp->dst_buffer + media->hunk_offset + 2352;
@@ -262,6 +264,7 @@ static uint8_t cd_chd_read(system_media *media, uint32_t offset)
 		if (media->tracks[media->cur_track].sector_bytes < 2352) {
 			hunk_offset -= 16;
 		}
+		hunk_offset ^= media->byte_storage[1];
 		retval = media->chd_decomp->dst_buffer[hunk_offset];
 	}
 	if (offset >= 12 && media->tracks[media->cur_track].type == TRACK_DATA) {
