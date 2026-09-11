@@ -618,7 +618,7 @@ uint8_t flac_get_sample(flac_file *f, int16_t *out, uint8_t desired_channels)
 			copy_channels = 2;
 			*(out++) = left = f->subframes[0].decoded[f->frame_sample_pos];
 			if (desired_channels > 1) {
-				*(out++) = left + f->subframes[1].decoded[f->frame_sample_pos];
+				*(out++) = left - f->subframes[1].decoded[f->frame_sample_pos];
 			}
 			break;
 		case 2:
@@ -634,12 +634,15 @@ uint8_t flac_get_sample(flac_file *f, int16_t *out, uint8_t desired_channels)
 		case 3:
 			//mid-side
 			copy_channels = 2;
-			mid = f->subframes[0].decoded[f->frame_sample_pos];
+			mid = f->subframes[0].decoded[f->frame_sample_pos] << 1;
 			diff = f->subframes[1].decoded[f->frame_sample_pos];
-			left = (diff + 2 * mid) >> 1;
+			if (diff & 1) {
+				mid |= 1;
+			}
+			left = (diff + mid) >> 1;
 			*(out++) = left;
 			if (desired_channels > 1) {
-				*(out++) = left - diff;
+				*(out++) = (mid - diff) >> 1;
 			}
 			break;
 		}
