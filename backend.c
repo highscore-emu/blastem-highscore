@@ -831,6 +831,7 @@ void  interp_write_map_8(uint32_t address, void *context, uint8_t value, void *d
 				offset ^= 1;
 			}
 			base[offset] = value;
+			return;
 		}
 	}
 	if ((!(chunk->flags & MMAP_WRITE) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->write_8) {
