@@ -91,7 +91,13 @@ static uint8_t chd_read_meta(chd *chd, uint64_t meta_offset)
 	return 1;
 }
 
-static int chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_len, uint8_t *huff_bits, uint8_t *lookup)
+typedef struct {
+	int offset;
+	uint64_t bits;
+	uint32_t avail_bits;
+} bitpos;
+
+static bitpos chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_len, uint8_t *huff_bits, uint8_t *lookup)
 {
 	uint8_t is_left = 1;
 	int cur = 0;
@@ -104,7 +110,7 @@ static int chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_l
 	{
 		uint8_t val;
 		if (cur >= compressed_len) {
-			return -1;
+			return (bitpos){.offset = -1};
 		}
 		if (is_left) {
 			val = compressed_map[cur] >> 4;
@@ -158,22 +164,17 @@ static int chd_decode_map_huffman(uint8_t *compressed_map, uint32_t compressed_l
 		}
 		inc += inc;
 	}
-	return cur;
+	return (bitpos){.offset = cur + !is_left, .bits = is_left ? 0 : (compressed_map[cur] << 12) & 0xFFFF, .avail_bits = is_left ? 0 : 4};
 }
 
-typedef struct {
-	int offset;
-	uint64_t bits;
-	uint32_t avail_bits;
-} bitpos;
-
-static bitpos chd_decode_map_rle(chd *chd, uint8_t *compressed_map, uint32_t compressed_len, int cur, uint8_t *huff_bits, uint8_t *lookup)
+static bitpos chd_decode_map_rle(chd *chd, uint8_t *compressed_map, uint32_t compressed_len, bitpos pos, uint8_t *huff_bits, uint8_t *lookup)
 {
+	int cur = pos.offset;
 	if (cur >= compressed_len) {
 		return (bitpos){.offset = -1};
 	}
-	uint32_t bits = compressed_map[cur++] << 8;
-	uint32_t avail_bits = 8;
+	uint32_t bits = pos.bits;
+	uint32_t avail_bits = pos.avail_bits;
 	enum {
 		STATE_NORMAL,
 		STATE_RLE4,
@@ -271,12 +272,12 @@ static uint8_t chd_read_map_v5(chd *chd)
 		//HERE: do huffman decode
 		uint8_t huff_bits[16];
 		uint8_t lookup[256];
-		int cur = chd_decode_map_huffman(compressed_map, header.length, huff_bits, lookup);
-		if (cur < 0) {
+		bitpos pos = chd_decode_map_huffman(compressed_map, header.length, huff_bits, lookup);
+		if (pos.offset < 0) {
 			return 0;
 		}
 
-		bitpos pos = chd_decode_map_rle(chd, compressed_map, header.length, cur, huff_bits, lookup);
+		pos = chd_decode_map_rle(chd, compressed_map, header.length, pos, huff_bits, lookup);
 		if (pos.offset < 0) {
 			return 0;
 		}
