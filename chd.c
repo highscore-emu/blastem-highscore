@@ -617,7 +617,7 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 					}
 					break;
 				case CHD_FLAC:
-				case CHD_CD_FLAC:
+				case CHD_CD_FLAC: {
 					//first byte indicates endianness??? for non-CD FLAC
 					uint32_t offset = decomp->compressor == CHD_FLAC;
 					if (decomp->flac) {
@@ -626,6 +626,7 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 						decomp->flac = flac_file_from_buffer_raw(decomp->src_buffer + offset, info->compressed_len - offset, 44100, 2, 16);
 					}
 					break;
+				}
 				default:
 					warning("Unsupported compressor type %s for hunk %u\n", chd_compressor_name(decomp->compressor), hunk);
 					return 0;
