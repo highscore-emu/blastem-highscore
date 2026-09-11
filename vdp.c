@@ -1525,7 +1525,7 @@ static void render_map(uint16_t col, uint8_t * tmp_buf, uint8_t offset, vdp_cont
 	}
 	uint8_t pal_priority = (col >> 9) & 0x70;
 	uint32_t bits = *((uint32_t *)(&context->vdpmem[address]));
-	tmp_buf += offset;
+	tmp_buf += offset & SCROLL_BUFFER_MASK;
 	if (col & MAP_BIT_H_FLIP) {
 		uint32_t shift = 28;
 		for (int i = 0; i < 4; i++)
