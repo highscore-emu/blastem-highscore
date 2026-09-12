@@ -3,6 +3,7 @@
 #include "libretro.h"
 #include "system.h"
 #include "util.h"
+#include "paths.h"
 #include "vdp.h"
 #include "render.h"
 #include "io.h"
@@ -106,7 +107,7 @@ const system_media *current_media(void)
 
 RETRO_API void retro_init(void)
 {
-	render_audio_initialized(RENDER_AUDIO_S16, 53693175 / (7 * 6 * 4), 2, 4, sizeof(int16_t));
+	render_audio_initialized(RENDER_AUDIO_S16, 48000, 2, 128, sizeof(int16_t));
 }
 
 RETRO_API void retro_deinit(void)
@@ -171,7 +172,7 @@ RETRO_API void retro_get_system_av_info(struct retro_system_av_info *info)
 	info->timing.fps = master_clock / (3420.0 * lines);
 	info->timing.sample_rate = master_clock / (7 * 6 * 24); //sample rate of YM2612
 	sample_rate = info->timing.sample_rate;
-	render_audio_initialized(RENDER_AUDIO_S16, info->timing.sample_rate, 2, 4, sizeof(int16_t));
+	render_audio_initialized(RENDER_AUDIO_S16, info->timing.sample_rate, 2, 128, sizeof(int16_t));
 	//force adjustment of resampling parameters since target sample rate may have changed slightly
 	current_system->set_speed_percent(current_system, 100);
 }
@@ -533,7 +534,7 @@ void render_do_audio_ready(audio_source *src)
 	src->front_populated = 1;
 	src->buffer_pos = 0;
 	if (all_sources_ready()) {
-		int16_t buffer[8];
+		int16_t buffer[256];
 		int min_remaining_out;
 		mix_and_convert((uint8_t *)buffer, sizeof(buffer), &min_remaining_out);
 		retro_audio_sample_batch(buffer, sizeof(buffer)/(2*sizeof(*buffer)));

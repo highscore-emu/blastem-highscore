@@ -335,7 +335,7 @@ UPD78K2RUNOBJS:=upd78k2.o upd78k2run.o util.o backend.o tern.o
 UPDDISOBJS:=upddis.o upd78k2_dis.o disasm.o tern.o util.o backend.o
 SH2DISOBJS:=sh2dis.o sh2_decode.o disasm.o tern.o util.o backend.o
 
-LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB -DDISABLE_ZLIB
+LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB
 
 all : $(ALL)
 

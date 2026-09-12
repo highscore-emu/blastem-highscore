@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include "32x_video.h"
 #include "vdp.h"
 #include "render.h"
