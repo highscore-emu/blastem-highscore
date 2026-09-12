@@ -372,7 +372,7 @@ void view_about(struct nk_context *context)
 {
 	const char *lines[] = {
 		"BlastEm v" BLASTEM_VERSION,
-		"Copyright 2012-2025 Michael Pavone",
+		"Copyright 2012-2026 Michael Pavone",
 		"",
 		"BlastEm is a high performance open source",
 		"(GPLv3) Genesis/Megadrive emulator",
