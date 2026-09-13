@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include "chd.h"
 #include "util.h"
+#include "lzma/LzmaEnc.h"
 
 uint16_t bswap16(uint16_t in)
 {
@@ -545,6 +546,42 @@ uint8_t chd_is_cd_compressor(uint32_t compressor)
 	return (compressor & CHD_COMPRESSOR(0xFF, 0xFF, 0, 0)) == CHD_COMPRESSOR('c', 'd', 0, 0);
 }
 
+#ifndef DISABLE_LZMA
+static void *lzma_libc_malloc(ISzAllocPtr p, size_t size)
+{
+	return malloc(size);
+}
+
+static void lzma_libc_free(ISzAllocPtr p, void *address)
+{
+	free(address);
+}
+
+static ISzAlloc lzma_libc_alloc = {
+	.Alloc = lzma_libc_malloc,
+	.Free = lzma_libc_free
+};
+#endif
+
+static uint32_t get_cd_codec_base_size(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint32_t *header_len)
+{
+	uint32_t sectors = chd_hunk_size(chd) / (2352 + 96);
+	uint32_t base_size_off = (sectors + 7) >> 3; //1-bit per sector rounded to the nearest byte
+	uint32_t base_size;
+	if (chd_hunk_size(chd) < 0x10000) {
+		*header_len = base_size_off + 2;
+		base_size = decomp->src_buffer[base_size_off] << 8 | decomp->src_buffer[base_size_off+1];
+	} else {
+		*header_len = base_size_off + 3;
+		base_size = decomp->src_buffer[base_size_off] << 16 | decomp->src_buffer[base_size_off+1] << 8 | decomp->src_buffer[base_size_off+2];
+	}
+	if (base_size + *header_len > chd->hunk_info[hunk].compressed_len) {
+		warning("Invalid base compressed length %u in CHD hunk %u\n", base_size, hunk);
+		base_size = chd->hunk_info[hunk].compressed_len - *header_len;
+	}
+	return base_size;
+}
+
 uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint32_t offset, uint32_t length)
 {
 	if (hunk != decomp->current_hunk || !decomp->dst_buffer) {
@@ -585,23 +622,13 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 				{
 				case CHD_ZLIB:
 				case CHD_CD_ZLIB:
+#ifdef DISABLE_ZLIB
+					warning("CHD requires zlib decompression for hunk %u, but zlib is disabled\n", hunk)
+					return 0;
+#else
 					if (decomp->compressor == CHD_CD_ZLIB) {
-						uint32_t sectors = chd_hunk_size(chd) / (2352 + 96);
-						uint32_t base_size_off = (sectors + 7) >> 3; //1-bit per sector rounded to the nearest byte
 						uint32_t header_len;
-						uint32_t base_size;
-						if (chd_hunk_size(chd) < 0x10000) {
-							header_len = base_size_off + 2;
-							base_size = decomp->src_buffer[base_size_off] << 8 | decomp->src_buffer[base_size_off+1];
-						} else {
-							header_len = base_size_off + 3;
-							base_size = decomp->src_buffer[base_size_off] << 16 | decomp->src_buffer[base_size_off+1] << 8 | decomp->src_buffer[base_size_off+2];
-						}
-						if (base_size + header_len > info->compressed_len) {
-							warning("Invalid base compressed length %u in CHD hunk %u\n", base_size, hunk);
-							base_size = info->compressed_len - header_len;
-						}
-						decomp->zlib.avail_in = base_size;
+						decomp->zlib.avail_in = get_cd_codec_base_size(chd, decomp, hunk, &header_len);
 						decomp->zlib.next_in = decomp->src_buffer + header_len;
 					} else {
 						decomp->zlib.avail_in = info->compressed_len;
@@ -615,6 +642,65 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 						warning("Failed to initialize inflate for CHD hunk %u\n", hunk);
 						return 0;
 					}
+#endif
+					break;
+				case CHD_LZMA:
+				case CHD_CD_LZMA:
+#ifdef DISABLE_LZMA
+					warning("CHD requires lzma decompression for hunk %u, but lzma is disabled\n", hunk);
+					return 0;
+#else
+					if (!decomp->lzma) {
+						CLzmaEncProps props;
+						LzmaEncProps_Init(&props);
+						props.level = 8;
+						props.reduceSize = chd_hunk_size(chd);
+						LzmaEncProps_Normalize(&props);
+						CLzmaEncHandle tmpEnc = LzmaEnc_Create(&lzma_libc_alloc);
+						LzmaEnc_SetProps(tmpEnc, &props);
+						SizeT size = sizeof(decomp->lzma_props);
+						LzmaEnc_WriteProperties(tmpEnc, decomp->lzma_props, &size);
+						LzmaEnc_Destroy(tmpEnc, &lzma_libc_alloc, &lzma_libc_alloc);
+						
+						decomp->lzma = calloc(1, sizeof(CLzmaDec));
+						LzmaDec_Construct(decomp->lzma);
+						
+						
+						LzmaDec_Allocate(decomp->lzma, decomp->lzma_props, size, &lzma_libc_alloc);
+					}
+					LzmaDec_Init(decomp->lzma);
+					
+					SizeT main_len = info->compressed_len;
+					SizeT dstSize = chd_hunk_size(chd);
+					Byte *start = decomp->src_buffer;
+					if (decomp->compressor == CHD_CD_LZMA) {
+						uint32_t header_len;
+						uint32_t base_size = get_cd_codec_base_size(chd, decomp, hunk, &header_len);
+						decomp->zlib.next_in = decomp->src_buffer + base_size + header_len;
+						decomp->zlib.avail_in = main_len - base_size;
+						decomp->zlib.next_out = decomp->subcode_buffer;
+						decomp->zlib.avail_out = 96 * (chd_hunk_size(chd) / (2352 + 96));
+						dstSize -= decomp->zlib.avail_out;
+						decomp->zlib.total_in = decomp->zlib.total_out;
+						if (Z_OK != inflateInit2(&decomp->zlib, -15)) {
+							warning("Failed to initialize inflate for CHD hunk %u subcode data\n", hunk);
+						}
+						if (Z_STREAM_END != inflate(&decomp->zlib, Z_FINISH)) {
+							warning("subocde inflate failed for hunk %u\n", hunk);
+						}
+						main_len = base_size;
+						start += header_len;
+					}
+					ELzmaStatus status;
+					if (SZ_OK != LzmaDecode(
+						decomp->dst_buffer, &dstSize, start, &main_len, decomp->lzma_props, 
+						sizeof(decomp->lzma_props), LZMA_FINISH_ANY, &status, &lzma_libc_alloc
+					)) {
+						warning("Failed to LZMA decompress hunk %u\n", hunk);
+						return 0;
+					}
+					decomp->hunk_decode_progress = chd_hunk_size(chd);
+#endif
 					break;
 				case CHD_FLAC:
 				case CHD_CD_FLAC: {
@@ -645,6 +731,7 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 			break;
 		}
 		case CHD_ZLIB:
+#ifndef DISABLE_ZLIB
 			while (end > decomp->hunk_decode_progress)
 			{
 				int ret = inflate(&decomp->zlib, Z_BLOCK);
@@ -657,8 +744,10 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 					break;
 				}
 			}
+#endif
 			break;
 		case CHD_CD_ZLIB: {
+#ifndef DISABLE_ZLIB
 			//TODO: handle a final hunk that is not full sized
 			uint32_t sectors = chd_hunk_size(chd) / (2352 + 96);
 			if (Z_STREAM_END != inflate(&decomp->zlib, Z_FINISH)) {
@@ -678,6 +767,7 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 				warning("inflate failed for hunk %u subcode data\n", hunk);
 			}
 			decomp->hunk_decode_progress = chd_hunk_size(chd);
+#endif
 			break;
 		}
 		case CHD_FLAC:

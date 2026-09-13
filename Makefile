@@ -282,12 +282,19 @@ else
 RENDEROBJS+= $(LIBZOBJS) png.o
 endif
 
+ifdef NOLZMA
+CFLAGS+= -DDISABLE_LZMA
+LZMAOBJS=
+else
+LZMAOBJS=lzma/LzmaDec.o lzma/LzmaEnc.o lzma/LzFind.o lzma/LzFindMt.o lzma/LzFindOpt.o lzma/CpuArch.o lzma/Threads.o
+endif
+
 COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o nor.o $(M68KOBJS) \
 	sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
 	$(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o gen_player.o coleco.o pico_pcm.o ymz263b.o \
 	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o \
 	laseractive.o upd78k2_dis.o upd78k2.o osd_font.o pd0178.o radica.o 32x.o 32x_video.o sh2.o \
-	sh2_decode.o sh7095.o chd.o
+	sh2_decode.o sh7095.o chd.o $(LZMAOBJS)
 
 ifdef NOZ80
 CFLAGS+=-DNO_Z80
@@ -380,9 +387,11 @@ endif
 $(OBJDIR) :
 	mkdir -p $(OBJDIR)/nuklear_ui
 	mkdir -p $(OBJDIR)/zlib
+	mkdir -p $(OBJDIR)/lzma
 
 $(LIBOBJDIR) :
 	mkdir -p $(LIBOBJDIR)/zlib
+	mkdir -p $(LIBOBJDIR)/lzma
 
 libblastem.$(SO) : $(LIBOBJS:%.o=$(LIBOBJDIR)/%.o)
 	$(CC) -shared -o $@ $^ $(LDFLAGS)

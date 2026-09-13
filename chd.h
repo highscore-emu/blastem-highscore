@@ -7,6 +7,9 @@
 #ifndef DISABLE_ZLIB
 #include "zlib/zlib.h"
 #endif
+#ifndef DISABLE_LZMA
+#include "lzma/LzmaDec.h"
+#endif
 #include "flac.h"
 
 typedef struct {
@@ -92,6 +95,10 @@ typedef struct {
 typedef struct {
 #ifndef DISABLE_ZLIB
 	z_stream  zlib;
+#endif
+#ifndef DISABLE_LZMA
+	CLzmaDec  *lzma;
+	Byte      lzma_props[LZMA_PROPS_SIZE];
 #endif
 	flac_file *flac;
 	uint8_t   *src_buffer;
