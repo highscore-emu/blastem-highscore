@@ -346,8 +346,8 @@ LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB
 
 all : $(ALL)
 
-ORDERONLY:=$(OBJDIR)
-LIBORDERONLY:=$(LIBOBJDIR)
+ORDERONLY:=$(OBJDIR)/nuklear_ui $(OBJDIR)/zlib $(OBJDIR)/lzma
+LIBORDERONLY:=$(LIBOBJDIR)/zlib $(LIBOBJDIR)/lzma
 ifdef NEW_CORE
 ifeq ($(wildcard $(OBJDIR)/*.d),)
 ORDERONLY+= m68k.c z80.c
@@ -384,13 +384,19 @@ endif
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
 
-$(OBJDIR) :
+$(OBJDIR)/nuklear_ui :
 	mkdir -p $(OBJDIR)/nuklear_ui
+
+$(OBJDIR)/zlib :
 	mkdir -p $(OBJDIR)/zlib
+
+$(OBJDIR)/lzma :
 	mkdir -p $(OBJDIR)/lzma
 
-$(LIBOBJDIR) :
+$(LIBOBJDIR)/zlib :
 	mkdir -p $(LIBOBJDIR)/zlib
+
+$(LIBOBJDIR)/lzma :
 	mkdir -p $(LIBOBJDIR)/lzma
 
 libblastem.$(SO) : $(LIBOBJS:%.o=$(LIBOBJDIR)/%.o)
