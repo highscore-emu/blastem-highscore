@@ -287,6 +287,9 @@ CFLAGS+= -DDISABLE_LZMA
 LZMAOBJS=
 else
 LZMAOBJS=lzma/LzmaDec.o lzma/LzmaEnc.o lzma/LzFind.o lzma/LzFindMt.o lzma/LzFindOpt.o lzma/CpuArch.o lzma/Threads.o
+ifeq ($(OS),Linux)
+LDFLAGS+= -lpthread
+endif
 endif
 
 COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o nor.o $(M68KOBJS) \
