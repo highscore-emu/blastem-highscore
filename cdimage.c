@@ -527,12 +527,21 @@ uint8_t parse_cue(system_media *media)
 		track_size -= tracks[track].file_offset;
 		tracks[track].end_lba = tracks[track].pregap_lba + tracks[track].fake_pregap + track_size / tracks[track].sector_bytes;
 		
+		aligned_free(media->buffer);
 		if (tracks[0].type == TRACK_DATA) {
 			//replace cue sheet with first sector
-			aligned_free(media->buffer);
 			media->buffer = calloc(2048, 1);
 			fseek(tracks[0].f, tracks[0].sector_bytes >= 2352 ? 16 : 0, SEEK_SET);
 			media->size = fread(media->buffer, 1, 2048, tracks[0].f);
+		} else {
+			char *buf;
+			media->buffer = buf = calloc(0x180, 1);
+			media->size = 0x180;
+			memset(buf + 0x100, 0x20, 0x80);
+			static const char *title = "Audio CD";
+			size_t len = strlen(title);
+			memcpy(buf + 0x120, title, len);
+			memcpy(buf + 0x150, title, len);
 		}
 		media->seek = bin_seek;
 		media->read = bin_read;
