@@ -1,5 +1,5 @@
 project('blastem-highscore', 'c',
-  version : '0.6.3-pre',
+  version : '1.0.0',
 )
 
 commit = run_command('git', 'describe', '--always', '--dirty').stdout().strip()
