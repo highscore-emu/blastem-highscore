@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef DISABLE_NUKLEAR
+#if !defined(DISABLE_NUKLEAR) && !defined(IS_LIB)
 #include "nuklear_ui/blastem_nuklear.h"
 #endif
 
@@ -755,7 +755,7 @@ void machine_freeze(tern_node *config, debug_callback callback, void *data, char
 			va_end(args);
 			exit(1);
 			break;
-#ifndef DISABLE_NUKLEAR
+#if !defined(DISABLE_NUKLEAR) && !defined(IS_LIB)
 		case CHOICE_ASK:
 			{
 				//take a guess at the final size

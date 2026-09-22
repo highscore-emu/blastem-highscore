@@ -52,7 +52,9 @@ struct flac_file {
 };
 
 flac_file *flac_file_from_buffer(void *buffer, uint32_t size);
+flac_file *flac_file_from_buffer_raw(void *buffer, uint32_t size, uint32_t sample_rate, uint8_t channels, uint8_t bits_per_sample);
 flac_file *flac_file_from_file(FILE *file);
+void flac_reset_buffer_raw(flac_file *f, void *buffer, uint32_t size);
 uint8_t flac_get_sample(flac_file *f, int16_t *out, uint8_t desired_channels);
 void flac_seek(flac_file *f, uint64_t sample_number);
 

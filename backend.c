@@ -6,7 +6,7 @@
 #include "backend.h"
 #include <stdlib.h>
 
-deferred_addr * defer_address(deferred_addr * old_head, uint32_t address, uint8_t *dest)
+deferred_addr * defer_address(deferred_addr * old_head, uint32_t address, code_ptr dest)
 {
 	deferred_addr * new_head = malloc(sizeof(deferred_addr));
 	new_head->next = old_head;
@@ -831,6 +831,7 @@ void  interp_write_map_8(uint32_t address, void *context, uint8_t value, void *d
 				offset ^= 1;
 			}
 			base[offset] = value;
+			return;
 		}
 	}
 	if ((!(chunk->flags & MMAP_WRITE) || (chunk->flags & MMAP_FUNC_NULL)) && chunk->write_8) {

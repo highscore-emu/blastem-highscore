@@ -999,7 +999,7 @@ static m68k_context *int_ack(m68k_context *context)
 	//We add 5 + the current cycle count (in 68K cycles) mod 10 to simulate the
 	//additional variable delay from the use of the 6800 cycle
 	uint32_t cycle_count = context->cycles / context->opts->gen.clock_divider;
-	context->cycles += 5 + (cycle_count % 10);
+	context->cycles += (5 + (cycle_count % 10)) * context->opts->gen.clock_divider;
 
 	return context;
 }
@@ -2974,7 +2974,9 @@ static genesis_context *shared_init_gen(rom_info info, void *lock_on, uint32_t l
 	gen->z80->mem_pointers[1] = gen->z80->mem_pointers[2] = rom;
 
 	gen->cart = rom;
-	gen->lock_on = lock_on;
+	if (current_media()->chain && current_media()->chain->type != MEDIA_CDROM) {
+		gen->lock_on = lock_on;
+	}
 
 	setup_io_devices(config, &info, &gen->io);
 	gen->header.has_keyboard = io_has_keyboard(&gen->io);
@@ -3319,7 +3321,7 @@ genesis_context *alloc_genesis_32x(system_media *media, uint32_t opts, uint8_t f
 	);
 	genesis_context *gen = shared_init_gen(info, media->chain ? media->chain->buffer : NULL, media->chain ? media->chain->size : 0, opts, force_region);
 	gen->mars = alloc_32x(media, gen->version_reg & HZ50, 0);
-	gen->header.type = SYSTEM_32X;
+	gen->header.type = gen->header.type == SYSTEM_SEGACD ? SYSTEM_32XCD : SYSTEM_32X;
 	gen->vdp->s32x_vid = &gen->mars->video;
 	if (gen->vdp->renderer) {
 		gen->vdp->renderer->s32x_vid = &gen->mars->video;

@@ -42,7 +42,7 @@
 #define LINE_CHANGE_MODE4 248
 #define VBLANK_START_H40 (LINE_CHANGE_H40+2)
 #define VBLANK_START_H32 (LINE_CHANGE_H32+2)
-#define FIFO_LATENCY    3
+#define FIFO_LATENCY    2
 #define READ_LATENCY    3
 
 #define BORDER_TOP_V24     27
@@ -507,12 +507,14 @@ static int vdp_render_thread_main(void *vcontext)
 }
 #endif
 
+#if !defined(_WIN32) && !defined(IS_LIB)
 static render_thread vdp_thread;
+#endif
 vdp_context *init_vdp_context(uint8_t region_pal, uint8_t has_max_vsram, uint8_t type)
 {
 	vdp_context *ret = init_vdp_context_int(region_pal, has_max_vsram, type);
 	vdp_context *context;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(IS_LIB)
 	if (render_is_threaded_video()) {
 		context = ret->renderer = init_vdp_context_int(region_pal, has_max_vsram, type);
 		context->is_threaded_renderer = 1;
@@ -529,7 +531,7 @@ vdp_context *init_vdp_context(uint8_t region_pal, uint8_t has_max_vsram, uint8_t
 		context->fb = render_get_framebuffer(FRAMEBUFFER_ODD, &context->output_pitch);
 	}
 	context->output = (pixel_t *)(((char *)context->fb) + context->output_pitch * context->border_top);
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(IS_LIB)
 	if (ret->renderer) {
 		event_log_mem();
 		render_create_thread(&vdp_thread, "vdp_render", vdp_render_thread_main, ret->renderer);
@@ -1525,7 +1527,7 @@ static void render_map(uint16_t col, uint8_t * tmp_buf, uint8_t offset, vdp_cont
 	}
 	uint8_t pal_priority = (col >> 9) & 0x70;
 	uint32_t bits = *((uint32_t *)(&context->vdpmem[address]));
-	tmp_buf += offset;
+	tmp_buf += offset & SCROLL_BUFFER_MASK;
 	if (col & MAP_BIT_H_FLIP) {
 		uint32_t shift = 28;
 		for (int i = 0; i < 4; i++)
@@ -3638,7 +3640,7 @@ static void vdp_h40_line(vdp_context * context)
 		context->col_2
 	);
 	scan_sprite_table(context->vcounter, context);
-
+	draw_right_border(context);
 	//Do palette lookup for end of previous line
 	uint8_t *src = context->compositebuf + (LINE_CHANGE_H40 - BG_START_SLOT) *2;
 	pixel_t *dst = context->output + (LINE_CHANGE_H40 - BG_START_SLOT) *2;
@@ -3692,8 +3694,8 @@ static void vdp_h40_line(vdp_context * context)
 	context->hscroll_b = context->vdpmem[address+2] << 8 | context->vdpmem[address+3];
 	context->hscroll_b_fine = context->hscroll_b & 0xF;
 	//printf("%d: HScroll A: %d, HScroll B: %d\n", context->vcounter, context->hscroll_a, context->hscroll_b);
-	//243-246 inclusive
-	for (int i = 0; i < 3; i++)
+	//245-246 inclusive
+	for (int i = 0; i < 2; i++)
 	{
 		render_sprite_cells(context);
 		scan_sprite_table(context->vcounter, context);

@@ -285,9 +285,6 @@ void reload_media(void)
 	}
 	current_system->next_rom = cart.orig_path;
 	cart.orig_path = NULL;
-	if (cart.chain) {
-		load_media(cart.chain->orig_path, cart.chain, NULL);
-	}
 	system_request_exit(current_system, 1);
 }
 
@@ -539,7 +536,7 @@ int main(int argc, char ** argv)
 				if (i >= argc) {
 					fatal_error("-o must be followed by a lock on cartridge filename\n");
 				}
-				if (!load_media(argv[i], &lock_on, NULL)) {
+				if (!load_media(strdup(argv[i]), &lock_on, NULL)) {
 					fatal_error("Failed to load lock on cartridge %s\n", argv[i]);
 				}
 				cart.chain = &lock_on;
@@ -746,6 +743,9 @@ int main(int argc, char ** argv)
 			char *next_rom = current_system->next_rom;
 			current_system->next_rom = NULL;
 			init_system_with_media(next_rom, force_stype);
+			if (lock_on.orig_path) {
+				load_media(lock_on.orig_path, &lock_on, NULL);
+			}
 			menu = 0;
 			current_system = game_system;
 			current_system->debugger_type = dtype;

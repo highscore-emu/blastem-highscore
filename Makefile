@@ -249,21 +249,21 @@ ifdef NO_FILE_CHOOSER
 CHOOSER:=nuklear_ui/filechooser_nulll.o
 endif
 
+ifeq ($(CPU),x86_64)
+TRANSOBJS+= gen_x86.o backend_x86.o
+else
+ifeq ($(CPU),i686)
+TRANSOBJS+= gen_x86.o backend_x86.o
+endif
+endif
+
 ifdef NEW_CORE
 Z80OBJS=z80.o z80inst.o
 M68KOBJS+= m68k.o
 CFLAGS+= -DNEW_CORE
 else
 Z80OBJS=z80inst.o z80_to_x86.o
-ifeq ($(CPU),x86_64)
 M68KOBJS+= m68k_core.o m68k_core_x86.o
-TRANSOBJS+= gen_x86.o backend_x86.o
-else
-ifeq ($(CPU),i686)
-M68KOBJS+= m68k_core.o m68k_core_x86.o
-TRANSOBJS+= gen_x86.o backend_x86.o
-endif
-endif
 endif
 AUDIOOBJS=ym2612.o ymf262.o ym_common.o psg.o wave.o flac.o vgm.o event_log.o render_audio.o rf5c164.o
 CONFIGOBJS=config.o tern.o util.o paths.o
@@ -277,8 +277,19 @@ endif
 
 ifdef NOZLIB
 CFLAGS+= -DDISABLE_ZLIB
+LIBZOBJS=
 else
 RENDEROBJS+= $(LIBZOBJS) png.o
+endif
+
+ifdef NOLZMA
+CFLAGS+= -DDISABLE_LZMA
+LZMAOBJS=
+else
+LZMAOBJS=lzma/LzmaDec.o lzma/LzmaEnc.o lzma/LzFind.o lzma/LzFindMt.o lzma/LzFindOpt.o lzma/CpuArch.o lzma/Threads.o
+ifeq ($(OS),Linux)
+LDFLAGS+= -lpthread
+endif
 endif
 
 COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o nor.o $(M68KOBJS) \
@@ -286,7 +297,7 @@ COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o n
 	$(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o gen_player.o coleco.o pico_pcm.o ymz263b.o \
 	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o \
 	laseractive.o upd78k2_dis.o upd78k2.o osd_font.o pd0178.o radica.o 32x.o 32x_video.o sh2.o \
-	sh2_decode.o sh7095.o
+	sh2_decode.o sh7095.o chd.o $(LZMAOBJS)
 
 ifdef NOZ80
 CFLAGS+=-DNO_Z80
@@ -334,12 +345,12 @@ UPD78K2RUNOBJS:=upd78k2.o upd78k2run.o util.o backend.o tern.o
 UPDDISOBJS:=upddis.o upd78k2_dis.o disasm.o tern.o util.o backend.o
 SH2DISOBJS:=sh2dis.o sh2_decode.o disasm.o tern.o util.o backend.o
 
-LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB -DDISABLE_ZLIB
+LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB
 
 all : $(ALL)
 
-ORDERONLY:=$(OBJDIR)
-LIBORDERONLY:=$(LIBOBJDIR)
+ORDERONLY:=$(OBJDIR)/nuklear_ui $(OBJDIR)/zlib $(OBJDIR)/lzma
+LIBORDERONLY:=$(LIBOBJDIR)/zlib $(LIBOBJDIR)/lzma
 ifdef NEW_CORE
 ifeq ($(wildcard $(OBJDIR)/*.d),)
 ORDERONLY+= m68k.c z80.c
@@ -376,12 +387,20 @@ endif
 -include $(OBJDIR)/ztestrun.d
 -include $(OBJDIR)/blastcpm.d
 
-$(OBJDIR) :
+$(OBJDIR)/nuklear_ui :
 	mkdir -p $(OBJDIR)/nuklear_ui
+
+$(OBJDIR)/zlib :
 	mkdir -p $(OBJDIR)/zlib
 
-$(LIBOBJDIR) :
+$(OBJDIR)/lzma :
+	mkdir -p $(OBJDIR)/lzma
+
+$(LIBOBJDIR)/zlib :
 	mkdir -p $(LIBOBJDIR)/zlib
+
+$(LIBOBJDIR)/lzma :
+	mkdir -p $(LIBOBJDIR)/lzma
 
 libblastem.$(SO) : $(LIBOBJS:%.o=$(LIBOBJDIR)/%.o)
 	$(CC) -shared -o $@ $^ $(LDFLAGS)
@@ -424,6 +443,9 @@ upddis$(EXE) : $(UPDDISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 sh2dis$(EXE) : $(SH2DISOBJS:%.o=$(OBJDIR)/%.o)
+	$(CC) -o $@ $^ $(OPT)
+
+chdtool$(EXE) : $(OBJDIR)/chdtool.o $(OBJDIR)/chd.o $(OBJDIR)/util.o $(OBJDIR)/tern.o $(OBJDIR)/flac.o $(LIBZOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c

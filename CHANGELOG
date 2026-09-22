@@ -1,3 +1,83 @@
+1.0.0
+-----
+*Newly Supported Hardware*
+
+ - Sega/Mega CD
+ - Sega 32X
+ - Sega Pico
+ - Yamaha Copera (OPL3 emulation missing, but all known games are playable)
+ - Game Gear
+ - SC-3000/SG-1000
+ - Colecovision
+ - Hearbeat Personal Trainer peripheral (needed for Outback Joey and other HPBT games)
+ - Sega Multitap
+
+*Quality of Life Improvements*
+
+ - Nuklear UI now works even if OpenGL is disabled/unavailable
+ - Nuklear UI can now be navigated by keyboard or game controller
+ - Controller type and SDL2 mapping can now be changed after initial configuration
+ - Controllers are now ordered based on which one receives input first
+ - Implemented DPI scaling
+ - Added multiple new shaders, including some 3rd party contributions
+ - Added option to use system file picker on Windows and Linux (GTK only for the latter)
+ - Added support for Unicode and long paths on Windows
+ - Some 6-button style controllers now have correct mappings out of the box
+ - New option to save config files in the application folder for "portable" setups
+ 
+*New Features*
+
+ - Genesis/Mega Drive model selection: Enables emulation of model-specific hardware quirks
+ - VGM logging
+ - Oscilloscope View
+ - New media player mode that can play VGM files along with WAVE and FLAC files
+ - "Video" recording (APNG + WAVE)
+
+*Debugging Improvements*
+
+ - Completely reworked the CPU debuggers with a turing complete scripting language
+ - Added watchpoints for both 68K memory and VDP registers/RAM
+ - Enhanced palette viewer
+ - Enhanced VDP plane viewer
+ - Implemented KMod logging extensions
+ 
+*Accuracy Improvements*
+
+ - Separated comopsiting from final output. Fixes minor glitch in the DF Retro Direct Color DMA demo
+ - Reworked sprite rendering phase 3 to better match documentation by Kabuto/TiTan. Fixes Alex Kidd minigame
+ - Fixed reading version reg from Z80 and open bus reads from VDP test reg
+ - Fixed YM2612 busy flag timing
+ - Fixed a Z80 interrupt edge case which broke the music in Metal Blast 2277
+ - Improved open bus emulation
+ - Fixed some edge cases in VDP address/command register updates. Fixes the Mona in 344 bytes demo.
+ - Fixed timing of a number of 68K instructions
+ - Fixed YM2612 Timer B load behavior that caused slow music playback in the Konami driver
+ - Implemented VDP read latency and invalid write delays
+ - Fixed YM2612 key scaling in CH3 special mode. Fixes sound effects in Toy Story and Maui Mallard
+ - Fixed VDP rendering behavior when all planes are disabled via the VDP test register
+ - Implemented additional YM2612 pan "leakage" present on real hardware
+ - Implemented undocumented Z80/PSG clock speed bit in VDP test registers
+ - Fixed handling of auto-release in SSG-EG without HOLD. Fixes whistle sound effect in Strikers
+
+*Bugfixes*
+
+ - Fixed crash when pressing escape with no ROM loaded
+ - Fixed immediate cancel in keybinding view when mouse was positioned where cancel button appears
+ - Fixed crash when changing video screen settings when in full-screen
+ - Fixed crash when loading save states in games with the "SRAM" variant of the Sega mapper
+ - Fixed crash when repeatedly reloading a ROM or a sequence of different ROMs
+ - Fixed a bug in the implementation of the 'in (c)' Z80 instruction
+ - Fixed crash when loading new ROM via drag & drop when existing ROM has lock-on
+ - Fixed a number of bugs in the controller mapping UI
+
+*Other Changes*
+
+ - Added a 64-bit Windows build
+ - Added new 68K and Z80 interpreters for building on non-x86/x86-64 targets
+ - Added an experimental web build
+ - Added ROM DB entries for a number of games that needed them
+ - Some very early work on LaserActive that emulates some parts of the PAC-less base player
+
 0.6.2
 -----
 *New Features*

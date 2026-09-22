@@ -335,15 +335,16 @@ void ym_run_envelope(ym2612_context *context, ym_channel *channel, ym_operator *
 					envelope_inc *= 4;
 				} else {
 					envelope_inc = 0;
+					if (operator->ssg != (SSG_ENABLE|SSG_INVERT|SSG_HOLD) && operator->ssg != (SSG_ENABLE|SSG_ALTERNATE|SSG_HOLD)) {
+						operator->envelope = MAX_ENVELOPE;
+						operator->env_phase = PHASE_RELEASE;
+					}
 				}
 			}
 			//envelope value is 10-bits, but it will be used as a 4.8 value
 			operator->envelope += envelope_inc << 2;
 			//clamp to max attenuation value
-			if (
-				operator->envelope > MAX_ENVELOPE
-				|| (operator->env_phase == PHASE_RELEASE && operator->envelope >= SSG_CENTER)
-			) {
+			if (operator->envelope > MAX_ENVELOPE) {
 				operator->envelope = MAX_ENVELOPE;
 			}
 		}

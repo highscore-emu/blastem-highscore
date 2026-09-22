@@ -1,1 +1,1 @@
-#define BLASTEM_VERSION "0.6.3-pre"
+#define BLASTEM_VERSION "1.0.1-pre"

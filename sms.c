@@ -731,18 +731,21 @@ static void update_mem_map(uint32_t location, sms_context *sms, uint8_t value)
 	void *old_value;
 	if (location) {
 		uint32_t idx = sms->header.info.mapper_start_index + location - 1;
-		old_value = z80->mem_pointers[idx];
-		z80->mem_pointers[idx] = sms->rom + (value << 14 & (sms->rom_size-1));
-		if (old_value != z80->mem_pointers[idx]) {
-			//invalidate any code we translated for the relevant bank
-			z80_invalidate_code_range(z80, idx ? idx * 0x4000 : 0x400, idx * 0x4000 + 0x4000);
+		if (location != 3 || !(sms->bank_regs[0] & 8)) {
+			//only update bank 2 location if RAM is not enabled
+			old_value = z80->mem_pointers[idx];
+			z80->mem_pointers[idx] = sms->rom + (value << 14 & (sms->rom_size-1));
+			if (old_value != z80->mem_pointers[idx]) {
+				//invalidate any code we translated for the relevant bank
+				z80_invalidate_code_range(z80, idx ? idx * 0x4000 : 0x400, idx * 0x4000 + 0x4000);
+			}
 		}
 	} else {
 		uint32_t idx = sms->header.info.mapper_start_index + 2;
 		old_value = z80->mem_pointers[idx];
 		if (value & 8) {
 			//cartridge RAM is enabled
-			z80->mem_pointers[idx] = sms->cart_ram + (value & 4 ? (SMS_CART_RAM_SIZE/2) : 0);
+			z80->mem_pointers[idx] = sms->cart_ram + ((value & 4) ? (SMS_CART_RAM_SIZE/2) : 0);
 		} else {
 			//cartridge RAM is disabled
 			z80->mem_pointers[idx] = sms->rom + (sms->bank_regs[3] << 14 & (sms->rom_size-1));

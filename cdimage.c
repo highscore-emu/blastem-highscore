@@ -205,6 +205,84 @@ static uint8_t bin_subcode_read(system_media *media, uint32_t offset)
 	return media->tmp_buffer[offset];
 }
 
+static uint8_t cd_chd_seek(system_media *media, uint32_t sector)
+{
+	media->cur_sector = sector;
+	uint32_t lba = sector;
+	uint32_t track;
+	uint32_t rel;
+	for (track = 0; track < media->num_tracks; track++)
+	{
+		if ((sector - media->tracks[track].pregap_lba) < media->tracks[track].fake_pregap) {
+			media->in_fake_pregap = media->tracks[track].type == TRACK_DATA ? FAKE_DATA : FAKE_AUDIO;
+			break;
+		}
+		lba -= media->tracks[track].fake_pregap;
+		if (sector < media->tracks[track].end_lba) {
+			media->in_fake_pregap = 0;
+			break;
+		}
+	}
+	if (track < media->num_tracks) {
+		media->cur_track = track;
+		if (media->tracks[track].type == TRACK_DATA) {
+			media->cdrom_scramble_lsfr = 1;
+		}
+		uint32_t sectors_per_hunk = chd_hunk_size(media->chd) / (2352 + 96);
+		uint32_t hunk = lba / sectors_per_hunk;
+		chd_read(media->chd, media->chd_decomp, hunk, 0, 0);
+		media->hunk_offset = lba % sectors_per_hunk;
+		//CHD treats CDDA as big-endian, but we need little-endian order
+		media->byte_storage[1] = media->tracks[track].type == TRACK_AUDIO && media->chd_decomp->compressor != CHD_CD_FLAC;
+		if (chd_is_cd_compressor(media->chd_decomp->compressor)) {
+			media->tmp_buffer = media->chd_decomp->subcode_buffer + media->hunk_offset * 96;
+			media->hunk_offset *= 2352;
+			media->byte_storage[0] = media->tracks[track].type == TRACK_AUDIO ? 0 : 12;
+		} else {
+			media->hunk_offset *= 2352 + 96;
+			media->tmp_buffer = media->chd_decomp->dst_buffer + media->hunk_offset + 2352;
+			media->byte_storage[0] = 0;
+		}
+		chd_read(media->chd, media->chd_decomp, hunk, media->hunk_offset, 2352 + 96);
+	}
+	return track;
+}
+
+static uint8_t cd_chd_read(system_media *media, uint32_t offset)
+{
+	uint8_t retval;
+	if (media->in_fake_pregap == FAKE_DATA) {
+		retval = fake_read(media->cur_sector, offset);
+	} else if (media->in_fake_pregap == FAKE_AUDIO) {
+		retval = 0;
+	} else if ((media->tracks[media->cur_track].sector_bytes < 2352 && offset < 16) || offset >= (media->tracks[media->cur_track].sector_bytes + 16)) {
+		retval = fake_read(media->cur_sector, offset);
+	} else if (offset < media->byte_storage[0] || (media->byte_storage[0] && offset >= (2048 + 16 + 4))) {
+		retval = fake_read(media->cur_sector, offset);
+	} else {
+		uint32_t hunk_offset = media->hunk_offset + offset;
+		if (media->tracks[media->cur_track].sector_bytes < 2352) {
+			hunk_offset -= 16;
+		}
+		hunk_offset ^= media->byte_storage[1];
+		retval = media->chd_decomp->dst_buffer[hunk_offset];
+	}
+	if (offset >= 12 && media->tracks[media->cur_track].type == TRACK_DATA) {
+		retval = cdrom_scramble(&media->cdrom_scramble_lsfr, retval);
+	}
+	return retval;
+}
+
+static uint8_t cd_chd_subcode_read(system_media *media, uint32_t offset)
+{
+	if (media->in_fake_pregap || !media->tracks[media->cur_track].has_subcodes) {
+		//TODO: Fake PQ subcodes
+		return 0;
+	}
+	//TODO: Translate "cooked" subcodes back to raw format
+	return media->tmp_buffer[offset];
+}
+
 static void print_toc(system_media *media)
 {
 	track_info * tracks = media->tracks;
@@ -449,12 +527,21 @@ uint8_t parse_cue(system_media *media)
 		track_size -= tracks[track].file_offset;
 		tracks[track].end_lba = tracks[track].pregap_lba + tracks[track].fake_pregap + track_size / tracks[track].sector_bytes;
 		
+		aligned_free(media->buffer);
 		if (tracks[0].type == TRACK_DATA) {
 			//replace cue sheet with first sector
-			aligned_free(media->buffer);
 			media->buffer = calloc(2048, 1);
 			fseek(tracks[0].f, tracks[0].sector_bytes >= 2352 ? 16 : 0, SEEK_SET);
 			media->size = fread(media->buffer, 1, 2048, tracks[0].f);
+		} else {
+			char *buf;
+			media->buffer = buf = calloc(0x180, 1);
+			media->size = 0x180;
+			memset(buf + 0x100, 0x20, 0x80);
+			static const char *title = "Audio CD";
+			size_t len = strlen(title);
+			memcpy(buf + 0x120, title, len);
+			memcpy(buf + 0x150, title, len);
 		}
 		media->seek = bin_seek;
 		media->read = bin_read;
@@ -674,7 +761,139 @@ uint32_t make_iso_media(system_media *media, const char *filename)
 	media->seek = bin_seek;
 	media->read = bin_read;
 	media->read_subcodes = bin_subcode_read;
+	media->dir = path_dirname(filename);
+	if (!media->dir) {
+		media->dir = path_current_dir();
+	}
+	media->name = basename_no_extension(filename);
+	media->extension = path_extension(filename);
 	return media->size;
+}
+
+uint8_t process_cht2_entry(uint32_t num, track_info *track, chd_meta *meta, uint32_t start_lba)
+{
+	uint32_t track_num;
+	//longest valid value is MODE2_FORM_MIX
+	char track_type[15];
+	//longest valid value is RW_RAW
+	char sub_type[7];
+	//seems like these can be any of the track types with V prepended
+	char pg_type[16];
+	//seems like these can be any of the sub types with V prepended
+	char pg_sub[8];
+	uint32_t sectors;
+	uint32_t pregap;
+	uint32_t postgap;
+	if (8 != sscanf(meta->data, "TRACK:%u TYPE:%14s SUBTYPE:%6s FRAMES:%u PREGAP:%u PGTYPE:%15s PGSUB:%7s POSTGAP:%u", 
+		&track_num, track_type, sub_type, &sectors, &pregap, pg_type, pg_sub, &postgap)
+	) {
+		warning("CHT2 metadata entry %s does not match expected format\n", meta->data);
+		return 0;
+	}
+	if (track_num != num) {
+		warning("Expected track %u in CHT2 entry but found %u\n", num, track_num);
+		return 0;
+	}
+	if (!strcmp(track_type, "MODE1") || !strcmp(track_type, "MODE1/2048")) {
+		track->sector_bytes = 2048;
+		track->type = TRACK_DATA;
+	} else if (!strcmp(track_type, "MODE1_RAW") || !strcmp(track_type, "MODE1/2352")) {
+		track->sector_bytes = 2352;
+		track->type = TRACK_DATA;
+	} else if (!strcmp(track_type, "AUDIO")) {
+		track->sector_bytes = 2352;
+		track->type = TRACK_AUDIO;
+	} else {
+		warning("Unhandled track type %s for track %u\n", track_type, num);
+		return 0;
+	}
+	track->pregap_lba = start_lba;
+	if (num == 1 && !pregap) {
+		track->fake_pregap = 2 * 75;
+		track->start_lba = start_lba + track->fake_pregap;
+	} else {
+		track->start_lba = start_lba + pregap;
+		if (pregap) {
+			if (pg_type[0] != 'V') {
+				debug_message("Track %u has pregap %u, but PGTYPE is not valid", track_num, pregap);
+			}else  if (strcmp(pg_type + 1, track_type)) {
+				debug_message("Track %u has TYPE %s, but PGTYPE %s. Mixed TYPE/PGTYPE is not supported", track_num, track_type, pg_type);
+			}
+		}
+	}
+	// sectors is inclusive of pre/post gap
+	track->end_lba = start_lba + sectors + track->fake_pregap;
+	if (!strcmp(sub_type, "RW")) {
+		track->has_subcodes = SUBCODES_COOKED; 
+	} else if (!strcmp(sub_type, "RW_RAW")) {
+		track->has_subcodes = SUBCODES_RAW;
+	} else if (!strcmp(sub_type, "NONE")) {
+		track->has_subcodes = SUBCODES_NONE;
+	} else {
+		warning("Unrecognized subcode type %s\n", sub_type);
+		return 0;
+	}
+	return 1;
+}
+
+uint32_t make_chd_media(system_media *media, const char *filename)
+{
+	FILE *f = fopen(filename, "rb");
+	if (!f) {
+		return 0;
+	}
+	media->chd = calloc(1, sizeof(chd));
+	if (!chd_init(f, media->chd)) {
+		goto error;
+	}
+	//TODO: handle legacy CHTR metadata
+	chd_meta_list *meta = tern_find_ptr(media->chd->meta, "CHT2");
+	if (!meta) {
+		warning("No CHT2 metadata in CHD at %s\n", filename);
+		goto error;
+	}
+	media->num_tracks = meta->num_entries;
+	media->tracks = calloc(sizeof(track_info), media->num_tracks);
+	uint32_t current_lba = 0;
+	for (uint32_t i = 0; i < media->num_tracks; i++)
+	{
+		if (!process_cht2_entry(i + 1, media->tracks + i, meta->entries + i, current_lba)) {
+			goto track_error;
+		}
+		current_lba = media->tracks[i].end_lba;
+	}
+	media->seek = cd_chd_seek;
+	media->read = cd_chd_read;
+	media->read_subcodes = cd_chd_subcode_read;
+	media->type = MEDIA_CDROM;
+	media->buffer = calloc(1, 2048);
+	media->size = 2048;
+	media->chd_decomp = calloc(sizeof(chd_decompression_state), 1);
+	cd_chd_seek(media, 2 * 75);
+	uint16_t lsfr = 1;
+	uint8_t *buffer = media->buffer;
+	for (int i = 12; i < (2048 + 16); i++) {
+		uint8_t data = cdrom_scramble(&lsfr, cd_chd_read(media, i));
+		if (i >= 16) {
+			buffer[i-16] = data;
+		}
+	}
+	cd_chd_seek(media, 0);
+	print_toc(media);
+	media->dir = path_dirname(filename);
+	if (!media->dir) {
+		media->dir = path_current_dir();
+	}
+	media->name = basename_no_extension(filename);
+	media->extension = path_extension(filename);
+	return 1;
+track_error:
+	free(media->tracks);
+	media->tracks = NULL;
+error:
+	chd_free(media->chd);
+	free(media->chd);
+	return 0;
 }
 
 void cdimage_serialize(system_media *media, serialize_buffer *buf)
@@ -729,4 +948,6 @@ void cdimage_free(system_media *media)
 	//dir, name, extension and orig_path are handled elsewhere
 	free(media->buffer);
 	free(media->tracks);
+	media->buffer = NULL;
+	media->tracks = NULL;
 }

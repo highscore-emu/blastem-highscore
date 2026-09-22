@@ -1395,7 +1395,7 @@ sh2_reset
 	prefetch_full = 0
 	sh2_fetch
 
-0000000000011011 sleep
+0000000000011011 sh2_sleep
 	if sleeping
 		cycles 1
 	else

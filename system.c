@@ -190,6 +190,12 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 		}
 		return make_iso_media(dst, filename);
 	}
+	if (ext && !strcasecmp(ext, "chd")) {
+		if (stype) {
+			*stype = SYSTEM_SEGACD;
+		}
+		return make_chd_media(dst, filename);
+	}
 
 	ROMFILE f = romopen(filename, "rb");
 	if (!f) {
@@ -250,6 +256,7 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 		} while (read > 0);
 		dst->buffer = buf;
 		ret = (uint32_t)readsize;
+		romclose(f);
 	}
 	dst->dir = path_dirname(filename);
 	if (!dst->dir) {
@@ -258,7 +265,6 @@ uint32_t load_media(char * filename, system_media *dst, system_type *stype)
 	dst->name = basename_no_extension(filename);
 	dst->extension = ext;
 	dst->size = ret;
-	romclose(f);
 	if (!strcasecmp(dst->extension, "cue")) {
 		if (parse_cue(dst)) {
 			ret = dst->size;

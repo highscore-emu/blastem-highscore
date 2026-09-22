@@ -99,7 +99,7 @@ void defer_disasm_label(disasm_context *context, uint32_t address, label_def *la
 	if (is_visited(context, address) || address & context->invalid_inst_addr_mask) {
 		return;
 	}
-	context->deferred = defer_address(context->deferred, address, (uint8_t *)label);
+	context->deferred = defer_address(context->deferred, address, (code_ptr)label);
 }
 
 void defer_disasm(disasm_context *context, uint32_t address)
