@@ -27,6 +27,7 @@ blastem_source = [
   '../cdd_mcu.c',
   '../cd_graphics.c',
   '../cdimage.c',
+  '../chd.c',
   '../coleco.c',
   '../config.c',
 #  '../debug.c',
@@ -82,6 +83,14 @@ blastem_source = [
   '../ym2612.c',
   '../ymf262.c',
   '../ymz263b.c',
+
+  '../lzma/CpuArch.c',
+  '../lzma/LzFind.c',
+  '../lzma/LzFindMt.c',
+  '../lzma/LzFindOpt.c',
+  '../lzma/LzmaDec.c',
+  '../lzma/LzmaEnc.c',
+  '../lzma/Threads.c',
 
   rom_db,
 ]
