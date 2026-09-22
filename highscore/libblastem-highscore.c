@@ -241,7 +241,7 @@ void render_do_audio_ready(audio_source *src)
   src->front_populated = 1;
   src->buffer_pos = 0;
   if (all_sources_ready()) {
-    int16_t buffer[8];
+    int16_t buffer[256];
     int min_remaining_out;
     mix_and_convert((uint8_t *)buffer, sizeof(buffer), &min_remaining_out);
     hs_core_play_samples (HS_CORE (core), buffer, sizeof(buffer) / (sizeof(*buffer)));

@@ -84,7 +84,7 @@ blastem_core_load_rom (HsCore      *core,
 
   render_audio_initialized (RENDER_AUDIO_S16,
                             hs_core_get_sample_rate (core),
-                            2, 4, sizeof (int16_t));
+                            2, 128, sizeof (int16_t));
 
   current_system->set_speed_percent (current_system, 100);
 
