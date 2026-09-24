@@ -2081,11 +2081,35 @@ static void debug_iopad_set(debug_array *array, uint32_t index, debug_val val)
 	}
 }
 
-debug_root *find_io_root(sega_io *io)
+static debug_val debug_version_get(debug_var *var)
+{
+	genesis_context *gen = var->ptr;
+	return debug_int(gen->version_reg);
+}
+
+static void debug_version_set(debug_var *var, debug_val val)
+{
+	genesis_context *gen = var->ptr;
+	uint32_t ival;
+	if (!debug_cast_int(val, &ival)) {
+		fprintf(stderr, "version register can only be set to integers\n");
+		return;
+	}
+	gen->version_reg = ival;
+}
+
+debug_root *find_io_root(sega_io *io, genesis_context *gen)
 {
 	debug_root *root = find_root(io);
 	
 	new_readonly_variable(root, "pads", new_fixed_array(io, debug_iopad_get, debug_iopad_set, MAX_JOYSTICKS));
+	if (gen) {
+		debug_var *var = calloc(1, sizeof(debug_var));
+		var->get = debug_version_get;
+		var->set = debug_version_set;
+		var->ptr = gen;
+		root->variables = tern_insert_ptr(root->variables, "version", var);
+	}
 	
 	return root;
 }
@@ -5086,9 +5110,12 @@ debug_root *find_m68k_root(m68k_context *context)
 			//check if this is the main CPU
 			if (context->system == current_system) {
 				genesis_context *gen = context->system;
-				if (current_system->type == SYSTEM_GENESIS || current_system->type == SYSTEM_SEGACD || current_system->type == SYSTEM_32X) {
+				if (
+					current_system->type == SYSTEM_GENESIS || current_system->type == SYSTEM_SEGACD ||
+					current_system->type == SYSTEM_32X || current_system->type == SYSTEM_32XCD
+				) {
 					root->other_roots = tern_insert_ptr(root->other_roots, "z80", find_z80_root(gen->z80));
-					root->other_roots = tern_insert_ptr(root->other_roots, "io", find_io_root(&gen->io));
+					root->other_roots = tern_insert_ptr(root->other_roots, "io", find_io_root(&gen->io, gen));
 				}
 				root->other_roots = tern_insert_ptr(root->other_roots, "vdp", find_vdp_root(gen->vdp));
 				root->other_roots = tern_insert_ptr(root->other_roots, "psg", find_psg_root(gen->psg));
@@ -5964,10 +5991,11 @@ debug_root *find_z80_root(z80_context *context)
 		case SYSTEM_GENESIS:
 		case SYSTEM_SEGACD:
 		case SYSTEM_32X:
+		case SYSTEM_32XCD:
 			gen = context->system;
 			add_commands(root, gen_z80_commands, NUM_GEN_Z80);
 			root->other_roots = tern_insert_ptr(root->other_roots, "m68k", find_m68k_root(gen->m68k));
-			root->other_roots = tern_insert_ptr(root->other_roots, "io", find_io_root(&gen->io));
+			root->other_roots = tern_insert_ptr(root->other_roots, "io", find_io_root(&gen->io, gen));
 			root->other_roots = tern_insert_ptr(root->other_roots, "vdp", find_vdp_root(gen->vdp));
 			root->other_roots = tern_insert_ptr(root->other_roots, "psg", find_psg_root(gen->psg));
 			root->other_roots = tern_insert_ptr(root->other_roots, "ym", find_ym2612_root(gen->ym));
@@ -5981,6 +6009,7 @@ debug_root *find_z80_root(z80_context *context)
 			add_commands(root, sms_commands, NUM_SMS);
 			root->other_roots = tern_insert_ptr(root->other_roots, "vdp", find_vdp_root(sms->vdp));
 			root->other_roots = tern_insert_ptr(root->other_roots, "psg", find_psg_root(sms->psg));
+			root->other_roots = tern_insert_ptr(root->other_roots, "io", find_io_root(&gen->io, NULL));
 			var = calloc(1, sizeof(debug_var));
 			var->get = debug_frame_get;
 			var->ptr = sms->vdp;
