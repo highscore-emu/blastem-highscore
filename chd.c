@@ -702,6 +702,56 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 					decomp->hunk_decode_progress = chd_hunk_size(chd);
 #endif
 					break;
+				case CHD_ZSTD:
+				case CHD_CD_ZSTD:
+#ifdef DISABLE_ZSTD
+					warning("CHD requires lzma decompression for hunk %u, but zstd is disabled\n", hunk);
+					return 0;
+#else
+					if (!decomp->zstd) {
+						decomp->zstd = ZSTD_createDStream();
+					}
+					if (ZSTD_isError(ZSTD_initDStream(decomp->zstd))) {
+						warning("Failed to initialize zstd decompression stream");
+						return 0;
+					}
+					decomp->zstd_out.dst = decomp->dst_buffer;
+					decomp->zstd_out.size = chd_hunk_size(chd);
+					decomp->zstd_out.pos = 0;
+					if (decomp->compressor == CHD_CD_ZSTD) {
+						uint32_t header_len;
+						decomp->zstd_in.size = get_cd_codec_base_size(chd, decomp, hunk, &header_len);
+						decomp->zstd_in.src = decomp->src_buffer + header_len;
+						ZSTD_inBuffer sub_in = {
+							.src = decomp->src_buffer + header_len + decomp->zstd_in.size,
+							.size = info->compressed_len - header_len - decomp->zstd_in.size,
+							.pos = 0
+						};
+						ZSTD_outBuffer sub_out = {
+							.dst = decomp->subcode_buffer,
+							.size = 96 * chd_hunk_size(chd) / (2352 + 96),
+							.pos = 0
+						};
+						while (sub_out.pos < sub_out.size)
+						{
+							if (ZSTD_isError(ZSTD_decompressStream(decomp->zstd, &sub_out, &sub_in))) {
+								warning("Failed to decompress subcode data for hunk %u\n", hunk);
+								break;
+							}
+						}
+						//reinit decomporessor after subcode decompression
+						if (ZSTD_isError(ZSTD_initDStream(decomp->zstd))) {
+							warning("Failed to initialize zstd decompression stream");
+							return 0;
+						}
+					} else {
+						decomp->zstd_in.size = info->compressed_len;
+						decomp->zstd_in.src = decomp->src_buffer;
+					}
+					decomp->zstd_in.pos = 0;
+					decomp->hunk_decode_progress = 0;
+#endif
+					break;
 				case CHD_FLAC:
 				case CHD_CD_FLAC: {
 					//first byte indicates endianness??? for non-CD FLAC
@@ -770,6 +820,33 @@ uint8_t chd_read(chd *chd, chd_decompression_state *decomp, uint32_t hunk, uint3
 #endif
 			break;
 		}
+		case CHD_CD_ZSTD:
+			{
+				uint32_t sector = end / (2352 + 96);
+				uint32_t sector_off = end % (2352 + 96);
+				if (sector_off > 2352) {
+					sector_off = 2352;
+				}
+				end = sector * 2352 + sector_off;
+			}
+		case CHD_ZSTD:
+#ifndef DISABLE_ZSTD
+			while (end > decomp->zstd_out.pos)
+			{
+				if (ZSTD_isError(ZSTD_decompressStream(decomp->zstd, &decomp->zstd_out, &decomp->zstd_in))) {
+					warning("Failed to decompress data for hunk %u\n", hunk);
+					return 0;
+				}
+			}
+			if (decomp->compressor == CHD_CD_ZSTD) {
+				uint32_t sector = decomp->zstd_out.pos / 2352;
+				uint32_t sector_off = decomp->zstd_out.pos % 2352;
+				decomp->hunk_decode_progress = sector * (2352 + 96) + sector_off;
+			} else {
+				decomp->hunk_decode_progress = decomp->zstd_out.pos;
+			}
+#endif
+			break;
 		case CHD_FLAC:
 			while (end > decomp->hunk_decode_progress)
 			{

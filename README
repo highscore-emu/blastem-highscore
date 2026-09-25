@@ -717,6 +717,8 @@ License version 3 or higher. This gives you the right to redistribute and/or
 modify the program as long as you follow the terms of the license. See the file
 COPYING for full license details.
 
-Binary releases of BlastEm are packaged with GLEW, SDL2 and zlib which have their
-own licenses. See GLEW-LICENSE and SDL-LICENSE for details. For zlib license
-information, please see zlib/zlib.h or zlib/LICENSE in the source code release.
+Binary releases of BlastEm are packaged with GLEW, SDL2, zlib and zstd which have
+their own licenses. See GLEW-LICENSE and SDL-LICENSE for details. For zlib license
+information, please see zlib/zlib.h or zlib/LICENSE in the source code release. zstd
+is available under two different licenses GPLv2 (see ZSTD-COPYING) and BSD (see
+ZSTD-LICENSE). 

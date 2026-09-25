@@ -292,12 +292,27 @@ LDFLAGS+= -lpthread
 endif
 endif
 
+ifdef NOZSTD
+CFLAGS+= -DDISABLE_ZSTD
+ZSTDOBJS=
+else
+CFLAGS+= -DZSTD_LEGACY_SUPPORT=0 -DZSTD_TRACE=0 -Izstd
+ZSTDOBJS=zstd/common/debug.o zstd/common/entropy_common.o zstd/common/error_private.o zstd/common/xxhash.o \
+	zstd/common/fse_decompress.o zstd/common/zstd_common.o zstd/decompress/huf_decompress.o \
+	zstd/decompress/zstd_ddict.o zstd/decompress/zstd_decompress.o zstd/decompress/zstd_decompress_block.o
+ifeq ($(CPU),x86_64)
+ZSTDOBJS+= zstd/decompress/huf_decompress_amd64.o
+else
+CFLAGS+= -DZSTD_DISABLE_ASM=1
+endif
+endif
+
 COREOBJS:=system.o genesis.o vdp.o io.o romdb.o hash.o xband.o realtec.o i2c.o nor.o $(M68KOBJS) \
 	sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
 	$(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o gen_player.o coleco.o pico_pcm.o ymz263b.o \
 	segacd.o lc8951.o cdimage.o cdd_mcu.o cd_graphics.o cdd_fader.o sft_mapper.o mediaplayer.o \
 	laseractive.o upd78k2_dis.o upd78k2.o osd_font.o pd0178.o radica.o 32x.o 32x_video.o sh2.o \
-	sh2_decode.o sh7095.o chd.o $(LZMAOBJS)
+	sh2_decode.o sh7095.o chd.o $(LZMAOBJS) $(ZSTDOBJS)
 
 ifdef NOZ80
 CFLAGS+=-DNO_Z80
@@ -349,8 +364,8 @@ LIBCFLAGS=$(CFLAGS) -fpic -DIS_LIB
 
 all : $(ALL)
 
-ORDERONLY:=$(OBJDIR)/nuklear_ui $(OBJDIR)/zlib $(OBJDIR)/lzma
-LIBORDERONLY:=$(LIBOBJDIR)/zlib $(LIBOBJDIR)/lzma
+ORDERONLY:=$(OBJDIR)/nuklear_ui $(OBJDIR)/zlib $(OBJDIR)/lzma $(OBJDIR)/zstd/decompress $(OBJDIR)/zstd/common
+LIBORDERONLY:=$(LIBOBJDIR)/zlib $(LIBOBJDIR)/lzma $(LIBOBJDIR)/zstd/decompress $(LIBOBJDIR)/zstd/common
 ifdef NEW_CORE
 ifeq ($(wildcard $(OBJDIR)/*.d),)
 ORDERONLY+= m68k.c z80.c
@@ -396,11 +411,23 @@ $(OBJDIR)/zlib :
 $(OBJDIR)/lzma :
 	mkdir -p $(OBJDIR)/lzma
 
+$(OBJDIR)/zstd/common :
+	mkdir -p $(OBJDIR)/zstd/common
+
+$(OBJDIR)/zstd/decompress :
+	mkdir -p $(OBJDIR)/zstd/decompress
+
 $(LIBOBJDIR)/zlib :
 	mkdir -p $(LIBOBJDIR)/zlib
 
 $(LIBOBJDIR)/lzma :
 	mkdir -p $(LIBOBJDIR)/lzma
+
+$(LIBOBJDIR)/zstd/common :
+	mkdir -p $(LIBOBJDIR)/zstd/common
+
+$(LIBOBJDIR)/zstd/decompress :
+	mkdir -p $(LIBOBJDIR)/zstd/decompress
 
 libblastem.$(SO) : $(LIBOBJS:%.o=$(LIBOBJDIR)/%.o)
 	$(CC) -shared -o $@ $^ $(LDFLAGS)
@@ -445,7 +472,7 @@ upddis$(EXE) : $(UPDDISOBJS:%.o=$(OBJDIR)/%.o)
 sh2dis$(EXE) : $(SH2DISOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
-chdtool$(EXE) : $(OBJDIR)/chdtool.o $(OBJDIR)/chd.o $(OBJDIR)/util.o $(OBJDIR)/tern.o $(OBJDIR)/flac.o $(LIBZOBJS:%.o=$(OBJDIR)/%.o)
+chdtool$(EXE) : $(OBJDIR)/chdtool.o $(OBJDIR)/chd.o $(OBJDIR)/util.o $(OBJDIR)/tern.o $(OBJDIR)/flac.o $(LIBZOBJS:%.o=$(OBJDIR)/%.o) $(LZMAOBJS:%.o=$(OBJDIR)/%.o) $(ZSTDOBJS:%.o=$(OBJDIR)/%.o)
 	$(CC) -o $@ $^ $(OPT)
 
 .PRECIOUS: %.c
