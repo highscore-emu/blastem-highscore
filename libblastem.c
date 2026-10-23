@@ -439,6 +439,10 @@ void render_set_video_standard(vid_std std)
 	video_standard = std;
 }
 
+void render_set_speed_percent(uint32_t percent)
+{
+}
+
 uint8_t render_fullscreen(void)
 {
 	return 1;

@@ -1322,6 +1322,7 @@ void render_force_cursor(uint8_t force)
 	}
 }
 
+static uint8_t vsync_enabled;
 static void window_setup(void)
 {
 	uint32_t flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
@@ -1361,6 +1362,7 @@ static void window_setup(void)
 	} else {
 		vsync = "on";
 	}
+	vsync_enabled = strcmp(vsync, "off");
 
 	tern_node *video = tern_find_node(config, "video");
 	if (video)
@@ -1677,25 +1679,20 @@ uint32_t render_audio_syncs_per_sec(void)
 	return render_is_audio_sync() ? 0 : source_hz * (video_standard == VID_PAL ? 313 : 262) / 8;
 }
 
-void render_set_video_standard(vid_std std)
+static uint32_t set_frame_repeat_skip(int effective_source_hz)
 {
-	video_standard = std;
-	if (render_is_audio_sync()) {
-		return;
-	}
-	source_hz = std == VID_PAL ? 50 : 60;
 	uint32_t max_repeat = 0;
-	if (abs(source_hz - display_hz) < 2) {
-		memset(frame_repeat, 0, sizeof(int)*display_hz);
+	if (abs(effective_source_hz - display_hz) < 2) {
+		memset(frame_repeat, 0, sizeof(int)*source_hz);
 	} else {
-		int inc = display_hz * 100000 / source_hz;
+		int inc = display_hz * 100000 / effective_source_hz;
 		int accum = 0;
 		int dst_frames = 0;
 		for (int src_frame = 0; src_frame < source_hz; src_frame++)
 		{
 			frame_repeat[src_frame] = -1;
 			accum += inc;
-			while (accum > 100000)
+			while (accum >= 100000)
 			{
 				accum -= 100000;
 				frame_repeat[src_frame]++;
@@ -1703,6 +1700,7 @@ void render_set_video_standard(vid_std std)
 				dst_frames++;
 			}
 		}
+		dst_frames = dst_frames * effective_source_hz / source_hz;
 		if (dst_frames != display_hz) {
 			frame_repeat[source_hz-1] += display_hz - dst_frames;
 		}
@@ -1710,6 +1708,27 @@ void render_set_video_standard(vid_std std)
 	source_frame = 0;
 	source_frame_count = frame_repeat[0];
 	max_repeat++;
+	return max_repeat;
+}
+
+void render_set_speed_percent(uint32_t percent)
+{
+	if (vsync_enabled) {
+		set_frame_repeat_skip(source_hz * percent / 100);
+	}
+}
+
+void render_set_video_standard(vid_std std)
+{
+	video_standard = std;
+	if (!vsync_enabled) {
+		return;
+	}
+	source_hz = std == VID_PAL ? 50 : 60;
+	uint32_t max_repeat = set_frame_repeat_skip(source_hz);
+	if (render_is_audio_sync()) {
+		return;
+	}
 	min_buffered = (((float)max_repeat * (float)sample_rate/(float)source_hz)/* / (float)buffer_samples*/);// + 0.9999;
 	//min_buffered *= buffer_samples;
 	debug_message("Min samples buffered before audio start: %d\n", min_buffered);
@@ -2223,7 +2242,7 @@ static uint32_t last_width, last_height;
 static uint8_t interlaced, last_field;
 static void process_framebuffer(pixel_t *buffer, uint8_t which, int width)
 {
-	if (sync_src == SYNC_VIDEO && which <= FRAMEBUFFER_EVEN && source_frame_count < 0) {
+	if (vsync_enabled && which <= FRAMEBUFFER_EVEN && source_frame_count < 0) {
 		source_frame++;
 		if (source_frame >= source_hz) {
 			source_frame = 0;
@@ -2442,6 +2461,8 @@ static void process_framebuffer(pixel_t *buffer, uint8_t which, int width)
 			render_audio_adjust_speed(adjust_ratio);
 
 		}
+	}
+	if (vsync_enabled) {
 		while (source_frame_count > 0)
 		{
 			render_update_display();

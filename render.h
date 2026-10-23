@@ -161,6 +161,7 @@ int render_ui_to_pixels_x(int ui);
 int render_ui_to_pixels_y(int ui);
 char *render_read_clipboard(void);
 uint8_t render_is_threaded_video(void);
+void render_set_speed_percent(uint32_t percent);
 #ifndef IS_LIB
 uint8_t render_create_thread(render_thread *thread, const char *name, render_thread_fun fun, void *data);
 uint8_t render_static_image(uint8_t window, uint8_t *buffer, uint32_t size);

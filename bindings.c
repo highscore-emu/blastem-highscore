@@ -368,6 +368,7 @@ void handle_binding_up(keybinding * binding)
 				}
 				printf("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
 				current_system->set_speed_percent(current_system, speeds[current_speed]);
+				render_set_speed_percent(speeds[current_speed]);
 			}
 			break;
 		case UI_PREV_SPEED:
@@ -378,6 +379,7 @@ void handle_binding_up(keybinding * binding)
 				}
 				printf("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
 				current_system->set_speed_percent(current_system, speeds[current_speed]);
+				render_set_speed_percent(speeds[current_speed]);
 			}
 			break;
 		case UI_SET_SPEED:
@@ -386,9 +388,11 @@ void handle_binding_up(keybinding * binding)
 					current_speed = binding->subtype_b;
 					printf("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
 					current_system->set_speed_percent(current_system, speeds[current_speed]);
+					render_set_speed_percent(speeds[current_speed]);
 				} else {
 					printf("Setting speed to %d\n", speeds[current_speed]);
 					current_system->set_speed_percent(current_system, speeds[current_speed]);
+					render_set_speed_percent(speeds[current_speed]);
 				}
 			}
 			break;
