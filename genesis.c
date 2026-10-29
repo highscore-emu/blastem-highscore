@@ -310,9 +310,8 @@ uint16_t read_dma_value(uint32_t address)
 {
 	genesis_context *genesis = (genesis_context *)current_system;
 	address *= 2;
-	//TODO: Figure out what happens when you try to DMA from weird adresses like IO or banked Z80 area
-	if ((address >= 0xA00000 && address < 0xB00000) || (address >= 0xC00000 && address <= 0xE00000)) {
-		return 0;
+	if (address >= 0x800000) {
+		return genesis->work_ram[address >> 1 & 0xEFFF];
 	}
 	if (genesis->expansion) {
 		segacd_context *cd = genesis->expansion;
@@ -352,7 +351,7 @@ static uint16_t get_open_bus_value(system_header *system)
 #ifdef NEW_CORE
 	return genesis->m68k->prefetch;
 #else
-	return read_dma_value(genesis->m68k->last_prefetch_address/2);
+	return read_word(genesis->m68k->last_prefetch_address, (void **)genesis->m68k->mem_pointers, &genesis->m68k->opts->gen, genesis->m68k);
 #endif
 }
 
