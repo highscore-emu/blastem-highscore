@@ -366,7 +366,7 @@ void handle_binding_up(keybinding * binding)
 				if (current_speed >= num_speeds) {
 					current_speed = 0;
 				}
-				printf("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
+				status_message("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
 				current_system->set_speed_percent(current_system, speeds[current_speed]);
 				render_set_speed_percent(speeds[current_speed]);
 			}
@@ -377,7 +377,7 @@ void handle_binding_up(keybinding * binding)
 				if (current_speed < 0) {
 					current_speed = num_speeds - 1;
 				}
-				printf("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
+				status_message("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
 				current_system->set_speed_percent(current_system, speeds[current_speed]);
 				render_set_speed_percent(speeds[current_speed]);
 			}
@@ -386,11 +386,11 @@ void handle_binding_up(keybinding * binding)
 			if (allow_content_binds) {
 				if (binding->subtype_b < num_speeds) {
 					current_speed = binding->subtype_b;
-					printf("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
+					status_message("Setting speed to %d: %d\n", current_speed, speeds[current_speed]);
 					current_system->set_speed_percent(current_system, speeds[current_speed]);
 					render_set_speed_percent(speeds[current_speed]);
 				} else {
-					printf("Setting speed to %d\n", speeds[current_speed]);
+					status_message("Setting speed to %d\n", speeds[current_speed]);
 					current_system->set_speed_percent(current_system, speeds[current_speed]);
 					render_set_speed_percent(speeds[current_speed]);
 				}

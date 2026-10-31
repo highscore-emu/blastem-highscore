@@ -21,5 +21,6 @@ void ui_enter(void);
 void ui_exit(void);
 void ui_idle_loop(void);
 uint8_t show_freeze_choice(uint8_t *session_default, const char *msg);
+void nuklear_set_status_msg(char *msg);
 
 #endif //BLASTEM_NUKLEAR_H_

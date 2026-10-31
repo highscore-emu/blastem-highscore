@@ -202,7 +202,7 @@ static uint8_t cassette_read(sms_context *sms, uint32_t cycle)
 	uint32_t bytes_per_sample = sms->cassette_wave.num_channels * sms->cassette_wave.bits_per_sample / 8;
 	if (sms->cassette_offset == sms->cassette->size - bytes_per_sample) {
 		sms->cassette_state = TAPE_STOPPED;
-		puts("Cassette reached end of file, playback stoped");
+		status_message("Cassette reached end of file, playback stoped");
 	}
 	return sample > 0 ? 0x80 : 0;
 }
@@ -218,13 +218,13 @@ static void cassette_action(system_header *header, uint8_t action)
 	{
 	case CASSETTE_PLAY:
 		sms->cassette_state = TAPE_PLAYING;
-		puts("Cassette playback started");
+		status_message("Cassette playback started");
 		break;
 	case CASSETTE_RECORD:
 		break;
 	case CASSETTE_STOP:
 		sms->cassette_state = TAPE_STOPPED;
-		puts("Cassette playback stoped");
+		status_message("Cassette playback stoped");
 		break;
 	case CASSETTE_REWIND:
 		sms->cassette_offset = sms->cassette_wave.format_header.size + offsetof(wave_header, audio_format);
@@ -1090,7 +1090,7 @@ static void save_state(sms_context *sms, uint8_t slot)
 	init_serialize(&state);
 	sms_serialize(sms, &state);
 	save_to_file(&state, save_path);
-	printf("Saved state to %s\n", save_path);
+	status_message("Saved state to %s\n", save_path);
 	free(save_path);
 	free(state.data);
 }
@@ -1102,7 +1102,7 @@ static uint8_t load_state_path(sms_context *sms, char *path)
 	if ((ret = load_from_file(&state, path))) {
 		sms_deserialize(&state, sms);
 		free(state.data);
-		printf("Loaded %s\n", path);
+		status_message("Loaded %s\n", path);
 	}
 	return ret;
 }
@@ -1539,18 +1539,18 @@ static void start_vgm_log(system_header *system, char *filename)
 	//TODO: 50 Hz support
 	vgm_writer *vgm = vgm_write_open(filename, 60, sms->normal_clock, sms->z80->Z80_CYCLE);
 	if (vgm) {
-		printf("Started logging VGM to %s\n", filename);
+		status_message("Started logging VGM to %s\n", filename);
 		psg_run(sms->psg, sms->z80->Z80_CYCLE);
 		psg_vgm_log(sms->psg, sms->normal_clock, vgm);
 		sms->header.vgm_logging = 1;
 	} else {
-		printf("Failed to start logging to %s\n", filename);
+		status_message("Failed to start logging to %s\n", filename);
 	}
 }
 
 static void stop_vgm_log(system_header *system)
 {
-	puts("Stopped VGM log");
+	status_message("Stopped VGM log");
 	sms_context *sms = (sms_context *)system;
 	vgm_close(sms->psg->vgm);
 	sms->psg->vgm = NULL;

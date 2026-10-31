@@ -69,6 +69,28 @@ static void clear_view_stack()
 	num_prev = 0;
 }
 
+static char *status_msg;
+static uint32_t status_counter;
+void nuklear_set_status_msg(char *msg)
+{
+	if (status_msg) {
+		free(status_msg);
+	}
+	if (msg) {
+		status_msg = strdup(msg);
+		for (msg = status_msg; *msg; msg++)
+		{
+			if (!isprint(*msg)) {
+				*msg = ' ';
+			}
+		}
+		status_counter = 120;
+	} else {
+		status_msg = NULL;
+		status_counter = 0;
+	}
+}
+
 void view_play(struct nk_context *context)
 {
 	if (current_system && current_system->type == SYSTEM_MEDIA_PLAYER) {
@@ -96,6 +118,21 @@ void view_play(struct nk_context *context)
 			}
 			nk_end(context);
 		}
+	} else if (status_msg) {
+		struct nk_color prev_background = context->style.window.background;
+		struct nk_style_item prev_fixed_background = context->style.window.fixed_background;
+		context->style.window.background = nk_rgba(0, 0, 0, 160);
+		context->style.window.fixed_background = nk_style_item_color(nk_rgba(0, 0, 0, 160));
+		if (nk_begin(context, "Status", nk_rect(0, render_height() - context->style.font->height * 2, render_width(), context->style.font->height * 2), NK_WINDOW_NO_SCROLLBAR)) {
+			nk_layout_row_static(context, context->style.font->height * 1.25f, render_width() - 4 * context->style.font->height, 1);
+			nk_label(context, status_msg, NK_TEXT_LEFT);
+			nk_end(context);
+			if (!(--status_counter)) {
+				nuklear_set_status_msg(NULL);
+			}
+		}
+		context->style.window.background = prev_background;
+		context->style.window.fixed_background = prev_fixed_background;
 	}
 }
 
@@ -2664,7 +2701,7 @@ void view_menu(struct nk_context *context)
 
 void blastem_nuklear_render(void)
 {
-	if (current_view != view_play || (current_system && current_system->type == SYSTEM_MEDIA_PLAYER)) {
+	if (current_view != view_play || (current_system && current_system->type == SYSTEM_MEDIA_PLAYER) || status_msg) {
 		render_force_cursor(1);
 		nk_input_end(context);
 		current_view(context);
