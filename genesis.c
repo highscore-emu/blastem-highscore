@@ -309,10 +309,10 @@ static void deserialize(system_header *sys, uint8_t *data, size_t size)
 uint16_t read_dma_value(uint32_t address)
 {
 	genesis_context *genesis = (genesis_context *)current_system;
-	address *= 2;
-	if (address >= 0x800000) {
-		return genesis->work_ram[address >> 1 & 0xEFFF];
+	if (address >= 0x400000) {
+		return genesis->work_ram[address & 0x7FFF];
 	}
+	address *= 2;
 	if (genesis->expansion) {
 		segacd_context *cd = genesis->expansion;
 		uint32_t word_ram = cd->base + 0x200000;
