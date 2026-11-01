@@ -1682,7 +1682,6 @@ static void render_highlight(vdp_context *context, int32_t col, uint8_t *dst, ui
 		dst += 8;
 		debug_dst += 8;
 		start = 8;
-		sprite_buf += 8;
 		plane_a_off += 8;
 		plane_b_off += 8;
 	}
