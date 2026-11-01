@@ -2185,6 +2185,7 @@ pixel_t *render_get_framebuffer(uint8_t which, int *pitch)
 #endif
 		if (which == FRAMEBUFFER_UI && !sdl_textures[which]) {
 			sdl_textures[which] = SDL_CreateTexture(main_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, main_width, main_height);
+			SDL_SetTextureBlendMode(sdl_textures[which], SDL_BLENDMODE_BLEND);
 		}
 		SDL_Texture *tex;
 		if (which >= FRAMEBUFFER_USER_START) {

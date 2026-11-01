@@ -2708,7 +2708,7 @@ void blastem_nuklear_render(void)
 		current_view(context);
 		if (fb_context) {
 			fb_context->fb.pixels = render_get_framebuffer(FRAMEBUFFER_UI, &fb_context->fb.pitch);
-			nk_rawfb_render(fb_context, nk_rgb(0,0,0), 0);
+			nk_rawfb_render(fb_context, nk_rgba(0,0,0, 0), 1);
 			render_framebuffer_updated(FRAMEBUFFER_UI, render_width());
 		} else {
 #ifndef DISABLE_OPENGL

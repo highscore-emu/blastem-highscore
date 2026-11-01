@@ -77,6 +77,7 @@ nk_color_from_byte(const nk_byte *c)
     res |= (unsigned int)c[0] << 16;
     res |= (unsigned int)c[1] << 8;
     res |= (unsigned int)c[2] << 0;
+    res |= (unsigned int)c[3] << 24;
 #elif defined(RAWFB_XRGB_8888)
     res = ((unsigned int *)c)[0];
 #else
