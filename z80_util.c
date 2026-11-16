@@ -127,6 +127,7 @@ void z80_assert_reset(z80_context * context, uint32_t cycle)
 {
 	z80_run(context, cycle);
 	context->reset = 1;
+	context->busack = 0;
 }
 
 void z80_clear_reset(z80_context * context, uint32_t cycle)
