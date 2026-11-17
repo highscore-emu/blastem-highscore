@@ -221,7 +221,7 @@ uint8_t render_is_threaded_video(void)
 uint32_t render_min_buffered(void)
 {
   //not actually used in the sync to audio path
-  return 4;
+  return 256;
 }
 
 uint32_t render_audio_syncs_per_sec(void)
