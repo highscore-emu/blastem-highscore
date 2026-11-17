@@ -1,2 +1,1 @@
-option ('new_core', type: 'boolean', value: true)
 option ('core_install_dir', type: 'string')

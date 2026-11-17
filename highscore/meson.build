@@ -14,6 +14,39 @@ rom_db = custom_target('rom.db.c',
   capture: true
 )
 
+m68k_source = custom_target('m68k',
+  output: ['m68k.c', 'm68k.h'],
+  input: '../m68k.cpu',
+  command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'call', '@OUTPUT0@' ],
+  console: true
+)
+
+z80_source = custom_target('z80',
+  output: ['z80.c', 'z80.h'],
+  input: '../z80.cpu',
+  command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'goto', '@OUTPUT0@' ],
+  console: true
+)
+
+sh2_source = custom_target('sh2',
+  output: ['sh2.c', 'sh2.h'],
+  input: '../sh2.cpu',
+  command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'call', '@OUTPUT0@' ],
+  console: true
+)
+
+upd78k2_source = custom_target('upd78k2',
+  output: ['upd78k2.c', 'upd78k2.h'],
+  input: '../upd78k2.cpu',
+  command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'call', '@OUTPUT0@' ],
+  console: true
+)
+
+m68k_dep = declare_dependency(sources: m68k_source)
+z80_dep = declare_dependency(sources: z80_source)
+sh2_dep = declare_dependency(sources: sh2_source)
+upd78k2_dep = declare_dependency(sources: upd78k2_source)
+
 blastem_source = [
   'blastem-highscore.c',
 
@@ -91,6 +124,10 @@ blastem_source = [
   '../lzma/Threads.c',
 
   rom_db,
+  m68k_source[0],
+  z80_source[0],
+  sh2_source[0],
+  upd78k2_source[0],
 ]
 
 blastem_deps = [
@@ -99,6 +136,10 @@ blastem_deps = [
   dependency('libzstd'),
   dependency('zlib'),
   cc.find_library('m', required: false),
+  m68k_dep,
+  z80_dep,
+  sh2_dep,
+  upd78k2_dep,
 ]
 
 blastem_c_args = [
@@ -106,6 +147,7 @@ blastem_c_args = [
   '-DIS_LIB',
   '-DIS_HIGHSCORE',
   '-DDISABLE_NUKLEAR',
+  '-DNEW_CORE',
   '-Wno-implicit-fallthrough',
   '-Wno-incompatible-pointer-types',
   '-Wno-missing-field-initializers',
@@ -121,80 +163,6 @@ blastem_c_args = [
   '-Wno-unused-value',
   '-Wno-unused-variable',
 ]
-
-cpu = target_machine.cpu()
-
-new_core = get_option('new_core')
-
-if new_core
-  m68k_source = custom_target('m68k',
-    output: ['m68k.c', 'm68k.h'],
-    input: '../m68k.cpu',
-    command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'call', '@OUTPUT0@' ],
-    console: true
-  )
-
-  z80_source = custom_target('z80',
-    output: ['z80.c', 'z80.h'],
-    input: '../z80.cpu',
-    command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'goto', '@OUTPUT0@' ],
-    console: true
-  )
-
-  sh2_source = custom_target('sh2',
-    output: ['sh2.c', 'sh2.h'],
-    input: '../sh2.cpu',
-    command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'call', '@OUTPUT0@' ],
-    console: true
-  )
-
-  upd78k2_source = custom_target('upd78k2',
-    output: ['upd78k2.c', 'upd78k2.h'],
-    input: '../upd78k2.cpu',
-    command: [ 'gen-cpu.sh', '@SOURCE_ROOT@', '@INPUT@', 'call', '@OUTPUT0@' ],
-    console: true
-  )
-
-  m68k_dep = declare_dependency(sources: m68k_source)
-  z80_dep = declare_dependency(sources: z80_source)
-  sh2_dep = declare_dependency(sources: sh2_source)
-  upd78k2_dep = declare_dependency(sources: upd78k2_source)
-
-  blastem_source += [
-    m68k_source[0],
-    z80_source[0],
-    sh2_source[0],
-    upd78k2_source[0],
-  ]
-
-  blastem_deps += [
-    m68k_dep,
-    z80_dep,
-    sh2_dep,
-    upd78k2_dep,
-  ]
-
-  blastem_c_args += [
-    '-DNEW_CORE'
-  ]
-else
-  if cpu == 'x86_64'
-    blastem_c_args += '-DX86_64'
-  elif cpu == 'i686'
-    blastem_c_args += '-DX86_32'
-  else
-    error('Old core is only supported on i686 and x86_64')
-  endif
-
-  blastem_source += [
-    '../backend_x86.c',
-    '../gen_x86.c',
-    '../m68k_core.c',
-    '../m68k_core_x86.c',
-    '../z80inst.c',
-    '../z80_to_x86.c',
-  ]
-endif
 
 blastem_include_dirs = [
   include_directories('.'),
@@ -220,11 +188,6 @@ shared_library('blastem-highscore',
 descriptor = configuration_data()
 descriptor.set('version', version)
 descriptor.set('commit', commit)
-if new_core
-  descriptor.set('states', '2')
-else
-  descriptor.set('states', '0')
-endif
 configure_file(
   input: 'blastem.highscore.in',
   output: 'blastem.highscore',
