@@ -304,8 +304,6 @@ blastem_core_init (BlastemCore *self)
   g_assert (!core);
 
   core = self;
-
-  self->framebuffer = g_new0 (guint8, LINEBUF_SIZE * 294 * 2 * 4);
 }
 
 static void
