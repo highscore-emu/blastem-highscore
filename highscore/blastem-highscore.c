@@ -27,11 +27,15 @@ struct _BlastemCore
 #include "libblastem-highscore.c"
 
 static void blastem_mega_drive_core_init (HsMegaDriveCoreInterface *iface);
+static void blastem_mega_drive_32x_core_init (HsMegaDrive32XCoreInterface *iface);
 static void blastem_mega_cd_core_init (HsMegaCdCoreInterface *iface);
+static void blastem_mega_cd_32x_core_init (HsMegaCd32XCoreInterface *iface);
 
 G_DEFINE_FINAL_TYPE_WITH_CODE (BlastemCore, blastem_core, HS_TYPE_CORE,
                                G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_DRIVE_CORE, blastem_mega_drive_core_init)
-                               G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_CD_CORE, blastem_mega_cd_core_init))
+                               G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_DRIVE_32X_CORE, blastem_mega_drive_32x_core_init)
+                               G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_CD_CORE, blastem_mega_cd_core_init)
+                               G_IMPLEMENT_INTERFACE (HS_TYPE_MEGA_CD_32X_CORE, blastem_mega_cd_32x_core_init))
 
 static gboolean
 blastem_core_load_rom (HsCore      *core,
@@ -56,7 +60,7 @@ blastem_core_load_rom (HsCore      *core,
   if (self->stype == SYSTEM_UNKNOWN)
     self->stype = detect_system_type (&media);
 
-  if (self->stype == SYSTEM_SEGACD) {
+  if (self->stype == SYSTEM_SEGACD || self->stype == SYSTEM_32XCD) {
     const char *us_path = hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_NORTH_AMERICA);
     const char *jp_path = hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_JAPAN);
     const char *eu_path = hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_EUROPE);
@@ -73,6 +77,16 @@ blastem_core_load_rom (HsCore      *core,
       hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_JAPAN);
     else
       hs_core_query_firmware_path (core, HS_MEGA_CD_FIRMWARE_NORTH_AMERICA);
+  }
+
+  if (self->stype == SYSTEM_32X || self->stype == SYSTEM_32XCD) {
+    const char *m68k_path     = hs_core_query_firmware_path (core, HS_MEGA_DRIVE_32X_FIRMWARE_M68K);
+    const char *sh2_main_path = hs_core_query_firmware_path (core, HS_MEGA_DRIVE_32X_FIRMWARE_SH2_PRIMARY);
+    const char *sh2_sub_path  = hs_core_query_firmware_path (core, HS_MEGA_DRIVE_32X_FIRMWARE_SH2_SECONDARY);
+
+    config = tern_insert_path (config, "system\0s32x_68k_bios\0",  (tern_val){.ptrval = strdup (m68k_path)}, TVAL_PTR);
+    config = tern_insert_path (config, "system\0s32x_main_bios\0", (tern_val){.ptrval = strdup (sh2_main_path)}, TVAL_PTR);
+    config = tern_insert_path (config, "system\0s32x_sub_bios\0",  (tern_val){.ptrval = strdup (sh2_sub_path)}, TVAL_PTR);
   }
 
   current_system = alloc_config_system (self->stype, &media, 0, 0);
@@ -312,7 +326,17 @@ blastem_mega_drive_core_init (HsMegaDriveCoreInterface *iface)
 }
 
 static void
+blastem_mega_drive_32x_core_init (HsMegaDrive32XCoreInterface *iface)
+{
+}
+
+static void
 blastem_mega_cd_core_init (HsMegaCdCoreInterface *iface)
+{
+}
+
+static void
+blastem_mega_cd_32x_core_init (HsMegaCd32XCoreInterface *iface)
 {
 }
 

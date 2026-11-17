@@ -10,9 +10,14 @@ SourceCode=https://github.com/highscore-emu/blastem-highscore
 Issues=https://github.com/highscore-emu/blastem-highscore/issues
 License=GPL-3.0-or-later
 StateVersion=@states@
-Platforms=MegaDrive;MegaCD;
+Platforms=MegaDrive;MegaCD;MegaDrive32X;MegaCD32X;
 
 [Firmware:MegaCD]
 europe=required
 japan=required
 north-america=required
+
+[Firmware:MegaDrive32X]
+m68k=required
+sh2-primary=required
+sh2-secondary=required
