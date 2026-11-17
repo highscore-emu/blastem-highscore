@@ -84,6 +84,8 @@ else
 	cp sdl/LICENSE.txt "$dir"/SDL-LICENSE$txt
 fi
 cp glew/LICENSE.txt "$dir"/GLEW-LICENSE$txt
+cp zstd/COPYING "$dir"/ZSTD-COPYING$txt
+cp zstd/LICENSE "$dir"/ZSTD-LICENSE$txt
 
 if [ $OS = "Windows" -o $OS = "Win64" ]; then
 	rm -f "${dir}.zip"

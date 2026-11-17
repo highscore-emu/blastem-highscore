@@ -169,6 +169,12 @@ void m68k_write_byte(m68k_context * context, uint32_t address, uint8_t value)
 	}
 }
 
+static uint32_t m68k_read_long(m68k_context *context, uint32_t address)
+{
+	uint32_t high = read_word(address, (void **)context->mem_pointers, &context->opts->gen, context) << 16;
+	return high | read_word(address + 2, (void **)context->mem_pointers, &context->opts->gen, context) << 16;
+}
+
 void gdb_run_command(m68k_context * context, uint32_t pc, char * command)
 {
 	char send_buf[512];
@@ -199,9 +205,9 @@ void gdb_run_command(m68k_context * context, uint32_t pc, char * command)
 		uint32_t after = m68k_decode(m68k_instruction_fetch, context, &inst, pc & 0xFFFFFF);
 
 		if (inst.op == M68K_RTS) {
-			after = (read_dma_value(context->aregs[7]/2) << 16) | read_dma_value(context->aregs[7]/2 + 1);
+			after = m68k_read_long(context, context->aregs[7]);
 		} else if (inst.op == M68K_RTE || inst.op == M68K_RTR) {
-			after = (read_dma_value((context->aregs[7]+2)/2) << 16) | read_dma_value((context->aregs[7]+2)/2 + 1);
+			after = m68k_read_long(context, context->aregs[7] + 2);
 		} else if(m68k_is_branch(&inst)) {
 			if (inst.op == M68K_BCC && inst.extra.cond != COND_TRUE) {
 				root->branch_f = after;
@@ -458,9 +464,9 @@ void gdb_run_command(m68k_context * context, uint32_t pc, char * command)
 				uint32_t after = m68k_decode(m68k_instruction_fetch, context, &inst, pc & 0xFFFFFF);
 
 				if (inst.op == M68K_RTS) {
-					after = (read_dma_value(context->aregs[7]/2) << 16) | read_dma_value(context->aregs[7]/2 + 1);
+					after = m68k_read_long(context, context->aregs[7]);
 				} else if (inst.op == M68K_RTE || inst.op == M68K_RTR) {
-					after = (read_dma_value((context->aregs[7]+2)/2) << 16) | read_dma_value((context->aregs[7]+2)/2 + 1);
+					after = m68k_read_long(context, context->aregs[7] + 2);
 				} else if(m68k_is_branch(&inst)) {
 					if (inst.op == M68K_BCC && inst.extra.cond != COND_TRUE) {
 						root->branch_f = after;

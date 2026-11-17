@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <math.h>
+#include <ctype.h>
 #include "blastem_nuklear.h"
 #include "nuklear_rawfb.h"
 #include "font.h"
@@ -69,6 +70,28 @@ static void clear_view_stack()
 	num_prev = 0;
 }
 
+static char *status_msg;
+static uint32_t status_counter;
+void nuklear_set_status_msg(char *msg)
+{
+	if (status_msg) {
+		free(status_msg);
+	}
+	if (msg) {
+		status_msg = strdup(msg);
+		for (msg = status_msg; *msg; msg++)
+		{
+			if (!isprint(*msg)) {
+				*msg = ' ';
+			}
+		}
+		status_counter = 120;
+	} else {
+		status_msg = NULL;
+		status_counter = 0;
+	}
+}
+
 void view_play(struct nk_context *context)
 {
 	if (current_system && current_system->type == SYSTEM_MEDIA_PLAYER) {
@@ -96,6 +119,21 @@ void view_play(struct nk_context *context)
 			}
 			nk_end(context);
 		}
+	} else if (status_msg) {
+		struct nk_color prev_background = context->style.window.background;
+		struct nk_style_item prev_fixed_background = context->style.window.fixed_background;
+		context->style.window.background = nk_rgba(0, 0, 0, 160);
+		context->style.window.fixed_background = nk_style_item_color(nk_rgba(0, 0, 0, 160));
+		if (nk_begin(context, "Status", nk_rect(0, render_height() - context->style.font->height * 2, render_width(), context->style.font->height * 2), NK_WINDOW_NO_SCROLLBAR)) {
+			nk_layout_row_static(context, context->style.font->height * 1.25f, render_width() - 4 * context->style.font->height, 1);
+			nk_label(context, status_msg, NK_TEXT_LEFT);
+			nk_end(context);
+			if (!(--status_counter)) {
+				nuklear_set_status_msg(NULL);
+			}
+		}
+		context->style.window.background = prev_background;
+		context->style.window.fixed_background = prev_fixed_background;
 	}
 }
 
@@ -2662,15 +2700,27 @@ void view_menu(struct nk_context *context)
 	}
 }
 
+static void texture_init(void);
+static void style_init(uint8_t window, struct nk_context *ctx);
+static void font_init(uint8_t window, struct nk_context *ctx);
+
+static uint8_t need_resize;
 void blastem_nuklear_render(void)
 {
-	if (current_view != view_play || (current_system && current_system->type == SYSTEM_MEDIA_PLAYER)) {
+	if (current_view != view_play || (current_system && current_system->type == SYSTEM_MEDIA_PLAYER) || status_msg) {
 		render_force_cursor(1);
+		if (need_resize && fb_context) {
+			nk_rawfb_resize_fb(fb_context, NULL, render_width(), render_height(), 0);
+			style_init(FRAMEBUFFER_UI, context);
+			font_init(FRAMEBUFFER_UI, context);
+			texture_init();
+			need_resize = 0;
+		}
 		nk_input_end(context);
 		current_view(context);
 		if (fb_context) {
 			fb_context->fb.pixels = render_get_framebuffer(FRAMEBUFFER_UI, &fb_context->fb.pitch);
-			nk_rawfb_render(fb_context, nk_rgb(0,0,0), 0);
+			nk_rawfb_render(fb_context, nk_rgba(0,0,0, 0), 1);
 			render_framebuffer_updated(FRAMEBUFFER_UI, render_width());
 		} else {
 #ifndef DISABLE_OPENGL
@@ -2801,7 +2851,12 @@ static void font_init(uint8_t window, struct nk_context *ctx)
 	if (!font) {
 		fatal_error("Failed to find default font path\n");
 	}
-	struct nk_font_config font_config = nk_font_config(height / 24);
+	
+	uint32_t font_height = height / 24;
+	if (!font_height) {
+		font_height = 1;
+	}
+	struct nk_font_config font_config = nk_font_config(font_height);
 	static const nk_rune ranges[] = {
 		0x20, 0x7E, //ASCII
 		0xA0, 0x233, //Latin 1 and Latin Extened A & B
@@ -2810,8 +2865,8 @@ static void font_init(uint8_t window, struct nk_context *ctx)
 	};
 	font_config.range = ranges;
 	font_config.ttf_blob = font;
-	font_config.ttf_size = font_size;
-	font_config.size = height / 24;
+	font_config.ttf_size = font_size;	
+	font_config.size = font_height;
 	font_config.ttf_data_owned_by_atlas = 1;
 	def_font = nk_font_atlas_add(atlas, &font_config);
 	if (fb_context) {
@@ -2860,10 +2915,7 @@ static void style_init(uint8_t window, struct nk_context *ctx)
 
 static void fb_resize(void)
 {
-	nk_rawfb_resize_fb(fb_context, NULL, render_width(), render_height(), 0);
-	style_init(FRAMEBUFFER_UI, context);
-	font_init(FRAMEBUFFER_UI, context);
-	texture_init();
+	need_resize = 1;
 }
 
 static void context_created(void)

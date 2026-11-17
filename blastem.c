@@ -366,6 +366,11 @@ void render_log_handler(log_level level, char *message)
 {
 	switch(level)
 	{
+#ifndef DISABLE_NUKLEAR
+	case STATUS:
+		nuklear_set_status_msg(message);
+		break;
+#endif
 	case INFO:
 		render_infobox("BlastEm Info", message);
 		break;
@@ -379,6 +384,15 @@ void render_log_handler(log_level level, char *message)
 		break;
 	}
 }
+
+#ifndef DISABLE_NUKLEAR
+void status_log_only(log_level level, char *message)
+{
+	if (level == STATUS) {
+		nuklear_set_status_msg(message);
+	}
+}
+#endif
 
 char *parse_addr_port(char *arg)
 {
@@ -405,6 +419,10 @@ int main(int argc, char ** argv)
 #endif
 		register_log_handler(render_log_handler);
 #ifndef _WIN32
+	} else {
+#ifndef DISABLE_NUKLEAR
+		register_log_handler(status_log_only);
+#endif
 	}
 #endif
 	

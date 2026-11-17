@@ -10,6 +10,9 @@
 #ifndef DISABLE_LZMA
 #include "lzma/LzmaDec.h"
 #endif
+#ifndef DISABLE_ZSTD
+#include "zstd.h"
+#endif
 #include "flac.h"
 
 typedef struct {
@@ -99,6 +102,11 @@ typedef struct {
 #ifndef DISABLE_LZMA
 	CLzmaDec  *lzma;
 	Byte      lzma_props[LZMA_PROPS_SIZE];
+#endif
+#ifndef DISABLE_ZSTD
+	ZSTD_DStream *zstd;
+	ZSTD_inBuffer zstd_in;
+	ZSTD_outBuffer zstd_out;
 #endif
 	flac_file *flac;
 	uint8_t   *src_buffer;

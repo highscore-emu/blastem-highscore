@@ -14,6 +14,7 @@ typedef struct {
 
 typedef enum {
 	DEBUG,
+	STATUS,
 	INFO,
 	WARN,
 	FATAL
@@ -91,6 +92,8 @@ void info_message(char *format, ...);
 void warning(char *format, ...);
 //Prints a debug message to stdout
 void debug_message(char *format, ...);
+//Prints to the status overlay
+void status_message(char *format, ...);
 //Prints a log message of the specified level
 void log_msg(char *format, log_level level, va_list args);
 //Disables output of info and debug messages to stdout

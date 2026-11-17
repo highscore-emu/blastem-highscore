@@ -309,11 +309,10 @@ static void deserialize(system_header *sys, uint8_t *data, size_t size)
 uint16_t read_dma_value(uint32_t address)
 {
 	genesis_context *genesis = (genesis_context *)current_system;
-	address *= 2;
-	//TODO: Figure out what happens when you try to DMA from weird adresses like IO or banked Z80 area
-	if ((address >= 0xA00000 && address < 0xB00000) || (address >= 0xC00000 && address <= 0xE00000)) {
-		return 0;
+	if (address >= 0x400000) {
+		return genesis->work_ram[address & 0x7FFF];
 	}
+	address *= 2;
 	if (genesis->expansion) {
 		segacd_context *cd = genesis->expansion;
 		uint32_t word_ram = cd->base + 0x200000;
@@ -352,7 +351,7 @@ static uint16_t get_open_bus_value(system_header *system)
 #ifdef NEW_CORE
 	return genesis->m68k->prefetch;
 #else
-	return read_dma_value(genesis->m68k->last_prefetch_address/2);
+	return read_word(genesis->m68k->last_prefetch_address, (void **)genesis->m68k->mem_pointers, &genesis->m68k->opts->gen, genesis->m68k);
 #endif
 }
 
@@ -2147,7 +2146,7 @@ static void start_genesis(system_header *system, char *statefile)
 				fatal_error("Failed to load save state %s\n", statefile);
 			}
 		}
-		printf("Loaded %s\n", statefile);
+		status_message("Loaded %s\n", statefile);
 		if (gen->header.enter_debugger) {
 			gen->header.enter_debugger = 0;
 #ifndef IS_LIB
@@ -2243,7 +2242,7 @@ static void persist_save(system_header *system)
 		if (f) {
 			fwrite(cd->bram, 1, 8 * 1024, f);
 			fclose(f);
-			printf("Saved internal BRAM to %s\n", bram_name);
+			status_message("Saved internal BRAM to %s\n", bram_name);
 		}
 		free(bram_name);
 		if (cd->bram_cart_id < 8) {
@@ -2253,7 +2252,7 @@ static void persist_save(system_header *system)
 				long configured_size = 0x2000 << cd->bram_cart_id;
 				fwrite(cd->bram_cart, 1, configured_size, f);
 				fclose(f);
-				printf("Saved BRAM cart to %s\n", bram_name);
+				status_message("Saved BRAM cart to %s\n", bram_name);
 			}
 			free(bram_name);
 		}
@@ -2274,7 +2273,7 @@ static void persist_save(system_header *system)
 		byteswap_rom(gen->save_size, (uint16_t *)gen->save_storage);
 	}
 	fclose(f);
-	printf("Saved %s to %s\n", save_type_name(gen->save_type), save_filename);
+	status_message("Saved %s to %s\n", save_type_name(gen->save_type), save_filename);
 }
 
 static void load_save(system_header *system)
@@ -2288,7 +2287,7 @@ static void load_save(system_header *system)
 			if (gen->save_type == RAM_FLAG_BOTH) {
 				byteswap_rom(gen->save_size, (uint16_t *)gen->save_storage);
 			}
-			printf("Loaded %s from %s\n", save_type_name(gen->save_type), save_filename);
+			status_message("Loaded %s from %s\n", save_type_name(gen->save_type), save_filename);
 		}
 	}
 	if (gen->expansion) {
@@ -2299,7 +2298,7 @@ static void load_save(system_header *system)
 			uint32_t read = fread(cd->bram, 1, 8 * 1024, f);
 			fclose(f);
 			if (read > 0) {
-				printf("Loaded internal BRAM from %s\n", bram_name);
+				status_message("Loaded internal BRAM from %s\n", bram_name);
 			}
 		} else {
 			segacd_format_bram(cd->bram, 8 * 1024);
@@ -2326,7 +2325,7 @@ static void load_save(system_header *system)
 			uint32_t read = fread(cd->bram_cart, 1, existing_size, f);
 			fclose(f);
 			if (read > 0) {
-				printf("Loaded BRAM cart from %s\n", bram_name);
+				status_message("Loaded BRAM cart from %s\n", bram_name);
 			}
 		} else {
 			segacd_format_bram(cd->bram_cart, configured_size);
@@ -2613,7 +2612,7 @@ static void start_vgm_log(system_header *system, char *filename)
 	genesis_context *gen = (genesis_context *)system;
 	vgm_writer *vgm = vgm_write_open(filename, gen->version_reg & HZ50 ? 50 : 60, gen->normal_clock, gen->m68k->cycles);
 	if (vgm) {
-		printf("Started logging VGM to %s\n", filename);
+		status_message("Started logging VGM to %s\n", filename);
 		if (gen->header.type != SYSTEM_PICO && gen->header.type != SYSTEM_COPERA) {
 			sync_sound(gen, vgm->last_cycle);
 			ym_vgm_log(gen->ym, gen->normal_clock, vgm);
@@ -2626,13 +2625,13 @@ static void start_vgm_log(system_header *system, char *filename)
 		psg_vgm_log(gen->psg, gen->normal_clock, vgm);
 		gen->header.vgm_logging = 1;
 	} else {
-		printf("Failed to start logging to %s\n", filename);
+		status_message("Failed to start logging to %s\n", filename);
 	}
 }
 
 static void stop_vgm_log(system_header *system)
 {
-	puts("Stopped VGM log");
+	status_message("Stopped VGM log\n");
 	genesis_context *gen = (genesis_context *)system;
 	vgm_close(gen->psg->vgm);
 	if (gen->header.type != SYSTEM_PICO && gen->header.type != SYSTEM_COPERA) {
@@ -3559,15 +3558,15 @@ genesis_context* alloc_config_pico(void *rom, uint32_t rom_size, void *lock_on, 
 	if (manifest_str) {
 		manifest = parse_config(manifest_str);
 		if (!manifest) {
-			printf("Failed to parse manifest %s\n", manifest_name);
+			status_message("Failed to parse manifest %s\n", manifest_name);
 		}
 	} else {
-		printf("Manifest file %s not found\n", manifest_name);
+		status_message("Manifest file %s not found\n", manifest_name);
 	}
 	
 	tern_node *pages = tern_find_node(manifest, "pages");
 	if (!pages && manifest) {
-		printf("No pages key in %s\n", manifest_name);
+		status_message("No pages key in %s\n", manifest_name);
 	}
 	char numkey[18];
 	for (int i = 0; i < 7; i++) {
@@ -3583,7 +3582,7 @@ genesis_context* alloc_config_pico(void *rom, uint32_t rom_size, void *lock_on, 
 			}
 			img_data = load_media_subfile(current_media(), page_path, &img_size);
 			if (!img_data) {
-				printf("Failed to load image file for page %d from %s\n", i, page_path);
+				status_message("Failed to load image file for page %d from %s\n", i, page_path);
 				continue;
 			}
 		} else {
@@ -3595,7 +3594,7 @@ genesis_context* alloc_config_pico(void *rom, uint32_t rom_size, void *lock_on, 
 				char *img_path_loud = alloc_concat(current_media()->name, numkey);
 				img_data = load_media_subfile(current_media(), img_path_loud, &img_size);
 				if (!img_data) {
-					printf("Failed to load image file for page %d from %s or %s\n", i, img_path, img_path_loud);
+					status_message("Failed to load image file for page %d from %s or %s\n", i, img_path, img_path_loud);
 					free(img_path);
 					free(img_path_loud);
 					continue;
@@ -3607,7 +3606,7 @@ genesis_context* alloc_config_pico(void *rom, uint32_t rom_size, void *lock_on, 
 		
 		gen->pico_story_pages[i] = render_static_image(gen->pico_story_window, img_data, img_size);
 		if (gen->pico_story_pages[i] == 0xFF) {
-			printf("Failed to decode image for page %d\n", i);
+			status_message("Failed to decode image for page %d\n", i);
 		}
 		free(img_data);
 	}

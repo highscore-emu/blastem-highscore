@@ -18,6 +18,7 @@ android_LogPriority log_level_to_android(log_level)
 	switch (log_level)
 	{
 	case DEBUG: return ANDROID_LOG_DEBUG;
+	case STATUS:
 	case INFO: ANDROID_LOG_INFO;
 	case WARN: ANDROID_LOG_WARN;
 	case FATAL: ANDROID_LOG_FATAL;
@@ -501,6 +502,14 @@ void debug_message(char *format, ...)
 	va_list args;
 	va_start(args, format);
 	log_msg(format, DEBUG, args);
+	va_end(args);
+}
+
+void status_message(char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	log_msg(format, STATUS, args);
 	va_end(args);
 }
 
