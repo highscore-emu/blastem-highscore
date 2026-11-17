@@ -9,7 +9,7 @@ Website=https://www.retrodev.com/blastem/
 SourceCode=https://github.com/highscore-emu/blastem-highscore
 Issues=https://github.com/highscore-emu/blastem-highscore/issues
 License=GPL-3.0-or-later
-StateVersion=2
+StateVersion=@states@
 Platforms=MegaDrive;MegaCD;
 
 [Firmware:MegaCD]
