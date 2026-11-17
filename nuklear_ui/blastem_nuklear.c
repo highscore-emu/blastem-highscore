@@ -2700,10 +2700,22 @@ void view_menu(struct nk_context *context)
 	}
 }
 
+static void texture_init(void);
+static void style_init(uint8_t window, struct nk_context *ctx);
+static void font_init(uint8_t window, struct nk_context *ctx);
+
+static uint8_t need_resize;
 void blastem_nuklear_render(void)
 {
 	if (current_view != view_play || (current_system && current_system->type == SYSTEM_MEDIA_PLAYER) || status_msg) {
 		render_force_cursor(1);
+		if (need_resize && fb_context) {
+			nk_rawfb_resize_fb(fb_context, NULL, render_width(), render_height(), 0);
+			style_init(FRAMEBUFFER_UI, context);
+			font_init(FRAMEBUFFER_UI, context);
+			texture_init();
+			need_resize = 0;
+		}
 		nk_input_end(context);
 		current_view(context);
 		if (fb_context) {
@@ -2903,10 +2915,7 @@ static void style_init(uint8_t window, struct nk_context *ctx)
 
 static void fb_resize(void)
 {
-	nk_rawfb_resize_fb(fb_context, NULL, render_width(), render_height(), 0);
-	style_init(FRAMEBUFFER_UI, context);
-	font_init(FRAMEBUFFER_UI, context);
-	texture_init();
+	need_resize = 1;
 }
 
 static void context_created(void)
