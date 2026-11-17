@@ -98,6 +98,7 @@ blastem_source = [
 blastem_deps = [
   dependency('highscore-1'),
   dependency('gio-2.0'),
+  dependency('libzstd'),
   dependency('zlib'),
   cc.find_library('m', required: false),
 ]

@@ -71,11 +71,9 @@
 void render_relative_mouse(uint8_t enabled);
 typedef SDL_Thread* render_thread;
 #endif
-#else
-#ifdef IS_HIGHSCORE
+#elif defined(IS_HIGHSCORE)
 #include <glib.h>
 typedef GThread* render_thread;
-#endif
 #endif
 
 #define MAX_JOYSTICKS 8
